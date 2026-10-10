@@ -78,7 +78,7 @@ st.sidebar.caption("Stats, not facts | Season X Command Center")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "LIVE SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
+    ["Home", "LIVE SCORES", "EPL SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
     key = "page"
 )
 
@@ -170,6 +170,19 @@ st.markdown(f"""
 
     tbody tr:hover td, tbody tr:hover th {{
         background-color: #121724 !important;
+    }}
+
+    /* Expandable Dropdown Styling */
+    div[data-testid="stExpander"] {{
+        background-color: #090c13 !important;
+        border: 1px solid #182030 !important;
+        border-radius: 6px !important;
+        margin-top: 8px !important;
+    }}
+
+    div[data-testid="stExpander"] details summary {{
+        color: {active_theme['accent']} !important;
+        font-weight: 600 !important;
     }}
 
     /* Adaptive Action Buttons */
@@ -287,6 +300,14 @@ def fetch_live_event(event):
     resp = requests.get(url)
     if resp.status_code != 200:
         return None
+    return resp.json()
+
+@st.cache_data(ttl = 60)
+def fetch_epl_fixtures(event):
+    url = "https://fantasy.premierleague.com/api/fixtures/?event=" + str(event)
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return []
     return resp.json()
 
 def get_availability_multiplier(row):
@@ -412,7 +433,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
-    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -421,7 +441,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
-    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -471,7 +490,7 @@ if st.session_state.page == "Home":
         st.caption("Live feed connected to Premier League Draft API")
     
     st.markdown("#### Quick Launchpad")
-    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
+    btn_c1, btn_c2, btn_c3, btn_c4, btn_c5 = st.columns(5)
     with btn_c1:
         st.button(
             "🔴 LIVE SCORES",
@@ -482,19 +501,26 @@ if st.session_state.page == "Home":
         )
     with btn_c2:
         st.button(
+            "⚽ EPL SCORES",
+            on_click = set_page,
+            args = ("EPL SCORES",),
+            use_container_width = True
+        )
+    with btn_c3:
+        st.button(
             "Squad Analyser",
             on_click = set_page,
             args = ("Squad Analyser",),
             use_container_width = True
         )
-    with btn_c3:
+    with btn_c4:
         st.button(
             "Results Analyser",
             on_click = set_page,
             args = ("Results Analyser",),
             use_container_width = True
         )
-    with btn_c4:
+    with btn_c5:
         st.button(
             "Newsletters",
             on_click = set_page,
@@ -506,6 +532,7 @@ if st.session_state.page == "Home":
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
+    st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, goalkeeper saves and discipline.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
     st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
@@ -691,6 +718,192 @@ elif st.session_state.page == "LIVE SCORES":
             st.table(active_spot["t2_b"][display_cols].set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
+
+# ----------------- EPL SCORES SECTION -----------------
+elif st.session_state.page == "EPL SCORES":
+    st.title("⚽ EPL SCORES")
+    
+    static_data = fetch_fpl_static()
+    if not static_data:
+        st.error("Failed to load Premier League static data. Verify connection.")
+        st.stop()
+        
+    team_name_map = {item["id"]: item["name"] for item in static_data["teams"]}
+    team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    # Auto detect current gameweek
+    events_meta = static_data.get("events", {}).get("data", [])
+    current_gw = None
+    for ev in events_meta:
+        if ev.get("is_current"):
+            current_gw = ev.get("id")
+            break
+    if not current_gw:
+        current_gw = 1
+
+    all_gws = [ev["id"] for ev in events_meta] if events_meta else list(range(1, 39))
+
+    top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
+    with top_e1:
+        st.caption("Official Premier League matchday results, goalscorers, assists and defensive metrics")
+    with top_e2:
+        selected_epl_gw = st.selectbox(
+            "Select EPL Gameweek",
+            all_gws,
+            index = all_gws.index(current_gw) if current_gw in all_gws else 0
+        )
+    with top_e3:
+        st.write("")
+        if st.button("🔄 Refresh EPL", use_container_width = True):
+            fetch_epl_fixtures.clear()
+            fetch_live_event.clear()
+            st.rerun()
+
+    fixtures = fetch_epl_fixtures(selected_epl_gw)
+    live_event_data = fetch_live_event(selected_epl_gw)
+    live_elements = live_event_data.get("elements", {}) if live_event_data else {}
+
+    if not fixtures:
+        st.info("No fixtures available for Gameweek " + str(selected_epl_gw) + ".")
+        st.stop()
+
+    st.subheader("Premier League Matches (GW " + str(selected_epl_gw) + ")")
+
+    for f in fixtures:
+        h_id = f.get("team_h")
+        a_id = f.get("team_a")
+        h_name = team_name_map.get(h_id, "Home Team")
+        a_name = team_name_map.get(a_id, "Away Team")
+        h_short = team_short_map.get(h_id, "H")
+        a_short = team_short_map.get(a_id, "A")
+        
+        is_finished = f.get("finished", False)
+        is_started = f.get("started", False)
+        h_score = f.get("team_h_score")
+        a_score = f.get("team_a_score")
+        
+        if is_finished:
+            status_text = "FT"
+            status_color = "#64748b"
+        elif is_started:
+            mins_val = f.get("minutes", 0)
+            status_text = f"LIVE {mins_val}'"
+            status_color = active_theme["accent"]
+        else:
+            status_text = f.get("kickoff_time", "")[11:16] if f.get("kickoff_time") else "Upcoming"
+            status_color = "#94a3b8"
+
+        with st.container(border = True):
+            f_col1, f_col2, f_col3 = st.columns([4, 3, 4])
+            
+            with f_col1:
+                st.markdown(f"<h3 style='margin: 0; color: #ffffff;'>{h_name} <span style='font-size: 0.9rem; color: #64748b;'>({h_short})</span></h3>", unsafe_allow_html = True)
+                
+            with f_col2:
+                if is_started or is_finished:
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                else:
+                    st.markdown("<p style='text-align: center; margin: 0; font-size: 1.2rem; color: #64748b;'>vs</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align: center; margin: 0; font-size: 0.85rem; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
+                
+            with f_col3:
+                st.markdown(f"<h3 style='text-align: right; margin: 0; color: #ffffff;'><span style='font-size: 0.9rem; color: #64748b;'>({a_short})</span> {a_name}</h3>", unsafe_allow_html = True)
+
+            # Match Breakdown Expander
+            with st.expander("Match Breakdown"):
+                # Parse itemized stats
+                stats_raw = f.get("stats", [])
+                stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
+
+                def get_stat_entries(ident, side):
+                    raw_list = stats_dict.get(ident, {}).get(side, [])
+                    items = []
+                    for entry in raw_list:
+                        p_elem = element_lookup.get(entry["element"], {})
+                        p_name = p_elem.get("web_name", "Unknown")
+                        val = entry.get("value", 1)
+                        items.append((p_name, val))
+                    return items
+
+                # Extract home stats
+                h_goals = get_stat_entries("goals_scored", "h")
+                h_assists = get_stat_entries("assists", "h")
+                h_saves = get_stat_entries("saves", "h")
+                h_og = get_stat_entries("own_goals", "h")
+                h_pmiss = get_stat_entries("penalties_missed", "h")
+                h_psaved = get_stat_entries("penalties_saved", "h")
+
+                # Extract away stats
+                a_goals = get_stat_entries("goals_scored", "a")
+                a_assists = get_stat_entries("assists", "a")
+                a_saves = get_stat_entries("saves", "a")
+                a_og = get_stat_entries("own_goals", "a")
+                a_pmiss = get_stat_entries("penalties_missed", "a")
+                a_psaved = get_stat_entries("penalties_saved", "a")
+
+                # Clean sheets extraction
+                h_cs_players = []
+                a_cs_players = []
+                if is_started and live_elements:
+                    if a_score == 0:
+                        for elem_id_str, e_data in live_elements.items():
+                            elem_obj = element_lookup.get(int(elem_id_str), {})
+                            if elem_obj.get("team") == h_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
+                                h_cs_players.append(elem_obj.get("web_name", "Unknown"))
+                    if h_score == 0:
+                        for elem_id_str, e_data in live_elements.items():
+                            elem_obj = element_lookup.get(int(elem_id_str), {})
+                            if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
+                                a_cs_players.append(elem_obj.get("web_name", "Unknown"))
+
+                b_col1, b_col2 = st.columns(2)
+
+                with b_col1:
+                    st.markdown(f"**{h_name}**")
+                    if h_goals:
+                        st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_goals]))
+                    if h_assists:
+                        st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_assists]))
+                    if h_saves:
+                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in h_saves]))
+                    if h_cs_players:
+                        st.markdown("🛡️ **Clean Sheets:** " + ", ".join(h_cs_players))
+                    if h_og:
+                        st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_og]) + "</span>", unsafe_allow_html = True)
+                    if h_pmiss:
+                        st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_pmiss]) + "</span>", unsafe_allow_html = True)
+                    if h_psaved:
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
+                    if not (h_goals or h_assists or h_saves or h_cs_players or h_og or h_pmiss or h_psaved):
+                        st.caption("No registered match events yet.")
+
+                with b_col2:
+                    st.markdown(f"**{a_name}**")
+                    if a_goals:
+                        st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_goals]))
+                    if a_assists:
+                        st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_assists]))
+                    if a_saves:
+                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in a_saves]))
+                    if a_cs_players:
+                        st.markdown("🛡️ **Clean Sheets:** " + ", ".join(a_cs_players))
+                    if a_og:
+                        st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
+                    if a_pmiss:
+                        st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
+                    if a_psaved:
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                    if not (a_goals or a_assists or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
+                        st.caption("No registered match events yet.")
+
+                # Bonus Points Bar
+                bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
+                if bonus_list:
+                    st.divider()
+                    bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
+                    bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
+                    st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
 
 # ----------------- RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
@@ -900,7 +1113,7 @@ elif st.session_state.page == "Squad Analyser":
     elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
 
     status_df = pd.DataFrame(element_status["element_status"])
-    merged = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
+    merged = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
