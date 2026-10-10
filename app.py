@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from pathlib import Path
-import base64
+import pypdfium2 as pdfium
 
 st.set_page_config(page_title="CDP App", layout="wide")
 
@@ -20,14 +20,6 @@ LEAGUE_PRESETS = {
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
-# Toggle state for newsletters
-if "show_league_news" not in st.session_state:
-    st.session_state.show_league_news = False
-if "show_cup_news" not in st.session_state:
-    st.session_state.show_cup_news = False
-
-import pypdfium2 as pdfium
-
 def render_pdf(filename, title):
     base_dir = Path(__file__).resolve().parent
     
@@ -40,7 +32,7 @@ def render_pdf(filename, title):
         st.error("Folder not found. Ensure either `Newsletters` or `newsletters` exists in your repository root.")
         return
 
-    # Locate the target file case-insensitively
+    # Locate target file case insensitively
     target = None
     for f in folder.iterdir():
         if f.is_file() and f.name.lower() == filename.lower():
@@ -56,7 +48,6 @@ def render_pdf(filename, title):
 
     pdf_bytes = target.read_bytes()
 
-    # Download button for saving the raw document
     st.download_button(
         label=f"📥 Download {title} (PDF)",
         data=pdf_bytes,
@@ -65,12 +56,10 @@ def render_pdf(filename, title):
         use_container_width=True
     )
 
-    # Render pages as clean, responsive images
     try:
         pdf = pdfium.PdfDocument(pdf_bytes)
         for page_index in range(len(pdf)):
             page = pdf[page_index]
-            # scale=2 provides crisp retina rendering
             image = page.render(scale=2).to_pil()
             st.image(image, use_container_width=True)
     except Exception as e:
@@ -134,12 +123,12 @@ def get_health_label(row):
         return "Doubtful (50%)"
     return "Fit (100%)"
 
-# Clean sidebar navigation synchronized with session state
+# Sidebar navigation
 st.sidebar.title("CDP App Navigation")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "Squad Analyser"],
+    ["Home", "Squad Analyser", "Newsletters"],
     key="page"
 )
 
@@ -153,54 +142,56 @@ selected_league_key = st.sidebar.selectbox(
 )
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 
-# Landing Page
+# ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
     st.title("CDP App")
     st.caption("Dellarverse HQ: Central Draft Intelligence, Lineups and Publications")
     
-    st.markdown("### Dellarverse Gazette")
-    st.write("Read the latest official editorial reports, rankings and cup news directly in the app.")
-    
-    nl_col1, nl_col2 = st.columns(2)
-    with nl_col1:
-        if st.button("📰 Latest League Newsletter", use_container_width=True):
-            st.session_state.show_league_news = not st.session_state.show_league_news
-            st.session_state.show_cup_news = False
-    with nl_col2:
-        if st.button("🏆 Latest Cup Newsletter", use_container_width=True):
-            st.session_state.show_cup_news = not st.session_state.show_cup_news
-            st.session_state.show_league_news = False
-
-    if st.session_state.show_league_news:
-        st.markdown("---")
-        st.subheader("Official League Gazette")
-        render_pdf("latest_league.pdf", "League Newsletter")
-
-    if st.session_state.show_cup_news:
-        st.markdown("---")
-        st.subheader("Official Cup Gazette")
-        render_pdf("latest_cup.pdf", "Cup Newsletter")
-
-    st.markdown("---")
-    st.markdown("### Draft Command Centre")
+    st.markdown("### Welcome to the Dellarverse Hub")
+    st.write(
+        "Use the sidebar navigation to jump into the tactical Squad Analyser "
+        "or browse the latest official editions in the Newsletters section."
+    )
     
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("Current Competition Status")
         st.info(f"**Selected League:** {selected_league_key}")
         st.success("League linked and ready")
-            
-        if st.button("Launch Squad Analyser", type="primary", use_container_width=True):
-            st.session_state.page = "Squad Analyser"
-            st.rerun()
+        
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("Launch Squad Analyser", type="primary", use_container_width=True):
+                st.session_state.page = "Squad Analyser"
+                st.rerun()
+        with btn_col2:
+            if st.button("Read Newsletters", use_container_width=True):
+                st.session_state.page = "Newsletters"
+                st.rerun()
 
     with col2:
         st.subheader("Core Capabilities")
         st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
         st.markdown("* **Waiver Intelligence**: Immediate gameweek priorities alongside high ceiling stash targets.")
+        st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
         st.markdown("* **Instant League Switching**: Jump between CDP, SDM, BDR and LDE seamlessly.")
 
-# Squad Analyser Section
+# ----------------- NEWSLETTERS SECTION -----------------
+elif st.session_state.page == "Newsletters":
+    st.title("Dellarverse Gazette")
+    st.caption("Official match reports, power rankings and editorial coverage")
+
+    news_tab1, news_tab2 = st.tabs(["📰 League Newsletter", "🏆 Cup Newsletter"])
+
+    with news_tab1:
+        st.subheader("Official League Gazette")
+        render_pdf("latest_league.pdf", "League Newsletter")
+
+    with news_tab2:
+        st.subheader("Official Cup Gazette")
+        render_pdf("latest_cup.pdf", "Cup Newsletter")
+
+# ----------------- SQUAD ANALYSER SECTION -----------------
 elif st.session_state.page == "Squad Analyser":
     st.title(f"Squad Analyser {dash} {selected_league_key}")
     
