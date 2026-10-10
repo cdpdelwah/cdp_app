@@ -879,43 +879,74 @@ elif st.session_state.page == "EPL SCORES":
                             if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
                                 a_cs_players.append(elem_obj.get("web_name", "Unknown"))
 
-                # DEFCON (+2 pts) Resolution
+                # Defensive DEFCON (+2 pts) Resolution without AttributeError
                 def resolve_defcon_achieved(side, team_id):
                     achieved = []
-                    # Check fixture itemized stats first
+                    # 1. Check fixture stats first
                     dc_items = stats_dict.get("defensive_contributions", {}).get(side, [])
                     if not dc_items:
                         dc_items = stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
                     for itm in dc_items:
-                        p_elem = element_lookup.get(itm.get("element"), {})
-                        p_name = p_elem.get("web_name", "Unknown")
-                        p_pos = p_elem.get("element_type", 1)
-                        val = itm.get("value", 0)
-                        if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12):
-                            achieved.append((p_name, val))
-                        elif val >= 10:
-                            achieved.append((p_name, val))
+                        if isinstance(itm, dict):
+                            p_elem = element_lookup.get(itm.get("element"), {})
+                            p_name = p_elem.get("web_name", "Unknown")
+                            p_pos = p_elem.get("element_type", 1)
+                            val = itm.get("value", 0)
+                            if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12) or val >= 10:
+                                achieved.append((p_name, val))
 
-                    # Cross verify with live element explain blocks and stats
+                    # 2. Check live element stats
                     if live_elements:
                         for elem_id_str, e_data in live_elements.items():
-                            elem_obj = element_lookup.get(int(elem_id_str), {})
+                            if not isinstance(e_data, dict):
+                                continue
+                            try:
+                                elem_id_int = int(elem_id_str)
+                            except (ValueError, TypeError):
+                                continue
+                            elem_obj = element_lookup.get(elem_id_int, {})
                             if elem_obj.get("team") == team_id:
                                 p_name = elem_obj.get("web_name", "Unknown")
                                 p_pos = elem_obj.get("element_type", 1)
-                                dc_val = e_data.get("stats", {}).get("defensive_contributions", 0)
+                                e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
                                 
-                                # Explain check
+                                cbi = e_stats.get("clearances_blocks_interceptions", 0) or e_stats.get("cbi", 0)
+                                tackles = e_stats.get("tackles", 0)
+                                dc_direct = e_stats.get("defensive_contributions", 0) or e_stats.get("defcon", 0) or e_stats.get("cbit", 0)
+                                calc_val = dc_direct if dc_direct > 0 else (cbi + tackles)
+                                
+                                # Safely unpack explain without type assumptions
+                                explain_raw = e_data.get("explain", [])
                                 is_hit = False
-                                for ex in e_data.get("explain", []):
-                                    for s_item in ex.get("stats", []):
-                                        if s_item.get("identifier") in ["defensive_contributions", "defcon", "cbit"] and s_item.get("points", 0) >= 2:
-                                            is_hit = True
-                                            dc_val = max(dc_val, s_item.get("value", 0))
+                                explain_val = 0
+                                stat_items = []
                                 
-                                if (p_pos == 2 and dc_val >= 10) or (p_pos in [3, 4] and dc_val >= 12) or is_hit:
+                                if isinstance(explain_raw, list):
+                                    for item in explain_raw:
+                                        if isinstance(item, dict):
+                                            if "stats" in item and isinstance(item["stats"], list):
+                                                stat_items.extend(item["stats"])
+                                            else:
+                                                stat_items.append(item)
+                                        elif isinstance(item, list):
+                                            for sub in item:
+                                                if isinstance(sub, dict):
+                                                    stat_items.append(sub)
+
+                                for s_item in stat_items:
+                                    if isinstance(s_item, dict):
+                                        ident = str(s_item.get("identifier", "")).lower()
+                                        pts = s_item.get("points", 0)
+                                        val = s_item.get("value", 0)
+                                        if ident in ["defensive_contributions", "defcon", "cbit", "cbi"] and (pts >= 2 or val >= 10):
+                                            is_hit = True
+                                            explain_val = max(explain_val, val)
+                                            
+                                final_val = max(calc_val, explain_val)
+                                threshold = 10 if p_pos == 2 else 12
+                                if (p_pos in [2, 3, 4] and final_val >= threshold) or is_hit:
                                     if not any(x[0] == p_name for x in achieved):
-                                        achieved.append((p_name, dc_val))
+                                        achieved.append((p_name, final_val))
                     return achieved
 
                 h_defcon = resolve_defcon_achieved("h", h_id)
