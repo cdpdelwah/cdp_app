@@ -23,7 +23,6 @@ if "page" not in st.session_state:
 def render_pdf(filename, title):
     base_dir = Path(__file__).resolve().parent
     
-    # Check both folder naming conventions
     folder = base_dir / "Newsletters"
     if not folder.exists():
         folder = base_dir / "newsletters"
@@ -32,7 +31,6 @@ def render_pdf(filename, title):
         st.error("Folder not found. Ensure either `Newsletters` or `newsletters` exists in your repository root.")
         return
 
-    # Locate target file case insensitively
     target = None
     for f in folder.iterdir():
         if f.is_file() and f.name.lower() == filename.lower():
@@ -88,6 +86,22 @@ def fetch_league_data(league_id):
         
     return det_resp.json(), stat_resp.json()
 
+@st.cache_data(ttl=3600)
+def fetch_entry_event(entry_id, event):
+    url = f"https://draft.premierleague.com/api/entry/{entry_id}/event/{event}"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return None
+    return resp.json()
+
+@st.cache_data(ttl=3600)
+def fetch_live_event(event):
+    url = f"https://draft.premierleague.com/api/event/{event}/live"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return None
+    return resp.json()
+
 def get_availability_multiplier(row):
     status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
@@ -128,7 +142,7 @@ st.sidebar.title("CDP App Navigation")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "Squad Analyser", "Newsletters"],
+    ["Home", "Squad Analyser", "Results Analyser", "Newsletters"],
     key="page"
 )
 
@@ -149,8 +163,8 @@ if st.session_state.page == "Home":
     
     st.markdown("### Welcome to the Dellarverse Hub")
     st.write(
-        "Use the sidebar navigation to jump into the tactical Squad Analyser "
-        "or browse the latest official editions in the Newsletters section."
+        "Use the sidebar navigation to jump into the tactical Squad Analyser, "
+        "inspect matchday head to head scorecards in Results Analyser or browse the latest official gazettes."
     )
     
     col1, col2 = st.columns([1, 1])
@@ -159,22 +173,214 @@ if st.session_state.page == "Home":
         st.info(f"**Selected League:** {selected_league_key}")
         st.success("League linked and ready")
         
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            if st.button("Launch Squad Analyser", type="primary", use_container_width=True):
+        btn_c1, btn_c2, btn_c3 = st.columns(3)
+        with btn_c1:
+            if st.button("Squad Analyser", type="primary", use_container_width=True):
                 st.session_state.page = "Squad Analyser"
                 st.rerun()
-        with btn_col2:
-            if st.button("Read Newsletters", use_container_width=True):
+        with btn_c2:
+            if st.button("Results Analyser", use_container_width=True):
+                st.session_state.page = "Results Analyser"
+                st.rerun()
+        with btn_c3:
+            if st.button("Newsletters", use_container_width=True):
                 st.session_state.page = "Newsletters"
                 st.rerun()
 
     with col2:
         st.subheader("Core Capabilities")
         st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
-        st.markdown("* **Waiver Intelligence**: Immediate gameweek priorities alongside high ceiling stash targets.")
+        st.markdown("* **Results Analyser**: Full head to head box scores, goals, assists and clean sheets.")
         st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
         st.markdown("* **Instant League Switching**: Jump between CDP, SDM, BDR and LDE seamlessly.")
+
+# ----------------- RESULTS ANALYSER SECTION -----------------
+elif st.session_state.page == "Results Analyser":
+    st.title(f"Results Analyser {dash} {selected_league_key}")
+    
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
+    if not static_data or not league_details:
+        st.error("Failed to load league data. Verify your connection.")
+        st.stop()
+        
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    
+    if not entries or not matches:
+        st.warning("No fixtures or league teams found for this competition.")
+        st.stop()
+        
+    lentry_map = {e["id"]: e for e in entries}
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    # Filter selection controls
+    ctrl_col1, ctrl_col2 = st.columns([1, 2])
+    with ctrl_col1:
+        view_mode = st.radio("Browse Fixtures", ["By Gameweek", "By Team"], horizontal=True)
+        
+    selected_match = None
+    
+    if view_mode == "By Gameweek":
+        all_events = sorted(list({m["event"] for m in matches}))
+        played_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
+        default_gw = played_events[-1] if played_events else all_events[0]
+        
+        with ctrl_col2:
+            chosen_gw = st.selectbox("Select Gameweek", all_events, index=all_events.index(default_gw))
+            
+        gw_matches = [m for m in matches if m["event"] == chosen_gw]
+        
+        def match_label_gw(m):
+            e1 = lentry_map.get(m["league_entry_1"], {})
+            e2 = lentry_map.get(m["league_entry_2"], {})
+            s1 = m.get("league_entry_1_points", 0)
+            s2 = m.get("league_entry_2_points", 0)
+            status = " (FT)" if m.get("finished") else ""
+            return f"{e1.get('entry_name', 'Team 1')} ({s1}) vs ({s2}) {e2.get('entry_name', 'Team 2')}{status}"
+            
+        match_idx = st.selectbox(
+            "Select Fixture",
+            range(len(gw_matches)),
+            format_func=lambda i: match_label_gw(gw_matches[i])
+        )
+        selected_match = gw_matches[match_idx]
+        
+    else:
+        team_choices = {e["id"]: f"{e['entry_name']} ({e['player_first_name']} {e['player_last_name']})" for e in entries}
+        with ctrl_col2:
+            chosen_team_lid = st.selectbox("Select Team", list(team_choices.keys()), format_func=lambda x: team_choices[x])
+            
+        team_matches = [m for m in matches if m["league_entry_1"] == chosen_team_lid or m["league_entry_2"] == chosen_team_lid]
+        team_matches = sorted(team_matches, key=lambda x: x["event"])
+        
+        def match_label_team(m):
+            e1 = lentry_map.get(m["league_entry_1"], {})
+            e2 = lentry_map.get(m["league_entry_2"], {})
+            s1 = m.get("league_entry_1_points", 0)
+            s2 = m.get("league_entry_2_points", 0)
+            status = " (FT)" if m.get("finished") else ""
+            return f"GW {m['event']}: {e1.get('entry_name', 'Team 1')} ({s1}) vs ({s2}) {e2.get('entry_name', 'Team 2')}{status}"
+
+        t_idx = st.selectbox(
+            "Select Matchup",
+            range(len(team_matches)),
+            format_func=lambda i: match_label_team(team_matches[i])
+        )
+        selected_match = team_matches[t_idx]
+
+    # Render Matchup Details
+    if selected_match:
+        gw_num = selected_match["event"]
+        e1_info = lentry_map.get(selected_match["league_entry_1"], {})
+        e2_info = lentry_map.get(selected_match["league_entry_2"], {})
+        score1 = selected_match.get("league_entry_1_points", 0)
+        score2 = selected_match.get("league_entry_2_points", 0)
+        
+        st.divider()
+        
+        # Match Header Banner
+        res_col1, res_col2, res_col3 = st.columns([4, 2, 4])
+        with res_col1:
+            st.markdown(f"### {e1_info.get('entry_name', 'Team 1')}")
+            st.caption(f"Manager: {e1_info.get('player_first_name', '')} {e1_info.get('player_last_name', '')}")
+        with res_col2:
+            status_text = "FINAL SCORE" if selected_match.get("finished") else "LIVE SCORE"
+            st.markdown(f"<h2 style='text-align: center; margin: 0;'>{score1} {dash} {score2}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center; color: gray; margin: 0;'>{status_text} (GW {gw_num})</p>", unsafe_allow_html=True)
+        with res_col3:
+            st.markdown(f"<h3 style='text-align: right;'>{e2_info.get('entry_name', 'Team 2')}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: right; color: gray; margin: 0;'>Manager: {e2_info.get('player_first_name', '')} {e2_info.get('player_last_name', '')}</p>", unsafe_allow_html=True)
+            
+        st.divider()
+
+        # Fetch Picks and Live Performance Data
+        picks1_data = fetch_entry_event(e1_info.get("entry_id"), gw_num)
+        picks2_data = fetch_entry_event(e2_info.get("entry_id"), gw_num)
+        live_data = fetch_live_event(gw_num)
+        
+        live_elements = live_data.get("elements", {}) if live_data else {}
+
+        def build_player_rows(picks_list):
+            if not picks_list:
+                return pd.DataFrame(), pd.DataFrame()
+                
+            starters = []
+            bench = []
+            
+            for p in picks_list.get("picks", []):
+                elem_id = p["element"]
+                raw_elem = element_lookup.get(elem_id, {})
+                stats = live_elements.get(str(elem_id), {}).get("stats", {})
+                
+                pos_type = raw_elem.get("element_type", 1)
+                
+                row = {
+                    "Player": raw_elem.get("web_name", "Unknown"),
+                    "pos_num": pos_type,
+                    "Pos": pos_map.get(pos_type, ""),
+                    "Club": team_map.get(raw_elem.get("team"), ""),
+                    "Mins": stats.get("minutes", 0),
+                    "Pts": stats.get("total_points", 0),
+                    "G": stats.get("goals_scored", 0),
+                    "A": stats.get("assists", 0),
+                    "CS": stats.get("clean_sheets", 0),
+                    "GC": stats.get("goals_conceded", 0),
+                    "Bonus": stats.get("bonus", 0),
+                    "pick_pos": p.get("position", 99)
+                }
+                
+                if p.get("position", 99) <= 11:
+                    starters.append(row)
+                else:
+                    bench.append(row)
+                    
+            starters_df = pd.DataFrame(starters)
+            bench_df = pd.DataFrame(bench)
+            
+            # Starters ordered GK first, then DEF, then MID, then FWD
+            if not starters_df.empty:
+                starters_df = starters_df.sort_values(by=["pos_num", "Pts"], ascending=[True, False])
+                
+            # Bench ordered by substitution hierarchy
+            if not bench_df.empty:
+                bench_df = bench_df.sort_values(by="pick_pos", ascending=True)
+                
+            return starters_df, bench_df
+
+        team1_starters, team1_bench = build_player_rows(picks1_data)
+        team2_starters, team2_bench = build_player_rows(picks2_data)
+        
+        display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
+
+        side1, side2 = st.columns(2)
+        
+        with side1:
+            st.subheader(f"{e1_info.get('entry_name')} Lineup")
+            if not team1_starters.empty:
+                st.markdown("**Starting XI (GK First)**")
+                st.dataframe(team1_starters[display_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("Lineup selections not yet available for this gameweek.")
+                
+            if not team1_bench.empty:
+                st.markdown("**Bench Substitutes**")
+                st.dataframe(team1_bench[display_cols], use_container_width=True, hide_index=True)
+
+        with side2:
+            st.subheader(f"{e2_info.get('entry_name')} Lineup")
+            if not team2_starters.empty:
+                st.markdown("**Starting XI (GK First)**")
+                st.dataframe(team2_starters[display_cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("Lineup selections not yet available for this gameweek.")
+                
+            if not team2_bench.empty:
+                st.markdown("**Bench Substitutes**")
+                st.dataframe(team2_bench[display_cols], use_container_width=True, hide_index=True)
 
 # ----------------- NEWSLETTERS SECTION -----------------
 elif st.session_state.page == "Newsletters":
