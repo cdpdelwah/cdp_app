@@ -26,19 +26,21 @@ if "show_league_news" not in st.session_state:
 if "show_cup_news" not in st.session_state:
     st.session_state.show_cup_news = False
 
+import pypdfium2 as pdfium
+
 def render_pdf(filename, title):
     base_dir = Path(__file__).resolve().parent
     
-    # Check both capitalised and lowercase folder names
+    # Check both folder naming conventions
     folder = base_dir / "Newsletters"
     if not folder.exists():
         folder = base_dir / "newsletters"
         
     if not folder.exists():
-        st.error(f"Folder not found. Ensure either `Newsletters` or `newsletters` exists in your repository root.")
+        st.error("Folder not found. Ensure either `Newsletters` or `newsletters` exists in your repository root.")
         return
 
-    # Case-insensitive search for the target file
+    # Locate the target file case-insensitively
     target = None
     for f in folder.iterdir():
         if f.is_file() and f.name.lower() == filename.lower():
@@ -50,13 +52,11 @@ def render_pdf(filename, title):
         available = [f.name for f in folder.iterdir() if f.is_file()]
         if available:
             st.info(f"Files currently in `{folder.name}/`: {', '.join(available)}")
-        else:
-            st.info(f"The `{folder.name}/` folder is currently empty.")
         return
 
     pdf_bytes = target.read_bytes()
-    b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
 
+    # Download button for saving the raw document
     st.download_button(
         label=f"📥 Download {title} (PDF)",
         data=pdf_bytes,
@@ -65,15 +65,16 @@ def render_pdf(filename, title):
         use_container_width=True
     )
 
-    pdf_display = f"""
-    <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="850px">
-        <p style="padding: 1rem; text-align: center;">
-            Your browser or device cannot preview this PDF inline. 
-            Tap the download button above to view it.
-        </p>
-    </object>
-    """
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    # Render pages as clean, responsive images
+    try:
+        pdf = pdfium.PdfDocument(pdf_bytes)
+        for page_index in range(len(pdf)):
+            page = pdf[page_index]
+            # scale=2 provides crisp retina rendering
+            image = page.render(scale=2).to_pil()
+            st.image(image, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error rendering PDF pages: {e}")
 
 @st.cache_data(ttl=3600)
 def fetch_fpl_static():
