@@ -87,7 +87,7 @@ st.sidebar.caption("Stats, not facts | Season X Command Center")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "LIVE SCORES", "EPL SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
+    ["Home", "LIVE SCORES", "Standings", "EPL SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
     key = "page"
 )
 
@@ -534,6 +534,145 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play
 
+def calculate_league_tables(entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map):
+    lentry_map = {e["id"]: e for e in entries}
+    
+    official_stats = {
+        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0}
+        for e in entries
+    }
+    live_stats = {
+        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0, "gw_score": 0}
+        for e in entries
+    }
+    
+    for m in matches:
+        ev = m["event"]
+        t1_id = m["league_entry_1"]
+        t2_id = m["league_entry_2"]
+        if t1_id not in official_stats or t2_id not in official_stats:
+            continue
+            
+        # Matches strictly before the active gameweek count towards Official Standings
+        if ev < current_gw and m.get("finished", False):
+            s1 = m.get("league_entry_1_points", 0)
+            s2 = m.get("league_entry_2_points", 0)
+            
+            official_stats[t1_id]["pf"] += s1
+            official_stats[t2_id]["pf"] += s2
+            live_stats[t1_id]["pf"] += s1
+            live_stats[t2_id]["pf"] += s2
+            
+            if s1 > s2:
+                official_stats[t1_id]["wins"] += 1
+                official_stats[t1_id]["pts"] += 3
+                official_stats[t2_id]["losses"] += 1
+                live_stats[t1_id]["wins"] += 1
+                live_stats[t1_id]["pts"] += 3
+                live_stats[t2_id]["losses"] += 1
+            elif s2 > s1:
+                official_stats[t2_id]["wins"] += 1
+                official_stats[t2_id]["pts"] += 3
+                official_stats[t1_id]["losses"] += 1
+                live_stats[t2_id]["wins"] += 1
+                live_stats[t2_id]["pts"] += 3
+                live_stats[t1_id]["losses"] += 1
+            else:
+                official_stats[t1_id]["draws"] += 1
+                official_stats[t1_id]["pts"] += 1
+                official_stats[t2_id]["draws"] += 1
+                official_stats[t2_id]["pts"] += 1
+                live_stats[t1_id]["draws"] += 1
+                live_stats[t1_id]["pts"] += 1
+                live_stats[t2_id]["draws"] += 1
+                live_stats[t2_id]["pts"] += 1
+                
+        elif ev == current_gw:
+            is_fin = m.get("finished", False)
+            if is_fin:
+                s1 = m.get("league_entry_1_points", 0)
+                s2 = m.get("league_entry_2_points", 0)
+            else:
+                p1 = fetch_entry_event(lentry_map[t1_id].get("entry_id"), current_gw)
+                p2 = fetch_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
+                _, _, s1, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
+                _, _, s2, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+                
+            live_stats[t1_id]["gw_score"] = s1
+            live_stats[t2_id]["gw_score"] = s2
+            live_stats[t1_id]["pf"] += s1
+            live_stats[t2_id]["pf"] += s2
+            
+            if s1 > s2:
+                live_stats[t1_id]["wins"] += 1
+                live_stats[t1_id]["pts"] += 3
+                live_stats[t2_id]["losses"] += 1
+            elif s2 > s1:
+                live_stats[t2_id]["wins"] += 1
+                live_stats[t2_id]["pts"] += 3
+                live_stats[t1_id]["losses"] += 1
+            else:
+                live_stats[t1_id]["draws"] += 1
+                live_stats[t1_id]["pts"] += 1
+                live_stats[t2_id]["draws"] += 1
+                live_stats[t2_id]["pts"] += 1
+
+    # Build Official Standings
+    official_rows = []
+    for e in entries:
+        t_id = e["id"]
+        stat = official_stats[t_id]
+        official_rows.append({
+            "team_id": t_id,
+            "Team": e.get("entry_name", "Team"),
+            "Manager": str(e.get("player_first_name", "")) + " " + str(e.get("player_last_name", "")),
+            "W": stat["wins"],
+            "D": stat["draws"],
+            "L": stat["losses"],
+            "PF": stat["pf"],
+            "Pts": stat["pts"]
+        })
+        
+    official_rows = sorted(official_rows, key = lambda x: (x["Pts"], x["PF"]), reverse = True)
+    official_rank_map = {}
+    for idx, r in enumerate(official_rows, 1):
+        r["Pos"] = idx
+        official_rank_map[r["team_id"]] = idx
+
+    # Build Live Standings
+    live_rows = []
+    for e in entries:
+        t_id = e["id"]
+        stat = live_stats[t_id]
+        live_rows.append({
+            "team_id": t_id,
+            "Team": e.get("entry_name", "Team"),
+            "Manager": str(e.get("player_first_name", "")) + " " + str(e.get("player_last_name", "")),
+            "W": stat["wins"],
+            "D": stat["draws"],
+            "L": stat["losses"],
+            "PF": stat["pf"],
+            "Pts": stat["pts"],
+            "Live Score": stat["gw_score"]
+        })
+        
+    live_rows = sorted(live_rows, key = lambda x: (x["Pts"], x["PF"]), reverse = True)
+    for idx, r in enumerate(live_rows, 1):
+        r["Pos"] = idx
+        off_pos = official_rank_map.get(r["team_id"], idx)
+        diff = off_pos - idx
+        if diff > 0:
+            r["Move"] = "▲ " + str(diff)
+        elif diff < 0:
+            r["Move"] = "▼ " + str(abs(diff))
+        else:
+            r["Move"] = "▬"
+
+    official_df = pd.DataFrame(official_rows)[["Pos", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
+    live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts", "Live Score"]].set_index("Pos")
+    
+    return official_df, live_df
+
 # ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
     col_brand, col_intro = st.columns([1, 4])
@@ -559,7 +698,7 @@ if st.session_state.page == "Home":
         st.caption("Live feed connected to Premier League Draft API")
     
     st.markdown("#### Quick Launchpad")
-    btn_c1, btn_c2, btn_c3, btn_c4, btn_c5 = st.columns(5)
+    btn_c1, btn_c2, btn_c3, btn_c4, btn_c5, btn_c6 = st.columns(6)
     with btn_c1:
         st.button(
             "🔴 LIVE SCORES",
@@ -570,26 +709,33 @@ if st.session_state.page == "Home":
         )
     with btn_c2:
         st.button(
+            "🏆 Standings",
+            on_click = set_page,
+            args = ("Standings",),
+            use_container_width = True
+        )
+    with btn_c3:
+        st.button(
             "⚽ EPL SCORES",
             on_click = set_page,
             args = ("EPL SCORES",),
             use_container_width = True
         )
-    with btn_c3:
+    with btn_c4:
         st.button(
             "Squad Analyser",
             on_click = set_page,
             args = ("Squad Analyser",),
             use_container_width = True
         )
-    with btn_c4:
+    with btn_c5:
         st.button(
             "Results Analyser",
             on_click = set_page,
             args = ("Results Analyser",),
             use_container_width = True
         )
-    with btn_c5:
+    with btn_c6:
         st.button(
             "Newsletters",
             on_click = set_page,
@@ -601,6 +747,7 @@ if st.session_state.page == "Home":
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
+    st.markdown("* **Standings**: Real time in play standings with movement indicators alongside frozen official tables.")
     st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
@@ -805,6 +952,71 @@ elif st.session_state.page == "LIVE SCORES":
         else:
             st.info("Lineup selections not yet available.")
 
+# ----------------- STANDINGS SECTION -----------------
+elif st.session_state.page == "Standings":
+    st.title("🏆 Standings" + dash + selected_league_key)
+    
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
+    if not static_data or not league_details:
+        st.error("Failed to load league standings. Verify connection.")
+        st.stop()
+        
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    
+    if not entries or not matches:
+        st.warning("No league table data available for this competition.")
+        st.stop()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    # Auto detect current gameweek
+    all_events = sorted(list({m["event"] for m in matches}))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
+
+    if unplayed_events:
+        current_gw = unplayed_events[0]
+    else:
+        current_gw = all_events[-1] if all_events else 1
+
+    last_completed_gw = current_gw - 1 if current_gw > 1 else 1
+
+    # Fetch live elements and club minutes for real time table
+    live_data = fetch_live_event(current_gw)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+    
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        elem_int_id = int(elem_str_id)
+        elem_obj = element_lookup.get(elem_int_id, {})
+        c_id = elem_obj.get("team")
+        if c_id:
+            m_val = e_info.get("stats", {}).get("minutes", 0)
+            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+    official_table_df, live_table_df = calculate_league_tables(
+        entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map
+    )
+
+    standings_tab1, standings_tab2 = st.tabs([
+        "🟢 Live Standings (In Play)",
+        f"📊 Official Standings (GW {last_completed_gw})"
+    ])
+
+    with standings_tab1:
+        st.subheader("Live Standings " + dash + " Active Round (GW " + str(current_gw) + ")")
+        st.caption("Updated continuously with active points. Movement indicators show changes against previous official rank.")
+        st.table(live_table_df)
+
+    with standings_tab2:
+        st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
+        st.caption("Standings after the most recently concluded gameweek.")
+        st.table(official_table_df)
+
 # ----------------- EPL SCORES SECTION -----------------
 elif st.session_state.page == "EPL SCORES":
     st.title("⚽ EPL SCORES")
@@ -820,7 +1032,6 @@ elif st.session_state.page == "EPL SCORES":
     team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
-    # Synchronise default gameweek with Live Scores
     matches = league_details.get("matches", []) if league_details else []
     all_gws = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
@@ -916,7 +1127,6 @@ elif st.session_state.page == "EPL SCORES":
                         items.append((p_name, val))
                     return items
 
-                # Extract basic home and away events
                 h_goals = get_stat_entries("goals_scored", "h")
                 h_assists = get_stat_entries("assists", "h")
                 h_saves = get_stat_entries("saves", "h")
@@ -931,7 +1141,6 @@ elif st.session_state.page == "EPL SCORES":
                 a_pmiss = get_stat_entries("penalties_missed", "a")
                 a_psaved = get_stat_entries("penalties_saved", "a")
 
-                # Clean sheets extraction
                 h_cs_players = []
                 a_cs_players = []
                 if is_started and live_elements:
@@ -946,10 +1155,8 @@ elif st.session_state.page == "EPL SCORES":
                             if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
                                 a_cs_players.append(elem_obj.get("web_name", "Unknown"))
 
-                # Defensive DEFCON (+2 pts) Resolution without AttributeError
                 def resolve_defcon_achieved(side, team_id):
                     achieved = []
-                    # 1. Check fixture stats first
                     dc_items = stats_dict.get("defensive_contributions", {}).get(side, [])
                     if not dc_items:
                         dc_items = stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
@@ -962,7 +1169,6 @@ elif st.session_state.page == "EPL SCORES":
                             if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12) or val >= 10:
                                 achieved.append((p_name, val))
 
-                    # 2. Check live element stats
                     if live_elements:
                         for elem_id_str, e_data in live_elements.items():
                             if not isinstance(e_data, dict):
@@ -1062,7 +1268,6 @@ elif st.session_state.page == "EPL SCORES":
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
-                # Bonus Points Bar
                 bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
                 if bonus_list:
                     st.divider()
