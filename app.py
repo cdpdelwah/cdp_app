@@ -735,15 +735,15 @@ elif st.session_state.page == "LIVE SCORES":
                     t1_rem_text = format_remaining_players(item["t1_in_play"], item["t1_ytp"])
                     t2_rem_text = format_remaining_players(item["t2_in_play"], item["t2_ytp"])
 
-                    sc_col1, sc_col2, sc_col3 = st.columns([3, 2, 3])
+                    sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
                     with sc_col1:
                         st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.caption("Proj: " + str(item["t1_proj"]) + " (" + t1_rem_text + ")")
+                        st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + str(item["t1_proj"]) + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
                     with sc_col2:
                         st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
                     with sc_col3:
                         st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: #94a3b8;'>Proj: " + str(item["t2_proj"]) + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + str(item["t2_proj"]) + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
                     
                     st.progress(item["prob1"] / 100.0)
                     
