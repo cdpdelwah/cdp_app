@@ -542,7 +542,7 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
         for e in entries
     }
     live_stats = {
-        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0, "gw_score": 0}
+        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0}
         for e in entries
     }
     
@@ -598,8 +598,6 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
                 _, _, s1, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
                 _, _, s2, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
                 
-            live_stats[t1_id]["gw_score"] = s1
-            live_stats[t2_id]["gw_score"] = s2
             live_stats[t1_id]["pf"] += s1
             live_stats[t2_id]["pf"] += s2
             
@@ -639,7 +637,7 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
         r["Pos"] = idx
         official_rank_map[r["team_id"]] = idx
 
-    # Build Live Standings
+    # Build Live Standings without Live Score column
     live_rows = []
     for e in entries:
         t_id = e["id"]
@@ -652,8 +650,7 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
             "D": stat["draws"],
             "L": stat["losses"],
             "PF": stat["pf"],
-            "Pts": stat["pts"],
-            "Live Score": stat["gw_score"]
+            "Pts": stat["pts"]
         })
         
     live_rows = sorted(live_rows, key = lambda x: (x["Pts"], x["PF"]), reverse = True)
@@ -669,7 +666,7 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
             r["Move"] = "▬"
 
     official_df = pd.DataFrame(official_rows)[["Pos", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
-    live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts", "Live Score"]].set_index("Pos")
+    live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
     
     return official_df, live_df
 
@@ -974,7 +971,6 @@ elif st.session_state.page == "Standings":
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
-    # Auto detect current gameweek
     all_events = sorted(list({m["event"] for m in matches}))
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
 
@@ -985,7 +981,6 @@ elif st.session_state.page == "Standings":
 
     last_completed_gw = current_gw - 1 if current_gw > 1 else 1
 
-    # Fetch live elements and club minutes for real time table
     live_data = fetch_live_event(current_gw)
     live_elements = live_data.get("elements", {}) if live_data else {}
     
