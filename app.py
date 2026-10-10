@@ -87,7 +87,7 @@ st.sidebar.caption("Stats, not facts | Season X Command Center")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "LIVE SCORES", "Standings", "EPL SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
+    ["Home", "LIVE SCORES", "Standings", "EPL SCORES", "Records", "Squad Analyser", "Results Analyser", "Newsletters"],
     key = "page"
 )
 
@@ -329,6 +329,34 @@ def render_pdf(filename, title):
         st.error("Error rendering PDF pages: " + str(e))
 
 @st.cache_data(ttl = 3600)
+def load_records_data():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    if assets_folder.exists():
+        for f in assets_folder.iterdir():
+            if f.is_file() and f.suffix.lower() in valid_extensions:
+                target_file = f
+                break
+
+    if not target_file:
+        return None, None, None
+
+    ext = target_file.suffix.lower()
+    raw_bytes = target_file.read_bytes()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(target_file)
+            return target_file.name, {"All Records": df}, raw_bytes
+        elif ext == ".ods":
+            sheets = pd.read_excel(target_file, engine = "odf", sheet_name = None)
+            return target_file.name, sheets, raw_bytes
+        else:
+            sheets = pd.read_excel(target_file, engine = "openpyxl", sheet_name = None)
+            return target_file.name, sheets, raw_bytes
+    except Exception as err:
+        return target_file.name, err, raw_bytes
+
+@st.cache_data(ttl = 3600)
 def fetch_fpl_static():
     url = "https://draft.premierleague.com/api/bootstrap" + chr(45) + "static"
     response = requests.get(url)
@@ -498,7 +526,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
-    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -507,7 +534,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
-    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -553,7 +579,6 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
         if t1_id not in official_stats or t2_id not in official_stats:
             continue
             
-        # Matches strictly before the active gameweek count towards Official Standings
         if ev < current_gw and m.get("finished", False):
             s1 = m.get("league_entry_1_points", 0)
             s2 = m.get("league_entry_2_points", 0)
@@ -615,7 +640,6 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
                 live_stats[t2_id]["draws"] += 1
                 live_stats[t2_id]["pts"] += 1
 
-    # Build Official Standings
     official_rows = []
     for e in entries:
         t_id = e["id"]
@@ -637,7 +661,6 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
         r["Pos"] = idx
         official_rank_map[r["team_id"]] = idx
 
-    # Build Live Standings without Live Score column
     live_rows = []
     for e in entries:
         t_id = e["id"]
@@ -695,56 +718,33 @@ if st.session_state.page == "Home":
         st.caption("Live feed connected to Premier League Draft API")
     
     st.markdown("#### Quick Launchpad")
-    btn_c1, btn_c2, btn_c3, btn_c4, btn_c5, btn_c6 = st.columns(6)
-    with btn_c1:
-        st.button(
-            "🔴 LIVE SCORES",
-            on_click = set_page,
-            args = ("LIVE SCORES",),
-            type = "primary",
-            use_container_width = True
-        )
-    with btn_c2:
-        st.button(
-            "🏆 Standings",
-            on_click = set_page,
-            args = ("Standings",),
-            use_container_width = True
-        )
-    with btn_c3:
-        st.button(
-            "⚽ EPL SCORES",
-            on_click = set_page,
-            args = ("EPL SCORES",),
-            use_container_width = True
-        )
-    with btn_c4:
-        st.button(
-            "Squad Analyser",
-            on_click = set_page,
-            args = ("Squad Analyser",),
-            use_container_width = True
-        )
-    with btn_c5:
-        st.button(
-            "Results Analyser",
-            on_click = set_page,
-            args = ("Results Analyser",),
-            use_container_width = True
-        )
-    with btn_c6:
-        st.button(
-            "Newsletters",
-            on_click = set_page,
-            args = ("Newsletters",),
-            use_container_width = True
-        )
+    
+    # Clean two-row button layout
+    r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
+    with r1_c1:
+        st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
+    with r1_c2:
+        st.button("🏆 Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
+    with r1_c3:
+        st.button("⚽ EPL SCORES", on_click = set_page, args = ("EPL SCORES",), use_container_width = True)
+    with r1_c4:
+        st.button("📜 Records", on_click = set_page, args = ("Records",), use_container_width = True)
+
+    st.write("")
+    r2_c1, r2_c2, r2_c3 = st.columns(3)
+    with r2_c1:
+        st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
+    with r2_c2:
+        st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
+    with r2_c3:
+        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
 
     st.divider()
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
     st.markdown("* **Standings**: Real time in play standings with movement indicators alongside frozen official tables.")
+    st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
     st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
@@ -891,7 +891,6 @@ elif st.session_state.page == "LIVE SCORES":
                     
                     st.progress(item["prob1"] / 100.0)
                     
-                    # Highlight favorite in accent color and underdog in muted gray
                     if item["prob1"] > item["prob2"]:
                         col1_style = active_theme["accent"]
                         col2_style = "#94a3b8"
@@ -1011,6 +1010,43 @@ elif st.session_state.page == "Standings":
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
         st.caption("Standings after the most recently concluded gameweek.")
         st.table(official_table_df)
+
+# ----------------- RECORDS SECTION -----------------
+elif st.session_state.page == "Records":
+    st.title("🏆 Hall of Records" + dash + selected_league_key)
+    st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
+
+    filename, sheets_dict, raw_bytes = load_records_data()
+
+    if not filename or sheets_dict is None:
+        st.warning("No records spreadsheet found in your Assets/ directory. Place an .ods, .xlsx or .csv file in the Assets folder.")
+    elif isinstance(sheets_dict, Exception):
+        st.error(f"Error reading {filename}: {str(sheets_dict)}")
+        st.info("Tip: If using an .ods spreadsheet, ensure 'odfpy' is added to requirements.txt.")
+    else:
+        # Download button for the original sheet file
+        st.download_button(
+            label = f"📥 Download Original Archive ({filename})",
+            data = raw_bytes,
+            file_name = filename,
+            mime = "application/octet-stream",
+            use_container_width = False
+        )
+        st.write("")
+
+        sheet_names = list(sheets_dict.keys())
+        record_tabs = st.tabs(sheet_names)
+
+        for idx, s_name in enumerate(sheet_names):
+            with record_tabs[idx]:
+                df_sheet = sheets_dict[s_name].fillna("")
+                if not df_sheet.empty:
+                    # Clean column names
+                    df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
+                    first_col = df_sheet.columns[0]
+                    st.table(df_sheet.set_index(first_col))
+                else:
+                    st.info("No records recorded in this sheet.")
 
 # ----------------- EPL SCORES SECTION -----------------
 elif st.session_state.page == "EPL SCORES":
@@ -1478,7 +1514,7 @@ elif st.session_state.page == "Squad Analyser":
     elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
 
     status_df = pd.DataFrame(element_status["element_status"])
-    merged = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
+    merged = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
