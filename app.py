@@ -24,6 +24,9 @@ POS_ORDER = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
+def set_page(page_name):
+    st.session_state.page = page_name
+
 def render_pdf(filename, title):
     base_dir = Path(__file__).resolve().parent
     
@@ -229,7 +232,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
-    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -238,7 +240,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
-    # Outfield substitutions with strict formation rules
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -289,36 +290,53 @@ if st.session_state.page == "Home":
     
     st.markdown("### Welcome to the Dellarverse Hub")
     st.write(
-        "Use the sidebar navigation to track the weekend in real time on LIVE SCORES, "
-        "optimise your squad in the Squad Analyser or browse the official publications."
+        "Use the sidebar or the launchpad below to track live weekend action, "
+        "optimise your squad, inspect past results or read official league publications."
     )
     
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.subheader("Current Competition Status")
-        st.info("**Selected League:** " + selected_league_key)
-        st.success("League linked and ready")
-        
-        btn_c1, btn_c2, btn_c3 = st.columns(3)
-        with btn_c1:
-            if st.button("🔴 LIVE SCORES", type="primary", use_container_width=True):
-                st.session_state.page = "LIVE SCORES"
-                st.rerun()
-        with btn_c2:
-            if st.button("Squad Analyser", use_container_width=True):
-                st.session_state.page = "Squad Analyser"
-                st.rerun()
-        with btn_c3:
-            if st.button("Newsletters", use_container_width=True):
-                st.session_state.page = "Newsletters"
-                st.rerun()
+    st.subheader("Current Competition Status")
+    st.info("**Selected League:** " + selected_league_key)
+    st.success("League linked and ready")
+    
+    st.markdown("#### Quick Launchpad")
+    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
+    with btn_c1:
+        st.button(
+            "🔴 LIVE SCORES",
+            on_click=set_page,
+            args=("LIVE SCORES",),
+            type="primary",
+            use_container_width=True
+        )
+    with btn_c2:
+        st.button(
+            "Squad Analyser",
+            on_click=set_page,
+            args=("Squad Analyser",),
+            use_container_width=True
+        )
+    with btn_c3:
+        st.button(
+            "Results Analyser",
+            on_click=set_page,
+            args=("Results Analyser",),
+            use_container_width=True
+        )
+    with btn_c4:
+        st.button(
+            "Newsletters",
+            on_click=set_page,
+            args=("Newsletters",),
+            use_container_width=True
+        )
 
-    with col2:
-        st.subheader("Core Capabilities")
-        st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
-        st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
-        st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
-        st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
+    st.divider()
+
+    st.subheader("Core Capabilities")
+    st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
+    st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
+    st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
+    st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
 
 # ----------------- LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
@@ -341,7 +359,6 @@ elif st.session_state.page == "LIVE SCORES":
     all_events = sorted(list({m["event"] for m in matches}))
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
 
-    # Detect the active round: first round with uncompleted games
     if unplayed_events:
         detected_gw = unplayed_events[0]
     else:
