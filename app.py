@@ -328,17 +328,40 @@ def render_pdf(filename, title):
     except Exception as e:
         st.error("Error rendering PDF pages: " + str(e))
 
-@st.cache_data(ttl = 3600)
 def load_records_data():
     valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
     target_file = None
-    if assets_folder.exists():
-        for f in assets_folder.iterdir():
-            if f.is_file() and f.suffix.lower() in valid_extensions:
-                target_file = f
+    
+    # Check all possible case variations and directory locations
+    potential_folders = [
+        base_dir / "Assets",
+        base_dir / "assets",
+        Path("Assets"),
+        Path("assets"),
+        base_dir
+    ]
+    
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions and "records" in f.name.lower():
+                    target_file = f
+                    break
+        if target_file:
+            break
+            
+    # Fallback to any spreadsheet in the assets folders
+    if not target_file:
+        for folder in potential_folders:
+            if folder.exists() and folder.is_dir():
+                for f in folder.iterdir():
+                    if f.is_file() and f.suffix.lower() in valid_extensions:
+                        target_file = f
+                        break
+            if target_file:
                 break
 
-    if not target_file:
+    if not target_file or not target_file.exists():
         return None, None, None
 
     ext = target_file.suffix.lower()
@@ -526,6 +549,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
+    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -534,6 +558,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
+    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -719,7 +744,6 @@ if st.session_state.page == "Home":
     
     st.markdown("#### Quick Launchpad")
     
-    # Clean two-row button layout
     r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
@@ -1013,20 +1037,25 @@ elif st.session_state.page == "Standings":
 
 # ----------------- RECORDS SECTION -----------------
 elif st.session_state.page == "Records":
-    st.title("🏆 Hall of Records" + dash + selected_league_key)
-    st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
+    top_r1, top_r2 = st.columns([5, 1])
+    with top_r1:
+        st.title("🏆 Hall of Records" + dash + selected_league_key)
+        st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
+    with top_r2:
+        st.write("")
+        if st.button("🔄 Refresh Records", use_container_width = True):
+            st.rerun()
 
     filename, sheets_dict, raw_bytes = load_records_data()
 
     if not filename or sheets_dict is None:
-        st.warning("No records spreadsheet found in your Assets/ directory. Place an .ods, .xlsx or .csv file in the Assets folder.")
+        st.warning("No records spreadsheet found. Ensure 'records.ods' is committed inside your Assets folder.")
     elif isinstance(sheets_dict, Exception):
         st.error(f"Error reading {filename}: {str(sheets_dict)}")
-        st.info("Tip: If using an .ods spreadsheet, ensure 'odfpy' is added to requirements.txt.")
+        st.info("Ensure **odfpy** is added to your requirements.txt file so Streamlit can read .ods files.")
     else:
-        # Download button for the original sheet file
         st.download_button(
-            label = f"📥 Download Original Archive ({filename})",
+            label = f"📥 Download Archive ({filename})",
             data = raw_bytes,
             file_name = filename,
             mime = "application/octet-stream",
@@ -1041,7 +1070,6 @@ elif st.session_state.page == "Records":
             with record_tabs[idx]:
                 df_sheet = sheets_dict[s_name].fillna("")
                 if not df_sheet.empty:
-                    # Clean column names
                     df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
                     first_col = df_sheet.columns[0]
                     st.table(df_sheet.set_index(first_col))
@@ -1514,7 +1542,7 @@ elif st.session_state.page == "Squad Analyser":
     elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
 
     status_df = pd.DataFrame(element_status["element_status"])
-    merged = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
+    merged = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
