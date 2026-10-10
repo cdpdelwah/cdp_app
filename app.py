@@ -27,30 +27,53 @@ if "show_cup_news" not in st.session_state:
     st.session_state.show_cup_news = False
 
 def render_pdf(filename, title):
-    path = Path("newsletters") / filename
-    if not path.exists():
-        st.info(f"No edition found at `/newsletters/{filename}` yet. Upload the PDF to GitHub to display it here.")
+    base_dir = Path(__file__).resolve().parent
+    
+    # Check both capitalised and lowercase folder names
+    folder = base_dir / "Newsletters"
+    if not folder.exists():
+        folder = base_dir / "newsletters"
+        
+    if not folder.exists():
+        st.error(f"Folder not found. Ensure either `Newsletters` or `newsletters` exists in your repository root.")
         return
-    
-    pdf_bytes = path.read_bytes()
+
+    # Case-insensitive search for the target file
+    target = None
+    for f in folder.iterdir():
+        if f.is_file() and f.name.lower() == filename.lower():
+            target = f
+            break
+
+    if not target or not target.exists():
+        st.warning(f"Could not find `{filename}` inside `{folder.name}/`.")
+        available = [f.name for f in folder.iterdir() if f.is_file()]
+        if available:
+            st.info(f"Files currently in `{folder.name}/`: {', '.join(available)}")
+        else:
+            st.info(f"The `{folder.name}/` folder is currently empty.")
+        return
+
+    pdf_bytes = target.read_bytes()
     b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-    
-    col_d1, col_d2 = st.columns([1, 3])
-    with col_d1:
-        st.download_button(
-            label=f"⬇️ Download {title} (PDF)",
-            data=pdf_bytes,
-            file_name=filename,
-            mime="application/pdf",
-            use_container_width=True
-        )
-    
-    pdf_embed = (
-        f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
-        f'width="100%" height="850" type="application/pdf" '
-        f'style="border: none; border-radius: 8px;"></iframe>'
+
+    st.download_button(
+        label=f"📥 Download {title} (PDF)",
+        data=pdf_bytes,
+        file_name=target.name,
+        mime="application/pdf",
+        use_container_width=True
     )
-    st.markdown(pdf_embed, unsafe_allow_html=True)
+
+    pdf_display = f"""
+    <object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="850px">
+        <p style="padding: 1rem; text-align: center;">
+            Your browser or device cannot preview this PDF inline. 
+            Tap the download button above to view it.
+        </p>
+    </object>
+    """
+    st.markdown(pdf_display, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
 def fetch_fpl_static():
