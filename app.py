@@ -185,6 +185,30 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
+    /* High Contrast Dropdown Select Boxes */
+    div[data-baseweb="select"] {{
+        background-color: #ffffff !important;
+        border-radius: 6px !important;
+    }}
+    div[data-baseweb="select"] > div {{
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+    }}
+    div[data-baseweb="select"] * {{
+        color: #000000 !important;
+        font-weight: 600 !important;
+    }}
+    div[data-baseweb="popover"] ul,
+    div[data-baseweb="popover"] li {{
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }}
+    div[data-baseweb="popover"] li * {{
+        color: #000000 !important;
+        font-weight: 600 !important;
+    }}
+
     /* Adaptive Action Buttons */
     button[kind="primary"] {{
         background-color: {active_theme['accent']} !important;
@@ -532,7 +556,7 @@ if st.session_state.page == "Home":
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
-    st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, goalkeeper saves and discipline.")
+    st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
     st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
@@ -724,34 +748,34 @@ elif st.session_state.page == "EPL SCORES":
     st.title("⚽ EPL SCORES")
     
     static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
     if not static_data:
-        st.error("Failed to load Premier League static data. Verify connection.")
+        st.error("Failed to load Premier League data. Verify connection.")
         st.stop()
         
     team_name_map = {item["id"]: item["name"] for item in static_data["teams"]}
     team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
-    # Auto detect current gameweek
-    events_meta = static_data.get("events", {}).get("data", [])
-    current_gw = None
-    for ev in events_meta:
-        if ev.get("is_current"):
-            current_gw = ev.get("id")
-            break
-    if not current_gw:
-        current_gw = 1
-
-    all_gws = [ev["id"] for ev in events_meta] if events_meta else list(range(1, 39))
+    # Synchronise default gameweek with Live Scores
+    matches = league_details.get("matches", []) if league_details else []
+    all_gws = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
+    
+    if unplayed_events:
+        default_epl_gw = unplayed_events[0]
+    else:
+        default_epl_gw = all_gws[-1] if all_gws else 1
 
     top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
     with top_e1:
-        st.caption("Official Premier League matchday results, goalscorers, assists and defensive metrics")
+        st.caption("Official Premier League matchday results, goalscorers, assists, DEFCON scores and defensive metrics")
     with top_e2:
         selected_epl_gw = st.selectbox(
             "Select EPL Gameweek",
             all_gws,
-            index = all_gws.index(current_gw) if current_gw in all_gws else 0
+            index = all_gws.index(default_epl_gw) if default_epl_gw in all_gws else 0
         )
     with top_e3:
         st.write("")
@@ -812,7 +836,6 @@ elif st.session_state.page == "EPL SCORES":
 
             # Match Breakdown Expander
             with st.expander("Match Breakdown"):
-                # Parse itemized stats
                 stats_raw = f.get("stats", [])
                 stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
 
@@ -826,7 +849,7 @@ elif st.session_state.page == "EPL SCORES":
                         items.append((p_name, val))
                     return items
 
-                # Extract home stats
+                # Extract basic home and away events
                 h_goals = get_stat_entries("goals_scored", "h")
                 h_assists = get_stat_entries("assists", "h")
                 h_saves = get_stat_entries("saves", "h")
@@ -834,7 +857,6 @@ elif st.session_state.page == "EPL SCORES":
                 h_pmiss = get_stat_entries("penalties_missed", "h")
                 h_psaved = get_stat_entries("penalties_saved", "h")
 
-                # Extract away stats
                 a_goals = get_stat_entries("goals_scored", "a")
                 a_assists = get_stat_entries("assists", "a")
                 a_saves = get_stat_entries("saves", "a")
@@ -857,6 +879,48 @@ elif st.session_state.page == "EPL SCORES":
                             if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
                                 a_cs_players.append(elem_obj.get("web_name", "Unknown"))
 
+                # DEFCON (+2 pts) Resolution
+                def resolve_defcon_achieved(side, team_id):
+                    achieved = []
+                    # Check fixture itemized stats first
+                    dc_items = stats_dict.get("defensive_contributions", {}).get(side, [])
+                    if not dc_items:
+                        dc_items = stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
+                    for itm in dc_items:
+                        p_elem = element_lookup.get(itm.get("element"), {})
+                        p_name = p_elem.get("web_name", "Unknown")
+                        p_pos = p_elem.get("element_type", 1)
+                        val = itm.get("value", 0)
+                        if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12):
+                            achieved.append((p_name, val))
+                        elif val >= 10:
+                            achieved.append((p_name, val))
+
+                    # Cross verify with live element explain blocks and stats
+                    if live_elements:
+                        for elem_id_str, e_data in live_elements.items():
+                            elem_obj = element_lookup.get(int(elem_id_str), {})
+                            if elem_obj.get("team") == team_id:
+                                p_name = elem_obj.get("web_name", "Unknown")
+                                p_pos = elem_obj.get("element_type", 1)
+                                dc_val = e_data.get("stats", {}).get("defensive_contributions", 0)
+                                
+                                # Explain check
+                                is_hit = False
+                                for ex in e_data.get("explain", []):
+                                    for s_item in ex.get("stats", []):
+                                        if s_item.get("identifier") in ["defensive_contributions", "defcon", "cbit"] and s_item.get("points", 0) >= 2:
+                                            is_hit = True
+                                            dc_val = max(dc_val, s_item.get("value", 0))
+                                
+                                if (p_pos == 2 and dc_val >= 10) or (p_pos in [3, 4] and dc_val >= 12) or is_hit:
+                                    if not any(x[0] == p_name for x in achieved):
+                                        achieved.append((p_name, dc_val))
+                    return achieved
+
+                h_defcon = resolve_defcon_achieved("h", h_id)
+                a_defcon = resolve_defcon_achieved("a", a_id)
+
                 b_col1, b_col2 = st.columns(2)
 
                 with b_col1:
@@ -865,17 +929,19 @@ elif st.session_state.page == "EPL SCORES":
                         st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_goals]))
                     if h_assists:
                         st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_assists]))
-                    if h_saves:
-                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in h_saves]))
+                    if h_defcon:
+                        st.markdown("<span style='color: #22c55e;'>🛡️ <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n} ({v})" if v > 0 else n for n, v in h_defcon]) + "</span>", unsafe_allow_html = True)
                     if h_cs_players:
                         st.markdown("🛡️ **Clean Sheets:** " + ", ".join(h_cs_players))
+                    if h_saves:
+                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in h_saves]))
                     if h_og:
                         st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_og]) + "</span>", unsafe_allow_html = True)
                     if h_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_pmiss]) + "</span>", unsafe_allow_html = True)
                     if h_psaved:
                         st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
-                    if not (h_goals or h_assists or h_saves or h_cs_players or h_og or h_pmiss or h_psaved):
+                    if not (h_goals or h_assists or h_defcon or h_saves or h_cs_players or h_og or h_pmiss or h_psaved):
                         st.caption("No registered match events yet.")
 
                 with b_col2:
@@ -884,17 +950,19 @@ elif st.session_state.page == "EPL SCORES":
                         st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_goals]))
                     if a_assists:
                         st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_assists]))
-                    if a_saves:
-                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in a_saves]))
+                    if a_defcon:
+                        st.markdown("<span style='color: #22c55e;'>🛡️ <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n} ({v})" if v > 0 else n for n, v in a_defcon]) + "</span>", unsafe_allow_html = True)
                     if a_cs_players:
                         st.markdown("🛡️ **Clean Sheets:** " + ", ".join(a_cs_players))
+                    if a_saves:
+                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in a_saves]))
                     if a_og:
                         st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
                     if a_psaved:
                         st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
-                    if not (a_goals or a_assists or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
+                    if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
                 # Bonus Points Bar
