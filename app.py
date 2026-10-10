@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import math
 from pathlib import Path
 import pypdfium2 as pdfium
 
@@ -89,7 +90,7 @@ def fetch_league_data(league_id):
         
     return det_resp.json(), stat_resp.json()
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=60)
 def fetch_entry_event(entry_id, event):
     url = "https://draft.premierleague.com/api/entry/" + str(entry_id) + "/event/" + str(event)
     resp = requests.get(url)
@@ -97,7 +98,7 @@ def fetch_entry_event(entry_id, event):
         return None
     return resp.json()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=45)
 def fetch_live_event(event):
     url = "https://draft.premierleague.com/api/event/" + str(event) + "/live"
     resp = requests.get(url)
@@ -140,12 +141,135 @@ def get_health_label(row):
         return "Doubtful (50%)"
     return "Fit (100%)"
 
+def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is_finished):
+    if is_finished:
+        if live1 > live2:
+            return 100, 0
+        if live2 > live1:
+            return 0, 100
+        return 50, 50
+
+    total_left = to_play1 + to_play2
+    if total_left == 0:
+        if live1 > live2:
+            return 100, 0
+        if live2 > live1:
+            return 0, 100
+        return 50, 50
+
+    margin = proj1 - proj2
+    # Adjust spread dynamically according to remaining volatility
+    spread = max(6.0, total_left * 2.8)
+    prob1 = 1.0 / (1.0 + math.exp(-margin / (spread / 1.7)))
+    pct1 = int(round(prob1 * 100))
+    pct1 = max(1, min(99, pct1))
+    return pct1, 100 - pct1
+
+def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map):
+    if not picks_list:
+        return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0
+        
+    raw_players = []
+    for p in picks_list.get("picks", []):
+        elem_id = p["element"]
+        raw_elem = element_lookup.get(elem_id, {})
+        stats = live_elements.get(str(elem_id), {}).get("stats", {})
+        
+        pos_type = raw_elem.get("element_type", 1)
+        pos_str = pos_map.get(pos_type, "")
+        club_id = raw_elem.get("team")
+        
+        mins = stats.get("minutes", 0)
+        pts = stats.get("total_points", 0)
+        team_mins = club_minutes.get(club_id, 0)
+        
+        avail = get_availability_multiplier(raw_elem)
+        form_val = float(raw_elem.get("form") or 0.0)
+        ppg_val = float(raw_elem.get("points_per_game") or 2.0)
+        base_exp = ((form_val * 0.6) + (ppg_val * 0.4)) * avail
+        if base_exp <= 0 and avail > 0:
+            base_exp = 2.0
+            
+        if team_mins >= 800:
+            if mins > 0:
+                state = "FT"
+                proj = pts
+            else:
+                state = "DNP"
+                proj = 0
+        elif team_mins > 0:
+            state = "LIVE"
+            proj = pts
+        else:
+            state = "YTP"
+            proj = round(base_exp, 1)
+            
+        raw_players.append({
+            "id": elem_id,
+            "Player": raw_elem.get("web_name", "Unknown"),
+            "pos_num": pos_type,
+            "Pos": pos_str,
+            "Club": team_map.get(club_id, ""),
+            "State": state,
+            "Mins": mins,
+            "Pts": pts,
+            "Proj": proj,
+            "G": stats.get("goals_scored", 0),
+            "A": stats.get("assists", 0),
+            "CS": stats.get("clean_sheets", 0),
+            "GC": stats.get("goals_conceded", 0),
+            "Bonus": stats.get("bonus", 0),
+            "pick_pos": p.get("position", 99),
+            "is_starter": p.get("position", 99) <= 11,
+            "sub_action": ""
+        })
+        
+    starters = [r for r in raw_players if r["is_starter"]]
+    bench = [r for r in raw_players if not r["is_starter"]]
+    bench = sorted(bench, key=lambda x: x["pick_pos"])
+    
+    used_bench_ids = set()
+    
+    # GK substitution
+    gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
+    if gk_starter and gk_starter["State"] == "DNP":
+        gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
+        if gk_bench:
+            gk_starter["sub_action"] = "Subbed Off"
+            gk_bench["sub_action"] = "Subbed On"
+            used_bench_ids.add(gk_bench["id"])
+            
+    # Outfield substitutions with strict formation validity
+    dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
+    for dnp_s in dnp_outfield:
+        for b_cand in bench:
+            if b_cand["Pos"] == "GKP" or b_cand["id"] in used_bench_ids or b_cand["State"] == "DNP":
+                continue
+                
+            cur_formation = [s["Pos"] for s in starters if s["sub_action"] != "Subbed Off" and s["id"] != dnp_s["id"]]
+            cur_formation.append(b_cand["Pos"])
+            if cur_formation.count("DEF") >= 3 and cur_formation.count("MID") >= 2 and cur_formation.count("FWD") >= 1:
+                dnp_s["sub_action"] = "Subbed Off"
+                b_cand["sub_action"] = "Subbed On"
+                used_bench_ids.add(b_cand["id"])
+                break
+
+    active_lineup = [s for s in starters if s["sub_action"] != "Subbed Off"] + [b for b in bench if b["sub_action"] == "Subbed On"]
+    live_score = sum(p["Pts"] for p in active_lineup)
+    proj_score = sum(p["Proj"] for p in active_lineup)
+    to_play = sum(1 for p in active_lineup if p["State"] in ["YTP", "LIVE"])
+    
+    starters_df = pd.DataFrame(starters).sort_values(by=["pos_num", "Pts"], ascending=[True, False])
+    bench_df = pd.DataFrame(bench).sort_values(by="pick_pos", ascending=True)
+    
+    return starters_df, bench_df, live_score, round(proj_score, 1), to_play
+
 # Sidebar navigation
 st.sidebar.title("CDP App Navigation")
 
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "Squad Analyser", "Results Analyser", "Newsletters"],
+    ["Home", "LIVE SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
     key="page"
 )
 
@@ -166,8 +290,8 @@ if st.session_state.page == "Home":
     
     st.markdown("### Welcome to the Dellarverse Hub")
     st.write(
-        "Use the sidebar navigation to jump into the tactical Squad Analyser, "
-        "inspect matchday head to head scorecards with live projections in Results Analyser or browse the latest official gazettes."
+        "Use the sidebar navigation to track the weekend in real-time on LIVE SCORES, "
+        "optimise your squad in the Squad Analyser or browse the official publications."
     )
     
     col1, col2 = st.columns([1, 1])
@@ -178,12 +302,12 @@ if st.session_state.page == "Home":
         
         btn_c1, btn_c2, btn_c3 = st.columns(3)
         with btn_c1:
-            if st.button("Squad Analyser", type="primary", use_container_width=True):
-                st.session_state.page = "Squad Analyser"
+            if st.button("🔴 LIVE SCORES", type="primary", use_container_width=True):
+                st.session_state.page = "LIVE SCORES"
                 st.rerun()
         with btn_c2:
-            if st.button("Results Analyser", use_container_width=True):
-                st.session_state.page = "Results Analyser"
+            if st.button("Squad Analyser", use_container_width=True):
+                st.session_state.page = "Squad Analyser"
                 st.rerun()
         with btn_c3:
             if st.button("Newsletters", use_container_width=True):
@@ -192,12 +316,192 @@ if st.session_state.page == "Home":
 
     with col2:
         st.subheader("Core Capabilities")
+        st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real-time auto-subs.")
         st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
-        st.markdown("* **Results Analyser**: Box scores, live projections, automatic substitution modeling and stat breakdowns.")
+        st.markdown("* **Results Analyser**: Historical head-to-head match breakdowns across past gameweeks.")
         st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
-        st.markdown("* **Instant League Switching**: Jump between CDP, SDM, BDR and LDE seamlessly.")
 
-# ----------------- RESULTS ANALYSER SECTION -----------------
+# ----------------- LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
+elif st.session_state.page == "LIVE SCORES":
+    st.title("🔴 LIVE SCORES " + dash + " " + selected_league_key)
+    
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
+    if not static_data or not league_details:
+        st.error("Failed to load live data. Verify connection.")
+        st.stop()
+        
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    
+    # Auto-detect current gameweek
+    current_gw = None
+    events_meta = static_data.get("events", {}).get("data", [])
+    for ev in events_meta:
+        if ev.get("is_current"):
+            current_gw = ev.get("id")
+            break
+            
+    if not current_gw and matches:
+        played = [m["event"] for m in matches if m.get("finished", False)]
+        current_gw = played[-1] if played else matches[0]["event"]
+
+    top_c1, top_c2 = st.columns([4, 1])
+    with top_c1:
+        st.caption("Active Gameweek: **GW " + str(current_gw) + "** | Real-time scoreline forecast & in-match win probability")
+    with top_c2:
+        if st.button("🔄 Refresh Scores", use_container_width=True):
+            fetch_entry_event.clear()
+            fetch_live_event.clear()
+            st.rerun()
+
+    lentry_map = {e["id"]: e for e in entries}
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    live_data = fetch_live_event(current_gw)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+    
+    # Build club cumulative minutes for fixture status detection
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        elem_int_id = int(elem_str_id)
+        elem_obj = element_lookup.get(elem_int_id, {})
+        c_id = elem_obj.get("team")
+        if c_id:
+            m_val = e_info.get("stats", {}).get("minutes", 0)
+            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+    gw_matches = [m for m in matches if m["event"] == current_gw]
+    
+    if not gw_matches:
+        st.info("No fixtures scheduled for Gameweek " + str(current_gw) + " yet.")
+        st.stop()
+
+    st.subheader("Around the Grounds (GW " + str(current_gw) + ")")
+    
+    # Pre-process all fixtures for the scoreboard grid
+    match_summaries = []
+    for m in gw_matches:
+        e1 = lentry_map.get(m["league_entry_1"], {})
+        e2 = lentry_map.get(m["league_entry_2"], {})
+        is_fin = m.get("finished", False)
+        
+        p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
+        p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
+        
+        t1_start, t1_b, t1_live, t1_proj, t1_ytp = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
+        t2_start, t2_b, t2_live, t2_proj, t2_ytp = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+        
+        if is_fin:
+            t1_score = m.get("league_entry_1_points", t1_live)
+            t2_score = m.get("league_entry_2_points", t2_live)
+        else:
+            t1_score = t1_live
+            t2_score = t2_live
+            
+        prob1, prob2 = calculate_win_probability(t1_score, t1_proj, t1_ytp, t2_score, t2_proj, t2_ytp, is_fin)
+        
+        match_summaries.append({
+            "match": m,
+            "e1": e1,
+            "e2": e2,
+            "t1_score": t1_score,
+            "t2_score": t2_score,
+            "t1_proj": t1_proj,
+            "t2_proj": t2_proj,
+            "t1_ytp": t1_ytp,
+            "t2_ytp": t2_ytp,
+            "prob1": prob1,
+            "prob2": prob2,
+            "is_fin": is_fin,
+            "t1_start": t1_start,
+            "t1_b": t1_b,
+            "t2_start": t2_start,
+            "t2_b": t2_b
+        })
+
+    # Display match cards in 2-column grid
+    for idx in range(0, len(match_summaries), 2):
+        grid_c1, grid_c2 = st.columns(2)
+        items = [match_summaries[idx]]
+        if idx + 1 < len(match_summaries):
+            items.append(match_summaries[idx + 1])
+            
+        cols = [grid_c1, grid_c2]
+        for c_idx, item in enumerate(items):
+            with cols[c_idx]:
+                with st.container(border=True):
+                    status_badge = "✅ FINAL" if item["is_fin"] else "🟢 LIVE"
+                    hdr_l, hdr_r = st.columns([3, 1])
+                    with hdr_l:
+                        st.markdown("**" + item["e1"].get("entry_name", "Team 1") + " vs " + item["e2"].get("entry_name", "Team 2") + "**")
+                    with hdr_r:
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem;'><b>" + status_badge + "</b></p>", unsafe_allow_html=True)
+                        
+                    sc_col1, sc_col2, sc_col3 = st.columns([3, 2, 3])
+                    with sc_col1:
+                        st.markdown("<h3 style='margin: 0;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html=True)
+                        st.caption("Proj: " + str(item["t1_proj"]) + " (" + str(item["t1_ytp"]) + " to play)")
+                    with sc_col2:
+                        st.markdown("<p style='text-align: center; margin: 10px 0; color: gray;'>vs</p>", unsafe_allow_html=True)
+                    with sc_col3:
+                        st.markdown("<h3 style='text-align: right; margin: 0;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html=True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: gray;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html=True)
+                    
+                    # Win Probability Bar
+                    st.progress(item["prob1"] / 100.0)
+                    p_l, p_r = st.columns(2)
+                    with p_l:
+                        st.caption("Win: **" + str(item["prob1"]) + "%**")
+                    with p_r:
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: gray;'>Win: <b>" + str(item["prob2"]) + "%</b></p>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Spotlight Matchup Details
+    st.subheader("Match Spotlight & Lineup Breakdown")
+    
+    def spot_label(i):
+        item = match_summaries[i]
+        return item["e1"].get("entry_name", "Team 1") + " (" + str(item["t1_score"]) + ") vs (" + str(item["t2_score"]) + ") " + item["e2"].get("entry_name", "Team 2")
+
+    spotlight_idx = st.selectbox(
+        "Inspect Matchup Details",
+        range(len(match_summaries)),
+        format_func=lambda i: spot_label(i)
+    )
+    
+    active_spot = match_summaries[spotlight_idx]
+    
+    s_c1, s_c2 = st.columns(2)
+    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus", "sub_action"]
+
+    with s_c1:
+        st.markdown("### " + active_spot["e1"].get("entry_name"))
+        st.caption("Manager: " + str(active_spot["e1"].get("player_first_name", "")) + " " + str(active_spot["e1"].get("player_last_name", "")))
+        if not active_spot["t1_start"].empty:
+            st.markdown("**Starting XI (GK First)**")
+            st.dataframe(active_spot["t1_start"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.markdown("**Bench Substitutes**")
+            st.dataframe(active_spot["t1_b"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+        else:
+            st.info("Lineup selections not yet available.")
+
+    with s_c2:
+        st.markdown("### " + active_spot["e2"].get("entry_name"))
+        st.caption("Manager: " + str(active_spot["e2"].get("player_first_name", "")) + " " + str(active_spot["e2"].get("player_last_name", "")))
+        if not active_spot["t2_start"].empty:
+            st.markdown("**Starting XI (GK First)**")
+            st.dataframe(active_spot["t2_start"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.markdown("**Bench Substitutes**")
+            st.dataframe(active_spot["t2_b"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+        else:
+            st.info("Lineup selections not yet available.")
+
+# ----------------- RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser " + dash + " " + selected_league_key)
     
@@ -241,7 +545,7 @@ elif st.session_state.page == "Results Analyser":
             e2 = lentry_map.get(m["league_entry_2"], {})
             s1 = m.get("league_entry_1_points", 0)
             s2 = m.get("league_entry_2_points", 0)
-            status = " (FT)" if m.get("finished") else " (Live)"
+            status = " (FT)" if m.get("finished") else ""
             return e1.get("entry_name", "Team 1") + " (" + str(s1) + ") vs (" + str(s2) + ") " + e2.get("entry_name", "Team 2") + status
             
         match_idx = st.selectbox(
@@ -264,7 +568,7 @@ elif st.session_state.page == "Results Analyser":
             e2 = lentry_map.get(m["league_entry_2"], {})
             s1 = m.get("league_entry_1_points", 0)
             s2 = m.get("league_entry_2_points", 0)
-            status = " (FT)" if m.get("finished") else " (Live)"
+            status = " (FT)" if m.get("finished") else ""
             return "GW " + str(m["event"]) + ": " + e1.get("entry_name", "Team 1") + " (" + str(s1) + ") vs (" + str(s2) + ") " + e2.get("entry_name", "Team 2") + status
 
         t_idx = st.selectbox(
@@ -276,215 +580,92 @@ elif st.session_state.page == "Results Analyser":
 
     if selected_match:
         gw_num = selected_match["event"]
-        is_finished = selected_match.get("finished", False)
         e1_info = lentry_map.get(selected_match["league_entry_1"], {})
         e2_info = lentry_map.get(selected_match["league_entry_2"], {})
+        score1 = selected_match.get("league_entry_1_points", 0)
+        score2 = selected_match.get("league_entry_2_points", 0)
         
+        st.divider()
+        
+        res_col1, res_col2, res_col3 = st.columns([4, 2, 4])
+        with res_col1:
+            st.markdown("### " + str(e1_info.get("entry_name", "Team 1")))
+            st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
+        with res_col2:
+            status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
+            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + " " + dash + " " + str(score2) + "</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: gray; margin: 0;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html=True)
+        with res_col3:
+            st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: right; color: gray; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html=True)
+            
+        st.divider()
+
         picks1_data = fetch_entry_event(e1_info.get("entry_id"), gw_num)
         picks2_data = fetch_entry_event(e2_info.get("entry_id"), gw_num)
         live_data = fetch_live_event(gw_num)
-        
         live_elements = live_data.get("elements", {}) if live_data else {}
 
-        # Calculate club minutes to detect fixture status accurately
-        club_minutes = {}
-        for elem_str_id, e_info in live_elements.items():
-            elem_int_id = int(elem_str_id)
-            elem_obj = element_lookup.get(elem_int_id, {})
-            c_id = elem_obj.get("team")
-            if c_id:
-                m_val = e_info.get("stats", {}).get("minutes", 0)
-                club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
-
-        def process_team_projection(picks_list):
+        def build_player_rows(picks_list):
             if not picks_list:
-                return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0
-                
-            raw_players = []
+                return pd.DataFrame(), pd.DataFrame()
+            starters = []
+            bench = []
             for p in picks_list.get("picks", []):
                 elem_id = p["element"]
                 raw_elem = element_lookup.get(elem_id, {})
                 stats = live_elements.get(str(elem_id), {}).get("stats", {})
-                
                 pos_type = raw_elem.get("element_type", 1)
-                pos_str = pos_map.get(pos_type, "")
-                club_id = raw_elem.get("team")
-                
-                mins = stats.get("minutes", 0)
-                pts = stats.get("total_points", 0)
-                team_mins = club_minutes.get(club_id, 0)
-                
-                # Health availability factor
-                avail = get_availability_multiplier(raw_elem)
-                
-                # Base projection estimate from form and season PPG
-                form_val = float(raw_elem.get("form") or 0.0)
-                ppg_val = float(raw_elem.get("points_per_game") or 2.0)
-                base_exp = ((form_val * 0.6) + (ppg_val * 0.4)) * avail
-                if base_exp <= 0 and avail > 0:
-                    base_exp = 2.0
-                
-                # Classify match status
-                if team_mins >= 800:
-                    if mins > 0:
-                        state = "FT"
-                        proj = pts
-                    else:
-                        state = "DNP"
-                        proj = 0
-                elif team_mins > 0:
-                    state = "LIVE"
-                    proj = pts
-                else:
-                    state = "YTP"
-                    proj = round(base_exp, 1)
-                    
-                raw_players.append({
-                    "id": elem_id,
+                row = {
                     "Player": raw_elem.get("web_name", "Unknown"),
                     "pos_num": pos_type,
-                    "Pos": pos_str,
-                    "Club": team_map.get(club_id, ""),
-                    "State": state,
-                    "Mins": mins,
-                    "Pts": pts,
-                    "Proj": proj,
+                    "Pos": pos_map.get(pos_type, ""),
+                    "Club": team_map.get(raw_elem.get("team"), ""),
+                    "Mins": stats.get("minutes", 0),
+                    "Pts": stats.get("total_points", 0),
                     "G": stats.get("goals_scored", 0),
                     "A": stats.get("assists", 0),
                     "CS": stats.get("clean_sheets", 0),
                     "GC": stats.get("goals_conceded", 0),
                     "Bonus": stats.get("bonus", 0),
-                    "pick_pos": p.get("position", 99),
-                    "is_starter": p.get("position", 99) <= 11,
-                    "sub_action": ""
-                })
-                
-            starters = [r for r in raw_players if r["is_starter"]]
-            bench = [r for r in raw_players if not r["is_starter"]]
-            bench = sorted(bench, key=lambda x: x["pick_pos"])
-            
-            # Auto sub modeling
-            used_bench_ids = set()
-            
-            # Goalkeeper replacement
-            gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
-            if gk_starter and gk_starter["State"] == "DNP":
-                gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
-                if gk_bench:
-                    gk_starter["sub_action"] = "Subbed Off"
-                    gk_bench["sub_action"] = "Subbed On"
-                    used_bench_ids.add(gk_bench["id"])
-                    
-            # Outfield replacements
-            dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
-            
-            for dnp_s in dnp_outfield:
-                # Identify valid bench replacement
-                for b_cand in bench:
-                    if b_cand["Pos"] == "GKP" or b_cand["id"] in used_bench_ids:
-                        continue
-                    if b_cand["State"] == "DNP":
-                        continue
-                        
-                    # Check formation validity if this candidate subs on
-                    current_formation = [s["Pos"] for s in starters if s["sub_action"] != "Subbed Off" and s["id"] != dnp_s["id"]]
-                    current_formation.append(b_cand["Pos"])
-                    
-                    def_count = current_formation.count("DEF")
-                    mid_count = current_formation.count("MID")
-                    fwd_count = current_formation.count("FWD")
-                    
-                    if def_count >= 3 and mid_count >= 2 and fwd_count >= 1:
-                        dnp_s["sub_action"] = "Subbed Off"
-                        b_cand["sub_action"] = "Subbed On"
-                        used_bench_ids.add(b_cand["id"])
-                        break
+                    "pick_pos": p.get("position", 99)
+                }
+                if p.get("position", 99) <= 11:
+                    starters.append(row)
+                else:
+                    bench.append(row)
+            starters_df = pd.DataFrame(starters)
+            bench_df = pd.DataFrame(bench)
+            if not starters_df.empty:
+                starters_df = starters_df.sort_values(by=["pos_num", "Pts"], ascending=[True, False])
+            if not bench_df.empty:
+                bench_df = bench_df.sort_values(by="pick_pos", ascending=True)
+            return starters_df, bench_df
 
-            # Compute totals
-            active_lineup = []
-            for s in starters:
-                if s["sub_action"] != "Subbed Off":
-                    active_lineup.append(s)
-            for b in bench:
-                if b["sub_action"] == "Subbed On":
-                    active_lineup.append(b)
-                    
-            live_score = sum(p["Pts"] for p in active_lineup)
-            proj_score = sum(p["Proj"] for p in active_lineup)
-            to_play = sum(1 for p in active_lineup if p["State"] in ["YTP", "LIVE"])
-            
-            starters_df = pd.DataFrame(starters).sort_values(by=["pos_num", "Pts"], ascending=[True, False])
-            bench_df = pd.DataFrame(bench).sort_values(by="pick_pos", ascending=True)
-            
-            return starters_df, bench_df, live_score, round(proj_score, 1), to_play
-
-        t1_starters, t1_bench, t1_live, t1_proj, t1_ytp = process_team_projection(picks1_data)
-        t2_starters, t2_bench, t2_live, t2_proj, t2_ytp = process_team_projection(picks2_data)
-
-        # Fallback to official score if match is completely finalized
-        if is_finished:
-            t1_display_score = selected_match.get("league_entry_1_points", t1_live)
-            t2_display_score = selected_match.get("league_entry_2_points", t2_live)
-        else:
-            t1_display_score = t1_live
-            t2_display_score = t2_live
-
-        st.divider()
-
-        # Score Banner
-        res_col1, res_col2, res_col3 = st.columns([4, 3, 4])
-        with res_col1:
-            st.markdown("### " + str(e1_info.get("entry_name", "Team 1")))
-            st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
-            if not is_finished:
-                st.write("**Current:** " + str(t1_display_score) + " pts | **Projected:** " + str(t1_proj) + " pts (" + str(t1_ytp) + " to go)")
-
-        with res_col2:
-            if is_finished:
-                st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(t1_display_score) + " " + dash + " " + str(t2_display_score) + "</h2>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: gray; margin: 0;'>FINAL SCORE (GW " + str(gw_num) + ")</p>", unsafe_allow_html=True)
-            else:
-                st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(t1_display_score) + " " + dash + " " + str(t2_display_score) + "</h2>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: #2e7d32; font-weight: bold; margin: 0;'>LIVE SCORE</p>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: gray; margin: 0;'>Projected: " + str(t1_proj) + " " + dash + " " + str(t2_proj) + "</p>", unsafe_allow_html=True)
-
-        with res_col3:
-            st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: right; color: gray; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html=True)
-            if not is_finished:
-                st.markdown("<p style='text-align: right; margin: 0;'><b>Current:</b> " + str(t2_display_score) + " pts | <b>Projected:</b> " + str(t2_proj) + " pts (" + str(t2_ytp) + " to go)</p>", unsafe_allow_html=True)
-
-        st.divider()
-
-        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus"]
-        if not is_finished:
-            display_cols.append("sub_action")
+        team1_starters, team1_bench = build_player_rows(picks1_data)
+        team2_starters, team2_bench = build_player_rows(picks2_data)
+        display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
 
         side1, side2 = st.columns(2)
-        
         with side1:
             st.subheader(str(e1_info.get("entry_name")) + " Lineup")
-            if not t1_starters.empty:
+            if not team1_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(t1_starters[display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+                st.dataframe(team1_starters[display_cols], use_container_width=True, hide_index=True)
+                st.markdown("**Bench Substitutes**")
+                st.dataframe(team1_bench[display_cols], use_container_width=True, hide_index=True)
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
-                
-            if not t1_bench.empty:
-                st.markdown("**Bench Substitutes**")
-                st.dataframe(t1_bench[display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
 
         with side2:
             st.subheader(str(e2_info.get("entry_name")) + " Lineup")
-            if not t2_starters.empty:
+            if not team2_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(t2_starters[display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+                st.dataframe(team2_starters[display_cols], use_container_width=True, hide_index=True)
+                st.markdown("**Bench Substitutes**")
+                st.dataframe(team2_bench[display_cols], use_container_width=True, hide_index=True)
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
-                
-            if not t2_bench.empty:
-                st.markdown("**Bench Substitutes**")
-                st.dataframe(t2_bench[display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
 
 # ----------------- NEWSLETTERS SECTION -----------------
 elif st.session_state.page == "Newsletters":
