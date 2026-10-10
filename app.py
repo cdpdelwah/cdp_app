@@ -185,28 +185,41 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
-    /* High Contrast Dropdown Select Boxes */
-    div[data-baseweb="select"] {{
-        background-color: #ffffff !important;
-        border-radius: 6px !important;
-    }}
+    /* Carbon Dark Select Boxes and Dropdowns */
     div[data-baseweb="select"] > div {{
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
+        background-color: #0c1017 !important;
+        border: 1px solid #232b3e !important;
         border-radius: 6px !important;
     }}
+
     div[data-baseweb="select"] * {{
-        color: #000000 !important;
+        color: #ffffff !important;
+    }}
+
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] > div,
+    ul[data-baseweb="menu"],
+    div[data-baseweb="menu"] {{
+        background-color: #0c1017 !important;
+        border: 1px solid #232b3e !important;
+        border-radius: 6px !important;
+    }}
+
+    li[role="option"],
+    li[data-baseweb="menu-item"],
+    li[role="option"] *,
+    li[data-baseweb="menu-item"] * {{
+        background-color: #0c1017 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }}
-    div[data-baseweb="popover"] ul,
-    div[data-baseweb="popover"] li {{
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }}
-    div[data-baseweb="popover"] li * {{
-        color: #000000 !important;
-        font-weight: 600 !important;
+
+    li[role="option"]:hover,
+    li[role="option"]:hover *,
+    li[aria-selected="true"],
+    li[aria-selected="true"] * {{
+        background-color: #161e2e !important;
+        color: {active_theme['accent']} !important;
     }}
 
     /* Adaptive Action Buttons */
@@ -457,6 +470,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
+    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -465,6 +479,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
+    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -915,7 +930,6 @@ elif st.session_state.page == "EPL SCORES":
                                 dc_direct = e_stats.get("defensive_contributions", 0) or e_stats.get("defcon", 0) or e_stats.get("cbit", 0)
                                 calc_val = dc_direct if dc_direct > 0 else (cbi + tackles)
                                 
-                                # Safely unpack explain without type assumptions
                                 explain_raw = e_data.get("explain", [])
                                 is_hit = False
                                 explain_val = 0
@@ -1035,7 +1049,7 @@ elif st.session_state.page == "Results Analyser":
     
     if view_mode == "By Gameweek":
         all_events = sorted(list({m["event"] for m in matches}))
-        played_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
+        played_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
         default_gw = played_events[-1] if played_events else all_events[0]
         
         with ctrl_col2:
