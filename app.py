@@ -135,10 +135,14 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
-    /* Tabular Styling */
+    /* Universal Table Styling */
     table {{
         color: #f1f5f9 !important;
         background-color: #090c13 !important;
+        border-collapse: collapse !important;
+        width: 100% !important;
+        border-radius: 6px !important;
+        overflow: hidden !important;
     }}
     
     thead tr th {{
@@ -146,11 +150,26 @@ st.markdown(f"""
         color: {active_theme['accent']} !important;
         border-bottom: 2px solid #182030 !important;
         font-weight: 700 !important;
+        padding: 6px 10px !important;
+        font-size: 0.85rem !important;
+        text-align: left !important;
     }}
     
-    tbody tr td {{
-        border-bottom: 1px solid #121824 !important;
+    tbody tr td, tbody tr th {{
+        background-color: #090c13 !important;
+        border-bottom: 1px solid #141a26 !important;
         color: #cbd5e1 !important;
+        padding: 6px 10px !important;
+        font-size: 0.85rem !important;
+    }}
+
+    tbody tr th {{
+        font-weight: 600 !important;
+        color: #ffffff !important;
+    }}
+
+    tbody tr:hover td, tbody tr:hover th {{
+        background-color: #121724 !important;
     }}
 
     /* Adaptive Action Buttons */
@@ -649,16 +668,16 @@ elif st.session_state.page == "LIVE SCORES":
     active_spot = match_summaries[spotlight_idx]
     
     s_c1, s_c2 = st.columns(2)
-    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus", "sub_action"]
+    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus"]
 
     with s_c1:
         st.markdown("### " + active_spot["e1"].get("entry_name"))
         st.caption("Manager: " + str(active_spot["e1"].get("player_first_name", "")) + " " + str(active_spot["e1"].get("player_last_name", "")))
         if not active_spot["t1_start"].empty:
             st.markdown("**Starting XI (GK First)**")
-            st.dataframe(active_spot["t1_start"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
+            st.table(active_spot["t1_start"][display_cols].set_index("Player"))
             st.markdown("**Bench Substitutes**")
-            st.dataframe(active_spot["t1_b"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
+            st.table(active_spot["t1_b"][display_cols].set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 
@@ -667,9 +686,9 @@ elif st.session_state.page == "LIVE SCORES":
         st.caption("Manager: " + str(active_spot["e2"].get("player_first_name", "")) + " " + str(active_spot["e2"].get("player_last_name", "")))
         if not active_spot["t2_start"].empty:
             st.markdown("**Starting XI (GK First)**")
-            st.dataframe(active_spot["t2_start"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
+            st.table(active_spot["t2_start"][display_cols].set_index("Player"))
             st.markdown("**Bench Substitutes**")
-            st.dataframe(active_spot["t2_b"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
+            st.table(active_spot["t2_b"][display_cols].set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 
@@ -823,9 +842,9 @@ elif st.session_state.page == "Results Analyser":
             st.subheader(str(e1_info.get("entry_name")) + " Lineup")
             if not team1_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(team1_starters[display_cols], use_container_width = True, hide_index = True)
+                st.table(team1_starters[display_cols].set_index("Player"))
                 st.markdown("**Bench Substitutes**")
-                st.dataframe(team1_bench[display_cols], use_container_width = True, hide_index = True)
+                st.table(team1_bench[display_cols].set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
@@ -833,9 +852,9 @@ elif st.session_state.page == "Results Analyser":
             st.subheader(str(e2_info.get("entry_name")) + " Lineup")
             if not team2_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(team2_starters[display_cols], use_container_width = True, hide_index = True)
+                st.table(team2_starters[display_cols].set_index("Player"))
                 st.markdown("**Bench Substitutes**")
-                st.dataframe(team2_bench[display_cols], use_container_width = True, hide_index = True)
+                st.table(team2_bench[display_cols].set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
@@ -976,18 +995,18 @@ elif st.session_state.page == "Squad Analyser":
                     "health_status": "Status",
                     "form": "Form",
                     "points_per_game": "PPG"
-                }))
+                }).set_index("Player"))
                 
             with col_bench:
                 st.markdown("### Bench Hierarchy")
                 if bench_gk:
                     st.markdown("**Goalkeeper Reserve**")
                     bgk_df = pd.DataFrame(bench_gk)[["web_name", "position", "club", "health_status"]]
-                    st.table(bgk_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status"}))
+                    st.table(bgk_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status"}).set_index("Player"))
                 if not ordered_bench_outfield.empty:
                     st.markdown("**Outfield Substitutes (Auto Sub Order)**")
                     bo_df = ordered_bench_outfield[["web_name", "position", "club", "health_status", "form"]]
-                    st.table(bo_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "form": "Form"}))
+                    st.table(bo_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "form": "Form"}).set_index("Player"))
                     st.caption("Sub 1 prioritises 100% fit players to guarantee cover if a doubtful starter misses out.")
 
     with tab_waivers:
@@ -1024,7 +1043,7 @@ elif st.session_state.page == "Squad Analyser":
         top_waivers = filtered_waivers.sort_values(by = "cdp_score", ascending = False).head(15)
         
         display_cols = ["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news", "cdp_score"]
-        st.dataframe(
+        st.table(
             top_waivers[display_cols].rename(columns = {
                 "web_name": "Player",
                 "position": "Pos",
@@ -1035,9 +1054,7 @@ elif st.session_state.page == "Squad Analyser":
                 "total_points": "Total Pts",
                 "news": "Notes",
                 "cdp_score": score_label
-            }),
-            use_container_width = True,
-            hide_index = True
+            }).set_index("Player")
         )
 
     with tab_squad:
@@ -1046,7 +1063,7 @@ elif st.session_state.page == "Squad Analyser":
         squad_display["pos_rank"] = squad_display["position"].map(POS_ORDER)
         squad_display = squad_display.sort_values(by = ["pos_rank", "total_points"], ascending = [True, False])
         
-        st.dataframe(
+        st.table(
             squad_display[["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news"]].rename(columns = {
                 "web_name": "Player",
                 "position": "Pos",
@@ -1056,7 +1073,5 @@ elif st.session_state.page == "Squad Analyser":
                 "points_per_game": "PPG",
                 "total_points": "Total Pts",
                 "news": "Injury Report"
-            }),
-            use_container_width = True,
-            hide_index = True
+            }).set_index("Player")
         )
