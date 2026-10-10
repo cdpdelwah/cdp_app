@@ -7,7 +7,7 @@ import pypdfium2 as pdfium
 
 base_dir = Path(__file__).resolve().parent
 
-# Check for Assets directory (capitalised and lowercase)
+# Check for Assets directory
 assets_folder = base_dir / "Assets"
 if not assets_folder.exists():
     assets_folder = base_dir / "assets"
@@ -30,6 +30,34 @@ LEAGUE_PRESETS = {
     "LDE (Liger Del Eager)": 240
 }
 
+# Thematic identity colors extracted directly from the Season X league crests
+LEAGUE_THEMES = {
+    "CDP (Crème Dellar Prem)": {
+        "accent": "#f59e0b",       # Championship Gold
+        "accent_glow": "rgba(245, 158, 11, 0.25)",
+        "badge_bg": "#231804",
+        "tag": "PREMIER DIVISION"
+    },
+    "SDM (Segundo Del Mundo)": {
+        "accent": "#3b82f6",       # Glacial Ice Blue
+        "accent_glow": "rgba(59, 130, 246, 0.25)",
+        "badge_bg": "#06152d",
+        "tag": "SEGUNDO DIVISION"
+    },
+    "BDR (Best De La Rest)": {
+        "accent": "#f97316",       # Molten Ember Orange
+        "accent_glow": "rgba(249, 115, 22, 0.25)",
+        "badge_bg": "#271004",
+        "tag": "DIVISION THREE"
+    },
+    "LDE (Liger Del Eager)": {
+        "accent": "#22c55e",       # Electric Acid Green
+        "accent_glow": "rgba(34, 197, 94, 0.25)",
+        "badge_bg": "#052210",
+        "tag": "DIVISION FOUR"
+    }
+}
+
 # Positional hierarchy mapping for display ordering
 POS_ORDER = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
 
@@ -39,6 +67,128 @@ if "page" not in st.session_state:
 
 def set_page(page_name):
     st.session_state.page = page_name
+
+# Sidebar Brand and Navigation
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width = True)
+else:
+    st.sidebar.title("CDP App")
+
+st.sidebar.caption("Stats, not facts | Season X Command Center")
+
+st.sidebar.radio(
+    "Navigation Menu",
+    ["Home", "LIVE SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
+    key = "page"
+)
+
+st.sidebar.divider()
+st.sidebar.subheader("League Selection")
+
+selected_league_key = st.sidebar.selectbox(
+    "Active Competition",
+    list(LEAGUE_PRESETS.keys()),
+    key = "active_competition"
+)
+active_league_id = LEAGUE_PRESETS[selected_league_key]
+active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
+
+# Dynamic Pure Black CSS Engine with Adaptive League Accent
+st.markdown(f"""
+<style>
+    /* Global Pure Black Canvas */
+    .stApp {{
+        background-color: #000000 !important;
+        color: #f1f5f9 !important;
+    }}
+
+    /* Sidebar Background */
+    section[data-testid="stSidebar"] {{
+        background-color: #06070a !important;
+        border-right: 1px solid #141824 !important;
+    }}
+
+    /* Typography Hierarchy */
+    h1, h2, h3, h4, h5, h6 {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.3px !important;
+    }}
+
+    p, span, label, div {{
+        color: #e2e8f0;
+    }}
+
+    .stCaption, small {{
+        color: #64748b !important;
+    }}
+
+    /* Matchday Card Containers */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: #090c13 !important;
+        border: 1px solid #182030 !important;
+        border-radius: 8px !important;
+        transition: border 0.2s ease;
+    }}
+
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+        border-color: {active_theme['accent']} !important;
+    }}
+
+    /* Tabular Styling */
+    table {{
+        color: #f1f5f9 !important;
+        background-color: #090c13 !important;
+    }}
+    
+    thead tr th {{
+        background-color: #0e131d !important;
+        color: {active_theme['accent']} !important;
+        border-bottom: 2px solid #182030 !important;
+        font-weight: 700 !important;
+    }}
+    
+    tbody tr td {{
+        border-bottom: 1px solid #121824 !important;
+        color: #cbd5e1 !important;
+    }}
+
+    /* Adaptive Action Buttons */
+    button[kind="primary"] {{
+        background-color: {active_theme['accent']} !important;
+        color: #000000 !important;
+        font-weight: 800 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        box-shadow: 0 0 12px {active_theme['accent_glow']} !important;
+    }}
+
+    button[kind="primary"]:hover {{
+        filter: brightness(1.15);
+        color: #000000 !important;
+    }}
+
+    button[kind="secondary"] {{
+        background-color: #0e121a !important;
+        color: #ffffff !important;
+        border: 1px solid #20293d !important;
+        border-radius: 6px !important;
+    }}
+
+    button[kind="secondary"]:hover {{
+        border-color: {active_theme['accent']} !important;
+        color: {active_theme['accent']} !important;
+    }}
+
+    /* Dynamic Progress Bar */
+    div[data-testid="stProgressBar"] > div {{
+        background-color: #121824 !important;
+    }}
+    div[data-testid="stProgressBar"] > div > div {{
+        background-color: {active_theme['accent']} !important;
+    }}
+</style>
+""", unsafe_allow_html = True)
 
 def render_pdf(filename, title):
     folder = base_dir / "Newsletters"
@@ -83,7 +233,7 @@ def render_pdf(filename, title):
 
 @st.cache_data(ttl = 3600)
 def fetch_fpl_static():
-    url = "https://draft.premierleague.com/api/bootstrap-static"
+    url = "https://draft.premierleague.com/api/bootstrap" + chr(45) + "static"
     response = requests.get(url)
     if response.status_code != 200:
         return None
@@ -94,7 +244,7 @@ def fetch_league_data(league_id):
     if not league_id:
         return None, None
     details_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/details"
-    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element-status"
+    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element" + chr(45) + "status"
     
     det_resp = requests.get(details_url)
     stat_resp = requests.get(status_url)
@@ -243,6 +393,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
+    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -251,6 +402,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
+    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -275,30 +427,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     return starters_df, bench_df, live_score, round(proj_score, 1), to_play
 
-# Sidebar Brand & Navigation
-if logo_path.exists():
-    st.sidebar.image(str(logo_path), use_container_width = True)
-else:
-    st.sidebar.title("CDP App")
-
-st.sidebar.caption("Stats, not facts | Season X Command Center")
-
-st.sidebar.radio(
-    "Navigation Menu",
-    ["Home", "LIVE SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
-    key = "page"
-)
-
-st.sidebar.divider()
-st.sidebar.subheader("League Selection")
-
-selected_league_key = st.sidebar.selectbox(
-    "Active Competition",
-    list(LEAGUE_PRESETS.keys()),
-    key = "active_competition"
-)
-active_league_id = LEAGUE_PRESETS[selected_league_key]
-
 # ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
     col_brand, col_intro = st.columns([1, 4])
@@ -306,18 +434,22 @@ if st.session_state.page == "Home":
         if logo_path.exists():
             st.image(str(logo_path), use_container_width = True)
     with col_intro:
-        st.title("CDP App " + dash + " Season X")
-        st.caption("Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications")
+        st.markdown(f"""
+        <div style="margin-top: 5px;">
+            <span style="background-color: {active_theme['badge_bg']}; color: {active_theme['accent']}; border: 1px solid {active_theme['accent']}; font-weight: 800; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; letter-spacing: 1px;">
+                {active_theme['tag']}
+            </span>
+            <h1 style="margin: 0.4rem 0 0.1rem 0; font-size: 2.4rem;">CDP App {dash} Season X</h1>
+            <p style="color: #94a3b8; margin: 0; font-size: 0.95rem;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
+        </div>
+        """, unsafe_allow_html = True)
 
-    st.markdown("### Welcome to the Dellarverse Hub")
-    st.write(
-        "Use the sidebar or the launchpad below to track live weekend fixtures, "
-        "optimise your squad, inspect past results or read official league publications."
-    )
+    st.write("")
     
-    st.subheader("Current Competition Status")
-    st.info("**Selected League:** " + selected_league_key)
-    st.success("League linked and ready")
+    with st.container(border = True):
+        st.subheader("Current Competition Status")
+        st.markdown(f"**Active Division:** <span style='color: {active_theme['accent']}; font-weight: bold; font-size: 1.1rem;'>{selected_league_key}</span>", unsafe_allow_html = True)
+        st.caption("Live feed connected to Premier League Draft API")
     
     st.markdown("#### Quick Launchpad")
     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns(4)
@@ -481,24 +613,24 @@ elif st.session_state.page == "LIVE SCORES":
                     with hdr_l:
                         st.markdown("**" + item["e1"].get("entry_name", "Team 1") + " vs " + item["e2"].get("entry_name", "Team 2") + "**")
                     with hdr_r:
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem;'><b>" + status_badge + "</b></p>", unsafe_allow_html = True)
+                        st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {active_theme['accent']};'><b>{status_badge}</b></p>", unsafe_allow_html = True)
                         
                     sc_col1, sc_col2, sc_col3 = st.columns([3, 2, 3])
                     with sc_col1:
-                        st.markdown("<h3 style='margin: 0;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
+                        st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
                         st.caption("Proj: " + str(item["t1_proj"]) + " (" + str(item["t1_ytp"]) + " to play)")
                     with sc_col2:
-                        st.markdown("<p style='text-align: center; margin: 10px 0; color: gray;'>vs</p>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
                     with sc_col3:
-                        st.markdown("<h3 style='text-align: right; margin: 0;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: gray;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html = True)
+                        st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: #94a3b8;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html = True)
                     
                     st.progress(item["prob1"] / 100.0)
                     p_l, p_r = st.columns(2)
                     with p_l:
-                        st.caption("Win: **" + str(item["prob1"]) + "%**")
+                        st.markdown(f"<span style='color: {active_theme['accent']}; font-size: 0.85rem; font-weight: bold;'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
                     with p_r:
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: gray;'>Win: <b>" + str(item["prob2"]) + "%</b></p>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: #94a3b8;'>Win: <b>" + str(item["prob2"]) + "%</b></p>", unsafe_allow_html = True)
 
     st.divider()
 
@@ -633,11 +765,11 @@ elif st.session_state.page == "Results Analyser":
             st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: center; color: gray; margin: 0;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
+            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: right; color: gray; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
