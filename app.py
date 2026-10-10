@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import pandas as pd
+from pathlib import Path
+import base64
 
 st.set_page_config(page_title="CDP App", layout="wide")
 
@@ -17,6 +19,38 @@ LEAGUE_PRESETS = {
 # Bind navigation directly to session state
 if "page" not in st.session_state:
     st.session_state.page = "Home"
+
+# Toggle state for newsletters
+if "show_league_news" not in st.session_state:
+    st.session_state.show_league_news = False
+if "show_cup_news" not in st.session_state:
+    st.session_state.show_cup_news = False
+
+def render_pdf(filename, title):
+    path = Path("newsletters") / filename
+    if not path.exists():
+        st.info(f"No edition found at `/newsletters/{filename}` yet. Upload the PDF to GitHub to display it here.")
+        return
+    
+    pdf_bytes = path.read_bytes()
+    b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+    
+    col_d1, col_d2 = st.columns([1, 3])
+    with col_d1:
+        st.download_button(
+            label=f"⬇️ Download {title} (PDF)",
+            data=pdf_bytes,
+            file_name=filename,
+            mime="application/pdf",
+            use_container_width=True
+        )
+    
+    pdf_embed = (
+        f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
+        f'width="100%" height="850" type="application/pdf" '
+        f'style="border: none; border-radius: 8px;"></iframe>'
+    )
+    st.markdown(pdf_embed, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
 def fetch_fpl_static():
@@ -98,13 +132,33 @@ active_league_id = LEAGUE_PRESETS[selected_league_key]
 # Landing Page
 if st.session_state.page == "Home":
     st.title("CDP App")
-    st.caption("Central Draft Intelligence and Lineup Optimization Hub")
+    st.caption("Dellarverse HQ: Central Draft Intelligence, Lineups and Publications")
     
-    st.markdown("### Welcome to the Hub")
-    st.write(
-        "Select your active competition from the sidebar to inspect specific draft rosters, "
-        "evaluate high priority free agents and review optimized starting formations."
-    )
+    st.markdown("### Dellarverse Gazette")
+    st.write("Read the latest official editorial reports, rankings and cup news directly in the app.")
+    
+    nl_col1, nl_col2 = st.columns(2)
+    with nl_col1:
+        if st.button("📰 Latest League Newsletter", use_container_width=True):
+            st.session_state.show_league_news = not st.session_state.show_league_news
+            st.session_state.show_cup_news = False
+    with nl_col2:
+        if st.button("🏆 Latest Cup Newsletter", use_container_width=True):
+            st.session_state.show_cup_news = not st.session_state.show_cup_news
+            st.session_state.show_league_news = False
+
+    if st.session_state.show_league_news:
+        st.markdown("---")
+        st.subheader("Official League Gazette")
+        render_pdf("latest_league.pdf", "League Newsletter")
+
+    if st.session_state.show_cup_news:
+        st.markdown("---")
+        st.subheader("Official Cup Gazette")
+        render_pdf("latest_cup.pdf", "Cup Newsletter")
+
+    st.markdown("---")
+    st.markdown("### Draft Command Centre")
     
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -120,11 +174,11 @@ if st.session_state.page == "Home":
         st.subheader("Core Capabilities")
         st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
         st.markdown("* **Waiver Intelligence**: Immediate gameweek priorities alongside high ceiling stash targets.")
-        st.markdown("* **Instant League Switching**: Jump between CDP, SDM, BDR and LDE without typing IDs.")
+        st.markdown("* **Instant League Switching**: Jump between CDP, SDM, BDR and LDE seamlessly.")
 
 # Squad Analyser Section
 elif st.session_state.page == "Squad Analyser":
-    st.title(f"Squad Analyser - {selected_league_key}")
+    st.title(f"Squad Analyser {dash} {selected_league_key}")
     
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
@@ -164,7 +218,6 @@ elif st.session_state.page == "Squad Analyser":
     entry_keys = list(entry_options.keys())
     default_entry_idx = entry_keys.index(88) if 88 in entry_keys else 0
 
-    # Competition specific key prevents KeyError when switching leagues
     selected_entry_id = st.sidebar.selectbox(
         "Select Your Team",
         options=entry_keys,
