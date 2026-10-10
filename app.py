@@ -7,7 +7,7 @@ import pypdfium2 as pdfium
 
 st.set_page_config(page_title="CDP App", layout="wide")
 
-dash = chr(45)
+dash = " - "
 
 # Hardcoded league registry
 LEAGUE_PRESETS = {
@@ -69,7 +69,7 @@ def render_pdf(filename, title):
 
 @st.cache_data(ttl=3600)
 def fetch_fpl_static():
-    url = "https://draft.premierleague.com/api/bootstrap" + dash + "static"
+    url = "https://draft.premierleague.com/api/bootstrap-static"
     response = requests.get(url)
     if response.status_code != 200:
         return None
@@ -80,7 +80,7 @@ def fetch_league_data(league_id):
     if not league_id:
         return None, None
     details_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/details"
-    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element" + dash + "status"
+    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element-status"
     
     det_resp = requests.get(details_url)
     stat_resp = requests.get(status_url)
@@ -158,7 +158,6 @@ def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is
         return 50, 50
 
     margin = proj1 - proj2
-    # Adjust spread dynamically according to remaining volatility
     spread = max(6.0, total_left * 2.8)
     prob1 = 1.0 / (1.0 + math.exp(-margin / (spread / 1.7)))
     pct1 = int(round(prob1 * 100))
@@ -239,7 +238,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
-    # Outfield substitutions with strict formation validity
+    # Outfield substitutions with strict formation rules
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -290,7 +289,7 @@ if st.session_state.page == "Home":
     
     st.markdown("### Welcome to the Dellarverse Hub")
     st.write(
-        "Use the sidebar navigation to track the weekend in real-time on LIVE SCORES, "
+        "Use the sidebar navigation to track the weekend in real time on LIVE SCORES, "
         "optimise your squad in the Squad Analyser or browse the official publications."
     )
     
@@ -316,14 +315,14 @@ if st.session_state.page == "Home":
 
     with col2:
         st.subheader("Core Capabilities")
-        st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real-time auto-subs.")
+        st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
         st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
-        st.markdown("* **Results Analyser**: Historical head-to-head match breakdowns across past gameweeks.")
+        st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
         st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
 
 # ----------------- LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
-    st.title("🔴 LIVE SCORES " + dash + " " + selected_league_key)
+    st.title("🔴 LIVE SCORES" + dash + selected_league_key)
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
@@ -335,23 +334,31 @@ elif st.session_state.page == "LIVE SCORES":
     entries = league_details.get("league_entries", [])
     matches = league_details.get("matches", [])
     
-    # Auto-detect current gameweek
-    current_gw = None
-    events_meta = static_data.get("events", {}).get("data", [])
-    for ev in events_meta:
-        if ev.get("is_current"):
-            current_gw = ev.get("id")
-            break
-            
-    if not current_gw and matches:
-        played = [m["event"] for m in matches if m.get("finished", False)]
-        current_gw = played[-1] if played else matches[0]["event"]
+    if not matches:
+        st.warning("No matches found for this league.")
+        st.stop()
 
-    top_c1, top_c2 = st.columns([4, 1])
+    all_events = sorted(list({m["event"] for m in matches}))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
+
+    # Detect the active round: first round with uncompleted games
+    if unplayed_events:
+        detected_gw = unplayed_events[0]
+    else:
+        detected_gw = all_events[-1] if all_events else 1
+
+    top_c1, top_c2, top_c3 = st.columns([3, 2, 1])
     with top_c1:
-        st.caption("Active Gameweek: **GW " + str(current_gw) + "** | Real-time scoreline forecast & in-match win probability")
+        st.caption("Real time scoreline forecast, live projections and in match win probability")
     with top_c2:
-        if st.button("🔄 Refresh Scores", use_container_width=True):
+        current_gw = st.selectbox(
+            "Active Gameweek",
+            all_events,
+            index=all_events.index(detected_gw) if detected_gw in all_events else 0
+        )
+    with top_c3:
+        st.write("")
+        if st.button("🔄 Refresh", use_container_width=True):
             fetch_entry_event.clear()
             fetch_live_event.clear()
             st.rerun()
@@ -364,7 +371,6 @@ elif st.session_state.page == "LIVE SCORES":
     live_data = fetch_live_event(current_gw)
     live_elements = live_data.get("elements", {}) if live_data else {}
     
-    # Build club cumulative minutes for fixture status detection
     club_minutes = {}
     for elem_str_id, e_info in live_elements.items():
         elem_int_id = int(elem_str_id)
@@ -382,7 +388,6 @@ elif st.session_state.page == "LIVE SCORES":
 
     st.subheader("Around the Grounds (GW " + str(current_gw) + ")")
     
-    # Pre-process all fixtures for the scoreboard grid
     match_summaries = []
     for m in gw_matches:
         e1 = lentry_map.get(m["league_entry_1"], {})
@@ -423,7 +428,6 @@ elif st.session_state.page == "LIVE SCORES":
             "t2_b": t2_b
         })
 
-    # Display match cards in 2-column grid
     for idx in range(0, len(match_summaries), 2):
         grid_c1, grid_c2 = st.columns(2)
         items = [match_summaries[idx]]
@@ -451,7 +455,6 @@ elif st.session_state.page == "LIVE SCORES":
                         st.markdown("<h3 style='text-align: right; margin: 0;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html=True)
                         st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: gray;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html=True)
                     
-                    # Win Probability Bar
                     st.progress(item["prob1"] / 100.0)
                     p_l, p_r = st.columns(2)
                     with p_l:
@@ -461,8 +464,7 @@ elif st.session_state.page == "LIVE SCORES":
 
     st.divider()
 
-    # Spotlight Matchup Details
-    st.subheader("Match Spotlight & Lineup Breakdown")
+    st.subheader("Match Spotlight and Lineup Breakdown")
     
     def spot_label(i):
         item = match_summaries[i]
@@ -503,7 +505,7 @@ elif st.session_state.page == "LIVE SCORES":
 
 # ----------------- RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
-    st.title("Results Analyser " + dash + " " + selected_league_key)
+    st.title("Results Analyser" + dash + selected_league_key)
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
@@ -593,7 +595,7 @@ elif st.session_state.page == "Results Analyser":
             st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + " " + dash + " " + str(score2) + "</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: gray; margin: 0;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html=True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html=True)
@@ -684,7 +686,7 @@ elif st.session_state.page == "Newsletters":
 
 # ----------------- SQUAD ANALYSER SECTION -----------------
 elif st.session_state.page == "Squad Analyser":
-    st.title("Squad Analyser " + dash + " " + selected_league_key)
+    st.title("Squad Analyser" + dash + selected_league_key)
     
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
