@@ -5,9 +5,22 @@ import math
 from pathlib import Path
 import pypdfium2 as pdfium
 
-st.set_page_config(page_title="CDP App", layout="wide")
+base_dir = Path(__file__).resolve().parent
+
+# Check for Assets directory (capitalised and lowercase)
+assets_folder = base_dir / "Assets"
+if not assets_folder.exists():
+    assets_folder = base_dir / "assets"
+
+logo_path = assets_folder / "SeasonX_Logo_Master.jpg"
 
 dash = " - "
+
+st.set_page_config(
+    page_title = "CDP App | Season X",
+    page_icon = str(logo_path) if logo_path.exists() else "⚽",
+    layout = "wide"
+)
 
 # Hardcoded league registry
 LEAGUE_PRESETS = {
@@ -28,8 +41,6 @@ def set_page(page_name):
     st.session_state.page = page_name
 
 def render_pdf(filename, title):
-    base_dir = Path(__file__).resolve().parent
-    
     folder = base_dir / "Newsletters"
     if not folder.exists():
         folder = base_dir / "newsletters"
@@ -54,23 +65,23 @@ def render_pdf(filename, title):
     pdf_bytes = target.read_bytes()
 
     st.download_button(
-        label="📥 Download " + title + " (PDF)",
-        data=pdf_bytes,
-        file_name=target.name,
-        mime="application/pdf",
-        use_container_width=True
+        label = "📥 Download " + title + " (PDF)",
+        data = pdf_bytes,
+        file_name = target.name,
+        mime = "application/pdf",
+        use_container_width = True
     )
 
     try:
         pdf = pdfium.PdfDocument(pdf_bytes)
         for page_index in range(len(pdf)):
             page = pdf[page_index]
-            image = page.render(scale=2).to_pil()
-            st.image(image, use_container_width=True)
+            image = page.render(scale = 2).to_pil()
+            st.image(image, use_container_width = True)
     except Exception as e:
         st.error("Error rendering PDF pages: " + str(e))
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl = 3600)
 def fetch_fpl_static():
     url = "https://draft.premierleague.com/api/bootstrap-static"
     response = requests.get(url)
@@ -78,7 +89,7 @@ def fetch_fpl_static():
         return None
     return response.json()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl = 600)
 def fetch_league_data(league_id):
     if not league_id:
         return None, None
@@ -93,7 +104,7 @@ def fetch_league_data(league_id):
         
     return det_resp.json(), stat_resp.json()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl = 60)
 def fetch_entry_event(entry_id, event):
     url = "https://draft.premierleague.com/api/entry/" + str(entry_id) + "/event/" + str(event)
     resp = requests.get(url)
@@ -101,7 +112,7 @@ def fetch_entry_event(entry_id, event):
         return None
     return resp.json()
 
-@st.cache_data(ttl=45)
+@st.cache_data(ttl = 45)
 def fetch_live_event(event):
     url = "https://draft.premierleague.com/api/event/" + str(event) + "/live"
     resp = requests.get(url)
@@ -228,7 +239,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         
     starters = [r for r in raw_players if r["is_starter"]]
     bench = [r for r in raw_players if not r["is_starter"]]
-    bench = sorted(bench, key=lambda x: x["pick_pos"])
+    bench = sorted(bench, key = lambda x: x["pick_pos"])
     
     used_bench_ids = set()
     
@@ -259,18 +270,23 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     proj_score = sum(p["Proj"] for p in active_lineup)
     to_play = sum(1 for p in active_lineup if p["State"] in ["YTP", "LIVE"])
     
-    starters_df = pd.DataFrame(starters).sort_values(by=["pos_num", "Pts"], ascending=[True, False])
-    bench_df = pd.DataFrame(bench).sort_values(by="pick_pos", ascending=True)
+    starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
+    bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True)
     
     return starters_df, bench_df, live_score, round(proj_score, 1), to_play
 
-# Sidebar navigation
-st.sidebar.title("CDP App Navigation")
+# Sidebar Brand & Navigation
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width = True)
+else:
+    st.sidebar.title("CDP App")
+
+st.sidebar.caption("Stats, not facts | Season X Command Center")
 
 st.sidebar.radio(
     "Navigation Menu",
     ["Home", "LIVE SCORES", "Squad Analyser", "Results Analyser", "Newsletters"],
-    key="page"
+    key = "page"
 )
 
 st.sidebar.divider()
@@ -279,18 +295,23 @@ st.sidebar.subheader("League Selection")
 selected_league_key = st.sidebar.selectbox(
     "Active Competition",
     list(LEAGUE_PRESETS.keys()),
-    key="active_competition"
+    key = "active_competition"
 )
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 
 # ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
-    st.title("CDP App")
-    st.caption("Dellarverse HQ: Central Draft Intelligence, Lineups and Publications")
-    
+    col_brand, col_intro = st.columns([1, 4])
+    with col_brand:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width = True)
+    with col_intro:
+        st.title("CDP App " + dash + " Season X")
+        st.caption("Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications")
+
     st.markdown("### Welcome to the Dellarverse Hub")
     st.write(
-        "Use the sidebar or the launchpad below to track live weekend action, "
+        "Use the sidebar or the launchpad below to track live weekend fixtures, "
         "optimise your squad, inspect past results or read official league publications."
     )
     
@@ -303,31 +324,31 @@ if st.session_state.page == "Home":
     with btn_c1:
         st.button(
             "🔴 LIVE SCORES",
-            on_click=set_page,
-            args=("LIVE SCORES",),
-            type="primary",
-            use_container_width=True
+            on_click = set_page,
+            args = ("LIVE SCORES",),
+            type = "primary",
+            use_container_width = True
         )
     with btn_c2:
         st.button(
             "Squad Analyser",
-            on_click=set_page,
-            args=("Squad Analyser",),
-            use_container_width=True
+            on_click = set_page,
+            args = ("Squad Analyser",),
+            use_container_width = True
         )
     with btn_c3:
         st.button(
             "Results Analyser",
-            on_click=set_page,
-            args=("Results Analyser",),
-            use_container_width=True
+            on_click = set_page,
+            args = ("Results Analyser",),
+            use_container_width = True
         )
     with btn_c4:
         st.button(
             "Newsletters",
-            on_click=set_page,
-            args=("Newsletters",),
-            use_container_width=True
+            on_click = set_page,
+            args = ("Newsletters",),
+            use_container_width = True
         )
 
     st.divider()
@@ -371,11 +392,11 @@ elif st.session_state.page == "LIVE SCORES":
         current_gw = st.selectbox(
             "Active Gameweek",
             all_events,
-            index=all_events.index(detected_gw) if detected_gw in all_events else 0
+            index = all_events.index(detected_gw) if detected_gw in all_events else 0
         )
     with top_c3:
         st.write("")
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", use_container_width = True):
             fetch_entry_event.clear()
             fetch_live_event.clear()
             st.rerun()
@@ -454,30 +475,30 @@ elif st.session_state.page == "LIVE SCORES":
         cols = [grid_c1, grid_c2]
         for c_idx, item in enumerate(items):
             with cols[c_idx]:
-                with st.container(border=True):
+                with st.container(border = True):
                     status_badge = "✅ FINAL" if item["is_fin"] else "🟢 LIVE"
                     hdr_l, hdr_r = st.columns([3, 1])
                     with hdr_l:
                         st.markdown("**" + item["e1"].get("entry_name", "Team 1") + " vs " + item["e2"].get("entry_name", "Team 2") + "**")
                     with hdr_r:
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem;'><b>" + status_badge + "</b></p>", unsafe_allow_html=True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem;'><b>" + status_badge + "</b></p>", unsafe_allow_html = True)
                         
                     sc_col1, sc_col2, sc_col3 = st.columns([3, 2, 3])
                     with sc_col1:
-                        st.markdown("<h3 style='margin: 0;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html=True)
+                        st.markdown("<h3 style='margin: 0;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
                         st.caption("Proj: " + str(item["t1_proj"]) + " (" + str(item["t1_ytp"]) + " to play)")
                     with sc_col2:
-                        st.markdown("<p style='text-align: center; margin: 10px 0; color: gray;'>vs</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='text-align: center; margin: 10px 0; color: gray;'>vs</p>", unsafe_allow_html = True)
                     with sc_col3:
-                        st.markdown("<h3 style='text-align: right; margin: 0;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html=True)
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: gray;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html=True)
+                        st.markdown("<h3 style='text-align: right; margin: 0;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.85rem; color: gray;'>Proj: " + str(item["t2_proj"]) + " (" + str(item["t2_ytp"]) + " to play)</p>", unsafe_allow_html = True)
                     
                     st.progress(item["prob1"] / 100.0)
                     p_l, p_r = st.columns(2)
                     with p_l:
                         st.caption("Win: **" + str(item["prob1"]) + "%**")
                     with p_r:
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: gray;'>Win: <b>" + str(item["prob2"]) + "%</b></p>", unsafe_allow_html=True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: gray;'>Win: <b>" + str(item["prob2"]) + "%</b></p>", unsafe_allow_html = True)
 
     st.divider()
 
@@ -490,7 +511,7 @@ elif st.session_state.page == "LIVE SCORES":
     spotlight_idx = st.selectbox(
         "Inspect Matchup Details",
         range(len(match_summaries)),
-        format_func=lambda i: spot_label(i)
+        format_func = lambda i: spot_label(i)
     )
     
     active_spot = match_summaries[spotlight_idx]
@@ -503,9 +524,9 @@ elif st.session_state.page == "LIVE SCORES":
         st.caption("Manager: " + str(active_spot["e1"].get("player_first_name", "")) + " " + str(active_spot["e1"].get("player_last_name", "")))
         if not active_spot["t1_start"].empty:
             st.markdown("**Starting XI (GK First)**")
-            st.dataframe(active_spot["t1_start"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.dataframe(active_spot["t1_start"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
             st.markdown("**Bench Substitutes**")
-            st.dataframe(active_spot["t1_b"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.dataframe(active_spot["t1_b"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
         else:
             st.info("Lineup selections not yet available.")
 
@@ -514,9 +535,9 @@ elif st.session_state.page == "LIVE SCORES":
         st.caption("Manager: " + str(active_spot["e2"].get("player_first_name", "")) + " " + str(active_spot["e2"].get("player_last_name", "")))
         if not active_spot["t2_start"].empty:
             st.markdown("**Starting XI (GK First)**")
-            st.dataframe(active_spot["t2_start"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.dataframe(active_spot["t2_start"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
             st.markdown("**Bench Substitutes**")
-            st.dataframe(active_spot["t2_b"][display_cols].rename(columns={"sub_action": "Auto Sub"}), use_container_width=True, hide_index=True)
+            st.dataframe(active_spot["t2_b"][display_cols].rename(columns = {"sub_action": "Auto Sub"}), use_container_width = True, hide_index = True)
         else:
             st.info("Lineup selections not yet available.")
 
@@ -545,7 +566,7 @@ elif st.session_state.page == "Results Analyser":
     
     ctrl_col1, ctrl_col2 = st.columns([1, 2])
     with ctrl_col1:
-        view_mode = st.radio("Browse Fixtures", ["By Gameweek", "By Team"], horizontal=True)
+        view_mode = st.radio("Browse Fixtures", ["By Gameweek", "By Team"], horizontal = True)
         
     selected_match = None
     
@@ -555,7 +576,7 @@ elif st.session_state.page == "Results Analyser":
         default_gw = played_events[-1] if played_events else all_events[0]
         
         with ctrl_col2:
-            chosen_gw = st.selectbox("Select Gameweek", all_events, index=all_events.index(default_gw))
+            chosen_gw = st.selectbox("Select Gameweek", all_events, index = all_events.index(default_gw))
             
         gw_matches = [m for m in matches if m["event"] == chosen_gw]
         
@@ -570,17 +591,17 @@ elif st.session_state.page == "Results Analyser":
         match_idx = st.selectbox(
             "Select Fixture",
             range(len(gw_matches)),
-            format_func=lambda i: match_label_gw(gw_matches[i])
+            format_func = lambda i: match_label_gw(gw_matches[i])
         )
         selected_match = gw_matches[match_idx]
         
     else:
         team_choices = {e["id"]: e["entry_name"] + " (" + e["player_first_name"] + " " + e["player_last_name"] + ")" for e in entries}
         with ctrl_col2:
-            chosen_team_lid = st.selectbox("Select Team", list(team_choices.keys()), format_func=lambda x: team_choices[x])
+            chosen_team_lid = st.selectbox("Select Team", list(team_choices.keys()), format_func = lambda x: team_choices[x])
             
         team_matches = [m for m in matches if m["league_entry_1"] == chosen_team_lid or m["league_entry_2"] == chosen_team_lid]
-        team_matches = sorted(team_matches, key=lambda x: x["event"])
+        team_matches = sorted(team_matches, key = lambda x: x["event"])
         
         def match_label_team(m):
             e1 = lentry_map.get(m["league_entry_1"], {})
@@ -593,7 +614,7 @@ elif st.session_state.page == "Results Analyser":
         t_idx = st.selectbox(
             "Select Matchup",
             range(len(team_matches)),
-            format_func=lambda i: match_label_team(team_matches[i])
+            format_func = lambda i: match_label_team(team_matches[i])
         )
         selected_match = team_matches[t_idx]
 
@@ -612,11 +633,11 @@ elif st.session_state.page == "Results Analyser":
             st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: gray; margin: 0;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; margin: 0;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: center; color: gray; margin: 0;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: right; color: gray; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: gray; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
@@ -656,9 +677,9 @@ elif st.session_state.page == "Results Analyser":
             starters_df = pd.DataFrame(starters)
             bench_df = pd.DataFrame(bench)
             if not starters_df.empty:
-                starters_df = starters_df.sort_values(by=["pos_num", "Pts"], ascending=[True, False])
+                starters_df = starters_df.sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
             if not bench_df.empty:
-                bench_df = bench_df.sort_values(by="pick_pos", ascending=True)
+                bench_df = bench_df.sort_values(by = "pick_pos", ascending = True)
             return starters_df, bench_df
 
         team1_starters, team1_bench = build_player_rows(picks1_data)
@@ -670,9 +691,9 @@ elif st.session_state.page == "Results Analyser":
             st.subheader(str(e1_info.get("entry_name")) + " Lineup")
             if not team1_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(team1_starters[display_cols], use_container_width=True, hide_index=True)
+                st.dataframe(team1_starters[display_cols], use_container_width = True, hide_index = True)
                 st.markdown("**Bench Substitutes**")
-                st.dataframe(team1_bench[display_cols], use_container_width=True, hide_index=True)
+                st.dataframe(team1_bench[display_cols], use_container_width = True, hide_index = True)
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
@@ -680,9 +701,9 @@ elif st.session_state.page == "Results Analyser":
             st.subheader(str(e2_info.get("entry_name")) + " Lineup")
             if not team2_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.dataframe(team2_starters[display_cols], use_container_width=True, hide_index=True)
+                st.dataframe(team2_starters[display_cols], use_container_width = True, hide_index = True)
                 st.markdown("**Bench Substitutes**")
-                st.dataframe(team2_bench[display_cols], use_container_width=True, hide_index=True)
+                st.dataframe(team2_bench[display_cols], use_container_width = True, hide_index = True)
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
@@ -718,17 +739,17 @@ elif st.session_state.page == "Squad Analyser":
     elements_df = pd.DataFrame(static_data["elements"])
     elements_df["position"] = elements_df["element_type"].map(pos_map)
     elements_df["club"] = elements_df["team"].map(team_map)
-    elements_df["form"] = pd.to_numeric(elements_df["form"], errors="coerce").fillna(0)
-    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors="coerce").fillna(0)
-    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors="coerce").fillna(0)
-    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors="coerce").fillna(0)
-    elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors="coerce")
+    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0)
+    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0)
+    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0)
+    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
+    elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors = "coerce")
 
-    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis=1)
-    elements_df["health_status"] = elements_df.apply(get_health_label, axis=1)
+    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1)
+    elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
 
     status_df = pd.DataFrame(element_status["element_status"])
-    merged = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
+    merged = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
@@ -745,10 +766,10 @@ elif st.session_state.page == "Squad Analyser":
 
     selected_entry_id = st.sidebar.selectbox(
         "Select Your Team",
-        options=entry_keys,
-        format_func=lambda x: entry_options.get(x, str(x)),
-        index=default_entry_idx,
-        key="team_selector_" + str(active_league_id)
+        options = entry_keys,
+        format_func = lambda x: entry_options.get(x, str(x)),
+        index = default_entry_idx,
+        key = "team_selector_" + str(active_league_id)
     )
 
     my_squad = merged[merged["owner"] == selected_entry_id].copy()
@@ -768,8 +789,8 @@ elif st.session_state.page == "Squad Analyser":
                 base_score = (r["form"] * 2.5) + (r["points_per_game"] * 1.8) + (r["ict_index"] * 0.05)
                 return base_score * r["avail_factor"]
 
-            my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis=1)
-            sorted_squad = my_squad.sort_values(by="starter_rating", ascending=False)
+            my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis = 1)
+            sorted_squad = my_squad.sort_values(by = "starter_rating", ascending = False)
             
             gks = sorted_squad[sorted_squad["position"] == "GKP"]
             defs = sorted_squad[sorted_squad["position"] == "DEF"]
@@ -805,8 +826,8 @@ elif st.session_state.page == "Squad Analyser":
                 fit_bonus = 100.0 if r["avail_factor"] == 1.0 else (50.0 if r["avail_factor"] > 0.0 else 0 - 500.0)
                 return fit_bonus + (r["form"] * 2.0) + r["points_per_game"]
 
-            all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis=1)
-            ordered_bench_outfield = all_bench_outfield.sort_values(by="bench_score", ascending=False)
+            all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
+            ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
             
             col_start, col_bench = st.columns([3, 2])
             
@@ -814,9 +835,9 @@ elif st.session_state.page == "Squad Analyser":
                 st.markdown("### Starters (GK First)")
                 xi_df = pd.DataFrame(starting_xi)
                 xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
-                xi_df = xi_df.sort_values(by=["pos_rank", "starter_rating"], ascending=[True, False])
+                xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
                 
-                st.table(xi_df[["web_name", "position", "club", "health_status", "form", "points_per_game"]].rename(columns={
+                st.table(xi_df[["web_name", "position", "club", "health_status", "form", "points_per_game"]].rename(columns = {
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
@@ -830,11 +851,11 @@ elif st.session_state.page == "Squad Analyser":
                 if bench_gk:
                     st.markdown("**Goalkeeper Reserve**")
                     bgk_df = pd.DataFrame(bench_gk)[["web_name", "position", "club", "health_status"]]
-                    st.table(bgk_df.rename(columns={"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status"}))
+                    st.table(bgk_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status"}))
                 if not ordered_bench_outfield.empty:
                     st.markdown("**Outfield Substitutes (Auto Sub Order)**")
                     bo_df = ordered_bench_outfield[["web_name", "position", "club", "health_status", "form"]]
-                    st.table(bo_df.rename(columns={"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "form": "Form"}))
+                    st.table(bo_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "form": "Form"}))
                     st.caption("Sub 1 prioritises 100% fit players to guarantee cover if a doubtful starter misses out.")
 
     with tab_waivers:
@@ -844,7 +865,7 @@ elif st.session_state.page == "Squad Analyser":
         with col_w1:
             scout_mode = st.radio("Scout Focus", ["This Gameweek (Ready Now)", "Stash Targets (High Ceiling / Sidelined)"])
         with col_w2:
-            pos_filter = st.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default=["DEF", "MID", "FWD"])
+            pos_filter = st.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default = ["DEF", "MID", "FWD"])
         with col_w3:
             min_pts = st.slider("Minimum Total Points", 0, 50, 5)
             
@@ -868,11 +889,11 @@ elif st.session_state.page == "Squad Analyser":
             ).round(2)
             score_label = "Stash Value"
         
-        top_waivers = filtered_waivers.sort_values(by="cdp_score", ascending=False).head(15)
+        top_waivers = filtered_waivers.sort_values(by = "cdp_score", ascending = False).head(15)
         
         display_cols = ["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news", "cdp_score"]
         st.dataframe(
-            top_waivers[display_cols].rename(columns={
+            top_waivers[display_cols].rename(columns = {
                 "web_name": "Player",
                 "position": "Pos",
                 "club": "Team",
@@ -883,18 +904,18 @@ elif st.session_state.page == "Squad Analyser":
                 "news": "Notes",
                 "cdp_score": score_label
             }),
-            use_container_width=True,
-            hide_index=True
+            use_container_width = True,
+            hide_index = True
         )
 
     with tab_squad:
         st.subheader("Your Full 15 Man Roster")
         squad_display = my_squad.copy()
         squad_display["pos_rank"] = squad_display["position"].map(POS_ORDER)
-        squad_display = squad_display.sort_values(by=["pos_rank", "total_points"], ascending=[True, False])
+        squad_display = squad_display.sort_values(by = ["pos_rank", "total_points"], ascending = [True, False])
         
         st.dataframe(
-            squad_display[["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news"]].rename(columns={
+            squad_display[["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news"]].rename(columns = {
                 "web_name": "Player",
                 "position": "Pos",
                 "club": "Club",
@@ -904,6 +925,6 @@ elif st.session_state.page == "Squad Analyser":
                 "total_points": "Total Pts",
                 "news": "Injury Report"
             }),
-            use_container_width=True,
-            hide_index=True
+            use_container_width = True,
+            hide_index = True
         )
