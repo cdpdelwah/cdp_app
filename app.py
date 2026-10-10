@@ -185,41 +185,60 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
-    /* Carbon Dark Select Boxes and Dropdowns */
+    /* High Contrast Dropdown Select Trigger Box */
+    div[data-baseweb="select"],
     div[data-baseweb="select"] > div {{
-        background-color: #0c1017 !important;
-        border: 1px solid #232b3e !important;
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
     }}
 
-    div[data-baseweb="select"] * {{
-        color: #ffffff !important;
+    div[data-baseweb="select"] *,
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] div {{
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        font-weight: 700 !important;
     }}
 
+    /* Dropdown Popover Menu Container */
     div[data-baseweb="popover"],
     div[data-baseweb="popover"] > div,
+    div[data-baseweb="menu"],
     ul[data-baseweb="menu"],
-    div[data-baseweb="menu"] {{
-        background-color: #0c1017 !important;
-        border: 1px solid #232b3e !important;
+    ul[role="listbox"],
+    [role="listbox"],
+    [data-testid="stSelectboxVirtualDropdown"] {{
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
     }}
 
+    /* Complete Text Contrast Override inside Popover Menu */
+    div[data-baseweb="popover"] *,
+    div[data-baseweb="popover"] div,
+    div[data-baseweb="popover"] span,
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="menu"] *,
+    ul[role="listbox"] *,
+    ul[role="listbox"] li,
     li[role="option"],
-    li[data-baseweb="menu-item"],
     li[role="option"] *,
-    li[data-baseweb="menu-item"] * {{
-        background-color: #0c1017 !important;
-        color: #ffffff !important;
-        font-weight: 600 !important;
+    [role="option"],
+    [role="option"] * {{
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
     }}
 
     li[role="option"]:hover,
     li[role="option"]:hover *,
-    li[aria-selected="true"],
-    li[aria-selected="true"] * {{
-        background-color: #161e2e !important;
-        color: {active_theme['accent']} !important;
+    [role="option"]:hover,
+    [role="option"]:hover * {{
+        background-color: #f1f5f9 !important;
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
     }}
 
     /* Adaptive Action Buttons */
@@ -781,7 +800,12 @@ elif st.session_state.page == "EPL SCORES":
     if unplayed_events:
         default_epl_gw = unplayed_events[0]
     else:
-        default_epl_gw = all_gws[-1] if all_gws else 1
+        curr_from_static = None
+        for ev in static_data.get("events", {}).get("data", []):
+            if ev.get("is_current"):
+                curr_from_static = ev.get("id")
+                break
+        default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_gws else 1)
 
     top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
     with top_e1:
