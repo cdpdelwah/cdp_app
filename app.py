@@ -69,6 +69,8 @@ MANAGER_ALIASES = {
     "Andy Dellar": "Andy",
     "Jimmy Dean": "Jimmy",
     "Hughben Amorim": "Hugh",
+    "Hughben": "Hugh",
+    "Hugh": "Hugh",
     "Phil Wass": "Phil",
     "Bungle .": "Bungle",
     "Bungle.": "Bungle",
@@ -99,8 +101,10 @@ MANAGER_ALIASES = {
     "Ben Marsden": "Ben",
     "Will Graham": "Will",
     "Niall Hession": "Niall",
-    "Peter Thompson": "Peter",
-    "Pete Thompson": "Peter"
+    "Peter Thompson": "Pete",
+    "Pete Thompson": "Pete",
+    "Peter": "Pete",
+    "Pete": "Pete"
 }
 
 def get_manager_alias(first_name, last_name):
@@ -835,9 +839,11 @@ def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
             "Clean Sheets": cs
         })
 
-    df = pd.DataFrame(rows).sort_values(by = ["Goals", "Assists", "Clean Sheets", "Manager"], ascending = [False, False, False, True]).reset_index(drop = True)
-    df.index = df.index + 1
-    df.index.name = "Rank"
+    df = pd.DataFrame(rows).sort_values(
+        by = "Manager",
+        key = lambda col: col.str.lower(),
+        ascending = True
+    ).reset_index(drop = True)
     return df
 
 @st.cache_data(ttl = 300)
@@ -863,10 +869,10 @@ def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_ma
                     break
 
     df = pd.DataFrame(list(total_stats.values())).sort_values(
-        by = ["Goals", "Assists", "Clean Sheets", "Manager"], ascending = [False, False, False, True]
+        by = "Manager",
+        key = lambda col: col.str.lower(),
+        ascending = True
     ).reset_index(drop = True)
-    df.index = df.index + 1
-    df.index.name = "Rank"
     return df
 
 def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map):
@@ -883,7 +889,7 @@ def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
             chosen_gw_num = int(selected_option.split(" ")[1])
             df = calculate_xi_stats_for_gw(entries, chosen_gw_num, element_lookup, pos_map, team_map)
 
-    st.table(df)
+    st.table(df.set_index("Manager"))
 
 # ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
@@ -1587,7 +1593,7 @@ elif st.session_state.page == "Results Analyser":
             alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
             alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
             status = " (FT)" if m.get("finished") else ""
-            return f"{e1.get('entry_name', 'Team 1')} ({alias1}) [{s1}] vs [{s2}] {e2.get('entry_name', 'Team 2')} ({alias2}){status}"
+            return f"{alias1} [{s1}] vs [{s2}] {alias2}{status}"
             
         match_idx = st.selectbox(
             "Select Fixture",
@@ -1598,7 +1604,7 @@ elif st.session_state.page == "Results Analyser":
         
     else:
         team_choices = {
-            e["id"]: f"{e['entry_name']} ({get_manager_alias(e['player_first_name'], e['player_last_name'])})" 
+            e["id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})" 
             for e in entries
         }
         with ctrl_col2:
@@ -1615,7 +1621,7 @@ elif st.session_state.page == "Results Analyser":
             alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
             alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
             status = " (FT)" if m.get("finished") else ""
-            return f"GW {m['event']}: {e1.get('entry_name')} ({alias1}) [{s1}] vs [{s2}] {e2.get('entry_name')} ({alias2}){status}"
+            return f"GW {m['event']}: {alias1} [{s1}] vs [{s2}] {alias2}{status}"
 
         t_idx = st.selectbox(
             "Select Matchup",
@@ -1637,15 +1643,15 @@ elif st.session_state.page == "Results Analyser":
         
         res_col1, res_col2, res_col3 = st.columns([4, 2, 4])
         with res_col1:
-            st.markdown("### " + str(e1_info.get("entry_name", "Team 1")))
-            st.caption("Manager: " + alias1)
+            st.markdown("### " + alias1)
+            st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
             st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
+            st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>" + e2_info.get("entry_name", "Team 2") + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
@@ -1696,7 +1702,7 @@ elif st.session_state.page == "Results Analyser":
 
         side1, side2 = st.columns(2)
         with side1:
-            st.subheader(str(e1_info.get("entry_name")) + " Lineup")
+            st.subheader(alias1 + " Lineup")
             if not team1_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
                 st.table(team1_starters[display_cols].set_index("Player"))
@@ -1706,7 +1712,7 @@ elif st.session_state.page == "Results Analyser":
                 st.info("Lineup selections not yet available for this gameweek.")
 
         with side2:
-            st.subheader(str(e2_info.get("entry_name")) + " Lineup")
+            st.subheader(alias2 + " Lineup")
             if not team2_starters.empty:
                 st.markdown("**Starting XI (GK First)**")
                 st.table(team2_starters[display_cols].set_index("Player"))
@@ -1761,7 +1767,7 @@ elif st.session_state.page == "Squad Analyser":
 
     entries = league_details.get("league_entries", [])
     entry_options = {
-        e["entry_id"]: f"{e['entry_name']} ({get_manager_alias(e['player_first_name'], e['player_last_name'])})"
+        e["entry_id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})"
         for e in entries
     }
 
