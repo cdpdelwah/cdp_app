@@ -58,6 +58,51 @@ LEAGUE_THEMES = {
     }
 }
 
+# Official Manager Aliases dictionary
+MANAGER_ALIASES = {
+    "Nick Middleton": "Nick",
+    "greg probert": "Greg",
+    "Thomas Foy": "Foy",
+    "Kennedy .": "James",
+    "Andy Dellar": "Andy",
+    "Jimmy Dean": "Jimmy",
+    "Hughben Amorim": "Hugh",
+    "Phil Wass": "Phil",
+    "Bungle .": "Bungle",
+    "Gareth Williams": "Garth",
+    "Joshua Stammers": "Josh",
+    "Stew Hall": "Stew",
+    "Sam Berry": "Sam",
+    "Ali W": "Ali",
+    "Crouch Chris Smith": "Crouch",
+    "Dave Whitcombe": "Dave",
+    "Duncan Harrison": "Duncan",
+    "Barney Jones": "Barney",
+    "Rob Carlisle": "Rob",
+    "Rackett .": "Rackett",
+    "Mike Wilson": "Wilson",
+    "Culley Will": "Culley",
+    "Bobby Cowsill": "Bobby",
+    "Tudor .": "Tudor",
+    "Adrian Baker": "Adi",
+    "Lee Colvin": "Lee",
+    "Jamie Fielding": "Jamie",
+    "Tom Probert": "Tom",
+    "Ben Marsden": "Ben",
+    "Will Graham": "Will",
+    "Niall Hession": "Niall",
+    "Peter Thompson": "Peter"
+}
+
+def get_manager_alias(first_name, last_name):
+    full_name = f"{str(first_name).strip()} {str(last_name).strip()}".strip()
+    if full_name in MANAGER_ALIASES:
+        return MANAGER_ALIASES[full_name]
+    for key, alias in MANAGER_ALIASES.items():
+        if key.lower() == full_name.lower():
+            return alias
+    return first_name if first_name else full_name
+
 # Positional hierarchy mapping for display ordering
 POS_ORDER = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
 
@@ -332,7 +377,6 @@ def load_records_data():
     valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
     target_file = None
     
-    # Check all possible case variations and directory locations
     potential_folders = [
         base_dir / "Assets",
         base_dir / "assets",
@@ -350,7 +394,6 @@ def load_records_data():
         if target_file:
             break
             
-    # Fallback to any spreadsheet in the assets folders
     if not target_file:
         for folder in potential_folders:
             if folder.exists() and folder.is_dir():
@@ -669,10 +712,11 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
     for e in entries:
         t_id = e["id"]
         stat = official_stats[t_id]
+        alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         official_rows.append({
             "team_id": t_id,
             "Team": e.get("entry_name", "Team"),
-            "Manager": str(e.get("player_first_name", "")) + " " + str(e.get("player_last_name", "")),
+            "Manager": alias,
             "W": stat["wins"],
             "D": stat["draws"],
             "L": stat["losses"],
@@ -690,10 +734,11 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
     for e in entries:
         t_id = e["id"]
         stat = live_stats[t_id]
+        alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         live_rows.append({
             "team_id": t_id,
             "Team": e.get("entry_name", "Team"),
-            "Manager": str(e.get("player_first_name", "")) + " " + str(e.get("player_last_name", "")),
+            "Manager": alias,
             "W": stat["wins"],
             "D": stat["draws"],
             "L": stat["losses"],
@@ -717,6 +762,66 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
     live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
     
     return official_df, live_df
+
+@st.cache_data(ttl = 300)
+def calculate_xi_stats(entries, matches, current_gw, element_lookup, pos_map, team_map):
+    # Map every manager alias to their XI stats totals
+    xi_records = {
+        e["id"]: {
+            "Alias": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")),
+            "Team": e.get("entry_name", "Team"),
+            "Goals": 0,
+            "Assists": 0,
+            "Clean Sheets": 0
+        }
+        for e in entries
+    }
+
+    # Evaluate all completed and current gameweeks
+    for gw in range(1, current_gw + 1):
+        live_data_gw = fetch_live_event(gw)
+        live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
+
+        club_minutes_gw = {}
+        for elem_str_id, e_info in live_elements_gw.items():
+            elem_int_id = int(elem_str_id)
+            elem_obj = element_lookup.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                m_val = e_info.get("stats", {}).get("minutes", 0)
+                club_minutes_gw[c_id] = club_minutes_gw.get(c_id, 0) + m_val
+
+        for e in entries:
+            t_id = e["id"]
+            picks = fetch_entry_event(e.get("entry_id"), gw)
+            if not picks:
+                continue
+
+            starters_df, bench_df, _, _, _, _ = evaluate_lineup(
+                picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map
+            )
+
+            # Filter for actual final starting XI (excluding subbed off, including subbed on)
+            active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
+            active_bench_subs = bench_df[bench_df["sub_action"] == "Subbed On"] if not bench_df.empty else pd.DataFrame()
+            final_xi = pd.concat([active_starters, active_bench_subs], ignore_index = True)
+
+            if not final_xi.empty:
+                # Goals: all starting players
+                xi_records[t_id]["Goals"] += int(final_xi["G"].sum())
+                # Assists: all starting players
+                xi_records[t_id]["Assists"] += int(final_xi["A"].sum())
+                # Clean sheets: GKP and DEF positions only
+                def_gk_mask = final_xi["Pos"].isin(["GKP", "DEF"])
+                xi_records[t_id]["Clean Sheets"] += int(final_xi[def_gk_mask]["CS"].sum())
+
+    stats_list = list(xi_records.values())
+    stats_df = pd.DataFrame(stats_list).sort_values(
+        by = ["Goals", "Assists", "Clean Sheets"], ascending = False
+    ).reset_index(drop = True)
+    stats_df.index = stats_df.index + 1
+    stats_df.index.name = "Rank"
+    return stats_df
 
 # ----------------- HOME PAGE -----------------
 if st.session_state.page == "Home":
@@ -767,7 +872,7 @@ if st.session_state.page == "Home":
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, live win probabilities and real time auto subs.")
-    st.markdown("* **Standings**: Real time in play standings with movement indicators alongside frozen official tables.")
+    st.markdown("* **Standings**: Real time in play standings with movement indicators and final starting XI stats.")
     st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
     st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
@@ -894,9 +999,12 @@ elif st.session_state.page == "LIVE SCORES":
             with cols[c_idx]:
                 with st.container(border = True):
                     status_badge = "✅ FINAL" if item["is_fin"] else "🟢 LIVE"
+                    alias1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
+                    alias2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
+                    
                     hdr_l, hdr_r = st.columns([3, 1])
                     with hdr_l:
-                        st.markdown("**" + item["e1"].get("entry_name", "Team 1") + " vs " + item["e2"].get("entry_name", "Team 2") + "**")
+                        st.markdown(f"**{item['e1'].get('entry_name', 'Team 1')} ({alias1}) vs {item['e2'].get('entry_name', 'Team 2')} ({alias2})**")
                     with hdr_r:
                         st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {active_theme['accent']};'><b>{status_badge}</b></p>", unsafe_allow_html = True)
                         
@@ -937,7 +1045,9 @@ elif st.session_state.page == "LIVE SCORES":
     
     def spot_label(i):
         item = match_summaries[i]
-        return item["e1"].get("entry_name", "Team 1") + " (" + str(item["t1_score"]) + ") vs (" + str(item["t2_score"]) + ") " + item["e2"].get("entry_name", "Team 2")
+        alias1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
+        alias2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
+        return f"{item['e1'].get('entry_name')} ({alias1}) [{item['t1_score']}] vs [{item['t2_score']}] {item['e2'].get('entry_name')} ({alias2})"
 
     spotlight_idx = st.selectbox(
         "Inspect Matchup Details",
@@ -951,8 +1061,9 @@ elif st.session_state.page == "LIVE SCORES":
     display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus"]
 
     with s_c1:
+        alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
         st.markdown("### " + active_spot["e1"].get("entry_name"))
-        st.caption("Manager: " + str(active_spot["e1"].get("player_first_name", "")) + " " + str(active_spot["e1"].get("player_last_name", "")))
+        st.caption("Manager: " + alias_e1)
         if not active_spot["t1_start"].empty:
             st.markdown("**Starting XI (GK First)**")
             st.table(active_spot["t1_start"][display_cols].set_index("Player"))
@@ -962,8 +1073,9 @@ elif st.session_state.page == "LIVE SCORES":
             st.info("Lineup selections not yet available.")
 
     with s_c2:
+        alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
         st.markdown("### " + active_spot["e2"].get("entry_name"))
-        st.caption("Manager: " + str(active_spot["e2"].get("player_first_name", "")) + " " + str(active_spot["e2"].get("player_last_name", "")))
+        st.caption("Manager: " + alias_e2)
         if not active_spot["t2_start"].empty:
             st.markdown("**Starting XI (GK First)**")
             st.table(active_spot["t2_start"][display_cols].set_index("Player"))
@@ -1020,9 +1132,10 @@ elif st.session_state.page == "Standings":
         entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map
     )
 
-    standings_tab1, standings_tab2 = st.tabs([
+    standings_tab1, standings_tab2, standings_tab3 = st.tabs([
         "🟢 Live Standings (In Play)",
-        f"📊 Official Standings (GW {last_completed_gw})"
+        f"📊 Official Standings (GW {last_completed_gw})",
+        "🎯 XI Stats (Goals / Assists / Clean Sheets)"
     ])
 
     with standings_tab1:
@@ -1034,6 +1147,13 @@ elif st.session_state.page == "Standings":
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
         st.caption("Standings after the most recently concluded gameweek.")
         st.table(official_table_df)
+
+    with standings_tab3:
+        st.subheader("Final Starting XI Season Contributions")
+        st.caption("Cumulative count of Goals (all positions), Assists (all positions) and Clean Sheets (GKP and DEF only) registered by players in each manager's final starting XI each week.")
+        with st.spinner("Compiling starting XI performance data across gameweeks..."):
+            xi_stats_df = calculate_xi_stats(entries, matches, current_gw, element_lookup, pos_map, team_map)
+        st.table(xi_stats_df)
 
 # ----------------- RECORDS SECTION -----------------
 elif st.session_state.page == "Records":
@@ -1171,7 +1291,6 @@ elif st.session_state.page == "EPL SCORES":
             with f_col3:
                 st.markdown(f"<h3 style='text-align: right; margin: 0; color: #ffffff;'><span style='font-size: 0.9rem; color: #64748b;'>({a_short})</span> {a_name}</h3>", unsafe_allow_html = True)
 
-            # Match Breakdown Expander
             with st.expander("Match Breakdown"):
                 stats_raw = f.get("stats", [])
                 stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
@@ -1378,8 +1497,10 @@ elif st.session_state.page == "Results Analyser":
             e2 = lentry_map.get(m["league_entry_2"], {})
             s1 = m.get("league_entry_1_points", 0)
             s2 = m.get("league_entry_2_points", 0)
+            alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+            alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
             status = " (FT)" if m.get("finished") else ""
-            return e1.get("entry_name", "Team 1") + " (" + str(s1) + ") vs (" + str(s2) + ") " + e2.get("entry_name", "Team 2") + status
+            return f"{e1.get('entry_name', 'Team 1')} ({alias1}) [{s1}] vs [{s2}] {e2.get('entry_name', 'Team 2')} ({alias2}){status}"
             
         match_idx = st.selectbox(
             "Select Fixture",
@@ -1389,7 +1510,10 @@ elif st.session_state.page == "Results Analyser":
         selected_match = gw_matches[match_idx]
         
     else:
-        team_choices = {e["id"]: e["entry_name"] + " (" + e["player_first_name"] + " " + e["player_last_name"] + ")" for e in entries}
+        team_choices = {
+            e["id"]: f"{e['entry_name']} ({get_manager_alias(e['player_first_name'], e['player_last_name'])})" 
+            for e in entries
+        }
         with ctrl_col2:
             chosen_team_lid = st.selectbox("Select Team", list(team_choices.keys()), format_func = lambda x: team_choices[x])
             
@@ -1401,8 +1525,10 @@ elif st.session_state.page == "Results Analyser":
             e2 = lentry_map.get(m["league_entry_2"], {})
             s1 = m.get("league_entry_1_points", 0)
             s2 = m.get("league_entry_2_points", 0)
+            alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+            alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
             status = " (FT)" if m.get("finished") else ""
-            return "GW " + str(m["event"]) + ": " + e1.get("entry_name", "Team 1") + " (" + str(s1) + ") vs (" + str(s2) + ") " + e2.get("entry_name", "Team 2") + status
+            return f"GW {m['event']}: {e1.get('entry_name')} ({alias1}) [{s1}] vs [{s2}] {e2.get('entry_name')} ({alias2}){status}"
 
         t_idx = st.selectbox(
             "Select Matchup",
@@ -1417,20 +1543,22 @@ elif st.session_state.page == "Results Analyser":
         e2_info = lentry_map.get(selected_match["league_entry_2"], {})
         score1 = selected_match.get("league_entry_1_points", 0)
         score2 = selected_match.get("league_entry_2_points", 0)
+        alias1 = get_manager_alias(e1_info.get("player_first_name", ""), e1_info.get("player_last_name", ""))
+        alias2 = get_manager_alias(e2_info.get("player_first_name", ""), e2_info.get("player_last_name", ""))
         
         st.divider()
         
         res_col1, res_col2, res_col3 = st.columns([4, 2, 4])
         with res_col1:
             st.markdown("### " + str(e1_info.get("entry_name", "Team 1")))
-            st.caption("Manager: " + str(e1_info.get("player_first_name", "")) + " " + str(e1_info.get("player_last_name", "")))
+            st.caption("Manager: " + alias1)
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
             st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + str(e2_info.get("entry_name", "Team 2")) + "</h3>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + str(e2_info.get("player_first_name", "")) + " " + str(e2_info.get("player_last_name", "")) + "</p>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
@@ -1546,7 +1674,7 @@ elif st.session_state.page == "Squad Analyser":
 
     entries = league_details.get("league_entries", [])
     entry_options = {
-        e["entry_id"]: e["entry_name"] + " (" + e["player_first_name"] + " " + e["player_last_name"] + ")"
+        e["entry_id"]: f"{e['entry_name']} ({get_manager_alias(e['player_first_name'], e['player_last_name'])})"
         for e in entries
     }
 
