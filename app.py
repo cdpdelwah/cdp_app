@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import math
+import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
 
@@ -1708,10 +1709,8 @@ elif st.session_state.page == "Results Analyser":
             gw_fixtures = epl_fixtures
 
         if gw_fixtures:
-            gw_fixtures = sorted(gw_fixtures, key = lambda x: (x.get("kickoff_time") or "", x.get("id", 0)))
             labels = []
-            cum1 = []
-            cum2 = []
+            records = []
             curr1 = 0
             curr2 = 0
 
@@ -1729,21 +1728,30 @@ elif st.session_state.page == "Results Analyser":
                 curr2 += p2_pts
 
                 labels.append(m_label)
-                cum1.append(curr1)
-                cum2.append(curr2)
+                records.append({"Match": m_label, "Manager": alias1, "Points": curr1})
+                records.append({"Match": m_label, "Manager": alias2, "Points": curr2})
 
-            chart_df = pd.DataFrame({
-                alias1: cum1,
-                alias2: cum2
-            }, index = labels)
+            chart_df = pd.DataFrame(records)
 
             st.markdown(f"#### Gameweek {gw_num} Points Progression")
-            st.caption("Cumulative matchday points tracking each EPL fixture ordered chronologically by kick off")
-            try:
-                st.line_chart(chart_df, color = [active_theme["accent"], "#38bdf8"])
-            except TypeError:
-                st.line_chart(chart_df)
+            st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
+            chart = alt.Chart(chart_df).mark_line(point = True).encode(
+                x = alt.X("Match:N", sort = labels, title = None, axis = alt.Axis(labelAngle = -45, labelColor = "#94a3b8")),
+                y = alt.Y("Points:Q", title = "Cumulative Points", axis = alt.Axis(labelColor = "#94a3b8", gridColor = "#1e293b")),
+                color = alt.Color(
+                    "Manager:N",
+                    scale = alt.Scale(domain = [alias1, alias2], range = [active_theme["accent"], "#38bdf8"]),
+                    legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
+                ),
+                tooltip = ["Manager", "Match", "Points"]
+            ).properties(
+                height = 360
+            ).configure_view(
+                strokeWidth = 0
+            )
+
+            st.altair_chart(chart, use_container_width = True)
             st.divider()
 
         display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
@@ -1797,6 +1805,7 @@ elif st.session_state.page == "Squad Analyser":
         
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
 
     elements_df = pd.DataFrame(static_data["elements"])
     elements_df["position"] = elements_df["element_type"].map(pos_map)
