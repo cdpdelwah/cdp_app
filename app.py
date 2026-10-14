@@ -319,6 +319,15 @@ st.markdown(f"""
         -webkit-text-fill-color: #000000 !important;
     }}
 
+    /* Altair Chart Pure Black Background Enforcement */
+    div[data-testid="stVegaLiteChart"],
+    div[data-testid="stVegaLiteChart"] > div,
+    .vega-embed,
+    .vega-embed canvas,
+    .vega-embed svg {{
+        background-color: #000000 !important;
+    }}
+
     /* Adaptive Action Buttons */
     button[kind="primary"] {{
         background-color: {active_theme['accent']} !important;
@@ -1580,11 +1589,13 @@ elif st.session_state.page == "Results Analyser":
     
     if view_mode == "By Gameweek":
         all_events = sorted(list({m["event"] for m in matches}))
-        played_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
-        default_gw = played_events[-1] if played_events else all_events[0]
+        # Default to the most recently completed gameweek
+        finished_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
+        default_gw = finished_events[-1] if finished_events else (all_events[0] if all_events else 1)
+        default_gw_idx = all_events.index(default_gw) if default_gw in all_events else 0
         
         with ctrl_col2:
-            chosen_gw = st.selectbox("Select Gameweek", all_events, index = all_events.index(default_gw))
+            chosen_gw = st.selectbox("Select Gameweek", all_events, index = default_gw_idx)
             
         gw_matches = [m for m in matches if m["event"] == chosen_gw]
         
@@ -1626,9 +1637,13 @@ elif st.session_state.page == "Results Analyser":
             status = " (FT)" if m.get("finished") else ""
             return f"GW {m['event']}: {alias1} [{s1}] vs [{s2}] {alias2}{status}"
 
+        finished_team_indices = [i for i, m in enumerate(team_matches) if m.get("finished", False)]
+        default_team_idx = finished_team_indices[-1] if finished_team_indices else 0
+
         t_idx = st.selectbox(
             "Select Matchup",
             range(len(team_matches)),
+            index = default_team_idx,
             format_func = lambda i: match_label_team(team_matches[i])
         )
         selected_match = team_matches[t_idx]
@@ -1714,6 +1729,7 @@ elif st.session_state.page == "Results Analyser":
             curr1 = 0
             curr2 = 0
 
+            # Maintain the fixture ordering as returned by the Premier League schedule
             for f_item in gw_fixtures:
                 h_team_id = f_item.get("team_h")
                 a_team_id = f_item.get("team_a")
@@ -1737,8 +1753,27 @@ elif st.session_state.page == "Results Analyser":
             st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
             chart = alt.Chart(chart_df).mark_line(point = True).encode(
-                x = alt.X("Match:N", sort = labels, title = None, axis = alt.Axis(labelAngle = -45, labelColor = "#94a3b8")),
-                y = alt.Y("Points:Q", title = "Cumulative Points", axis = alt.Axis(labelColor = "#94a3b8", gridColor = "#1e293b")),
+                x = alt.X(
+                    "Match:N", 
+                    sort = labels, 
+                    title = None, 
+                    axis = alt.Axis(
+                        labelAngle = -90, 
+                        labelOverlap = False, 
+                        labelColor = "#94a3b8",
+                        labelFontSize = 9,
+                        grid = False
+                    )
+                ),
+                y = alt.Y(
+                    "Points:Q", 
+                    title = "Cumulative Points", 
+                    axis = alt.Axis(
+                        labelColor = "#94a3b8", 
+                        gridColor = "#182030",
+                        domainColor = "#182030"
+                    )
+                ),
                 color = alt.Color(
                     "Manager:N",
                     scale = alt.Scale(domain = [alias1, alias2], range = [active_theme["accent"], "#38bdf8"]),
@@ -1746,9 +1781,13 @@ elif st.session_state.page == "Results Analyser":
                 ),
                 tooltip = ["Manager", "Match", "Points"]
             ).properties(
-                height = 360
+                height = 360,
+                background = "#000000"
             ).configure_view(
-                strokeWidth = 0
+                strokeWidth = 0,
+                fill = "#000000"
+            ).configure_axis(
+                domainColor = "#182030"
             )
 
             st.altair_chart(chart, use_container_width = True)
