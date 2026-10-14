@@ -1568,6 +1568,7 @@ elif st.session_state.page == "Results Analyser":
     lentry_map = {e["id"]: e for e in entries}
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
     ctrl_col1, ctrl_col2 = st.columns([1, 2])
