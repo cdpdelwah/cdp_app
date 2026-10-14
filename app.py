@@ -163,6 +163,7 @@ NAV_ITEMS = [
     "GACS",
     "Standings",
     "Newsletters",
+    "Power Rankings",
     "Records"
 ]
 
@@ -443,7 +444,7 @@ def load_records_data():
         for folder in potential_folders:
             if folder.exists() and folder.is_dir():
                 for f in folder.iterdir():
-                    if f.is_file() and f.suffix.lower() in valid_extensions:
+                    if f.is_file() and f.suffix.lower() in valid_extensions and "power" not in f.name.lower():
                         target_file = f
                         break
             if target_file:
@@ -466,6 +467,62 @@ def load_records_data():
             return target_file.name, sheets, raw_bytes
     except Exception as err:
         return target_file.name, err, raw_bytes
+
+def load_power_rankings_data():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    
+    potential_folders = [
+        base_dir / "Assets",
+        base_dir / "assets",
+        Path("Assets"),
+        Path("assets"),
+        base_dir
+    ]
+    
+    # 1. Search for dedicated power rankings file in Assets
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions:
+                    name_clean = f.name.lower().replace(" ", "").replace("_", "")
+                    if "power" in name_clean or "ranking" in name_clean:
+                        target_file = f
+                        break
+        if target_file:
+            break
+
+    if target_file and target_file.exists():
+        ext = target_file.suffix.lower()
+        raw_bytes = target_file.read_bytes()
+        try:
+            if ext == ".csv":
+                df = pd.read_csv(target_file)
+                return target_file.name, {"Power Rankings": df}, raw_bytes
+            elif ext == ".ods":
+                sheets = pd.read_excel(target_file, engine = "odf", sheet_name = None)
+                return target_file.name, sheets, raw_bytes
+            else:
+                sheets = pd.read_excel(target_file, engine = "openpyxl", sheet_name = None)
+                return target_file.name, sheets, raw_bytes
+        except Exception as err:
+            return target_file.name, err, raw_bytes
+
+    # 2. Check if a worksheet named 'Power Rankings' exists inside any spreadsheet
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in [".ods", ".xlsx", ".xls"]:
+                    try:
+                        eng = "odf" if f.suffix.lower() == ".ods" else "openpyxl"
+                        sheets = pd.read_excel(f, engine = eng, sheet_name = None)
+                        for s_name, s_df in sheets.items():
+                            if "power" in s_name.lower():
+                                return f.name, {s_name: s_df}, f.read_bytes()
+                    except Exception:
+                        pass
+
+    return None, None, None
 
 @st.cache_data(ttl = 3600)
 def fetch_fpl_static():
@@ -951,7 +1008,7 @@ if st.session_state.page == "Home":
         st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
 
     st.write("")
-    r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
+    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
     with r2_c1:
         st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
     with r2_c2:
@@ -959,6 +1016,8 @@ if st.session_state.page == "Home":
     with r2_c3:
         st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
     with r2_c4:
+        st.button("⚡ Power Rankings", on_click = set_page, args = ("Power Rankings",), use_container_width = True)
+    with r2_c5:
         st.button("📜 Records", on_click = set_page, args = ("Records",), use_container_width = True)
 
     st.divider()
@@ -971,6 +1030,7 @@ if st.session_state.page == "Home":
     st.markdown("* **GACS**: Weekly starting lineup goals, assists and clean sheets with gameweek selection.")
     st.markdown("* **Standings**: Real time in play standings with movement indicators and official frozen tables.")
     st.markdown("* **Newsletters**: Embedded full page previews for both League and Cup gazettes.")
+    st.markdown("* **Power Rankings**: Comprehensive form rankings and team trajectories.")
     st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
 
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
@@ -2004,7 +2064,57 @@ elif st.session_state.page == "Newsletters":
         st.subheader("Official Cup Gazette")
         render_pdf("latest_cup.pdf", "Cup Newsletter")
 
-# ----------------- 9. RECORDS SECTION -----------------
+# ----------------- 9. POWER RANKINGS SECTION -----------------
+elif st.session_state.page == "Power Rankings":
+    top_p1, top_p2 = st.columns([5, 1])
+    with top_p1:
+        st.title("⚡ Power Rankings" + dash + selected_league_key)
+        st.caption("Official form guide, momentum ratings and team trajectories")
+    with top_p2:
+        st.write("")
+        if st.button("🔄 Refresh", use_container_width = True, key = "btn_refresh_power"):
+            st.rerun()
+
+    filename, sheets_dict, raw_bytes = load_power_rankings_data()
+
+    if not filename or sheets_dict is None:
+        st.warning("No Power Rankings spreadsheet found. Place 'Power Rankings.ods', .xlsx or .csv in your Assets folder.")
+    elif isinstance(sheets_dict, Exception):
+        st.error(f"Error reading {filename}: {str(sheets_dict)}")
+        st.info("Ensure **odfpy** is added to your requirements.txt file if uploading an .ods file.")
+    else:
+        st.download_button(
+            label = f"📥 Download Archive ({filename})",
+            data = raw_bytes,
+            file_name = filename,
+            mime = "application/octet-stream",
+            use_container_width = False
+        )
+        st.write("")
+
+        sheet_names = list(sheets_dict.keys())
+        if len(sheet_names) > 1:
+            p_tabs = st.tabs(sheet_names)
+            for idx, s_name in enumerate(sheet_names):
+                with p_tabs[idx]:
+                    df_sheet = sheets_dict[s_name].fillna("")
+                    if not df_sheet.empty:
+                        df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
+                        first_col = df_sheet.columns[0]
+                        st.table(df_sheet.set_index(first_col))
+                    else:
+                        st.info("No data in this sheet.")
+        else:
+            s_name = sheet_names[0]
+            df_sheet = sheets_dict[s_name].fillna("")
+            if not df_sheet.empty:
+                df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
+                first_col = df_sheet.columns[0]
+                st.table(df_sheet.set_index(first_col))
+            else:
+                st.info("No data in this sheet.")
+
+# ----------------- 10. RECORDS SECTION -----------------
 elif st.session_state.page == "Records":
     top_r1, top_r2 = st.columns([5, 1])
     with top_r1:
