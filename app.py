@@ -146,7 +146,7 @@ def format_remaining_players(in_play, yet_to_play):
         return str(yet_to_play) + " yet to play"
     return "0 to play"
 
-# Sidebar Brand and Navigation
+# Sidebar Brand and Ordered Navigation
 if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width = True)
 else:
@@ -154,9 +154,21 @@ else:
 
 st.sidebar.caption("Stats, not facts | Season X Command Center")
 
+NAV_ITEMS = [
+    "Home",
+    "LIVE SCORES",
+    "EPL Scores",
+    "Results Analyser",
+    "Squad Analyser",
+    "GACS",
+    "Standings",
+    "Newsletters",
+    "Records"
+]
+
 st.sidebar.radio(
     "Navigation Menu",
-    ["Home", "LIVE SCORES", "Standings", "XI Stats", "EPL SCORES", "Records", "Squad Analyser", "Results Analyser", "Newsletters"],
+    NAV_ITEMS,
     key = "page"
 )
 
@@ -887,7 +899,7 @@ def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_ma
     return df
 
 def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map):
-    st.subheader("Starting XI Matchday Stats")
+    st.subheader("GACS - Goals, Assists and Clean Sheets")
     st.caption("Goals (all players), Assists (all players) and Clean Sheets (GKP and DEF only) registered by players in each manager's final starting lineup.")
 
     gw_options = [f"Gameweek {gw}" for gw in range(current_gw, 0, -1)] + ["All Season (Total)"]
@@ -902,7 +914,7 @@ def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
 
     st.table(df.set_index("Manager"))
 
-# ----------------- HOME PAGE -----------------
+# ----------------- 1. HOME PAGE -----------------
 if st.session_state.page == "Home":
     col_brand, col_intro = st.columns([1, 4])
     with col_brand:
@@ -932,36 +944,36 @@ if st.session_state.page == "Home":
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
     with r1_c2:
-        st.button("🏆 Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
+        st.button("⚽ EPL Scores", on_click = set_page, args = ("EPL Scores",), use_container_width = True)
     with r1_c3:
-        st.button("🎯 XI Stats", on_click = set_page, args = ("XI Stats",), use_container_width = True)
+        st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
     with r1_c4:
-        st.button("📜 Records", on_click = set_page, args = ("Records",), use_container_width = True)
+        st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
 
     st.write("")
     r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
     with r2_c1:
-        st.button("⚽ EPL SCORES", on_click = set_page, args = ("EPL SCORES",), use_container_width = True)
+        st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
     with r2_c2:
-        st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
+        st.button("🏆 Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
     with r2_c3:
-        st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
-    with r2_c4:
         st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
+    with r2_c4:
+        st.button("📜 Records", on_click = set_page, args = ("Records",), use_container_width = True)
 
     st.divider()
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities and real time auto subs.")
-    st.markdown("* **Standings**: Real time in play standings with movement indicators and official frozen tables.")
-    st.markdown("* **XI Stats**: Weekly starting lineup goals, assists and clean sheets with gameweek selection.")
-    st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
-    st.markdown("* **EPL SCORES**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
+    st.markdown("* **EPL Scores**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
+    st.markdown("* **Results Analyser**: Historical head to head match breakdowns and chronological matchday points progression graphs.")
     st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
-    st.markdown("* **Results Analyser**: Historical head to head match breakdowns across past gameweeks.")
-    st.markdown("* **Publications Reader**: Embedded full page previews for both League and Cup gazettes.")
+    st.markdown("* **GACS**: Weekly starting lineup goals, assists and clean sheets with gameweek selection.")
+    st.markdown("* **Standings**: Real time in play standings with movement indicators and official frozen tables.")
+    st.markdown("* **Newsletters**: Embedded full page previews for both League and Cup gazettes.")
+    st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
 
-# ----------------- LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
+# ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
     st.title("🔴 LIVE SCORES" + dash + selected_league_key)
     
@@ -1164,145 +1176,9 @@ elif st.session_state.page == "LIVE SCORES":
         else:
             st.info("Lineup selections not yet available.")
 
-# ----------------- STANDINGS SECTION -----------------
-elif st.session_state.page == "Standings":
-    st.title("🏆 Standings" + dash + selected_league_key)
-    
-    static_data = fetch_fpl_static()
-    league_details, _ = fetch_league_data(active_league_id)
-    
-    if not static_data or not league_details:
-        st.error("Failed to load league standings. Verify connection.")
-        st.stop()
-        
-    entries = league_details.get("league_entries", [])
-    matches = league_details.get("matches", [])
-    
-    if not entries or not matches:
-        st.warning("No league table data available for this competition.")
-        st.stop()
-
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
-    
-    all_events = sorted(list({m["event"] for m in matches}))
-    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
-
-    if unplayed_events:
-        current_gw = unplayed_events[0]
-    else:
-        current_gw = all_events[-1] if all_events else 1
-
-    last_completed_gw = current_gw - 1 if current_gw > 1 else 1
-
-    live_data = fetch_live_event(current_gw)
-    live_elements = live_data.get("elements", {}) if live_data else {}
-    
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
-        elem_int_id = int(elem_str_id)
-        elem_obj = element_lookup.get(elem_int_id, {})
-        c_id = elem_obj.get("team")
-        if c_id:
-            m_val = e_info.get("stats", {}).get("minutes", 0)
-            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
-
-    official_table_df, live_table_df = calculate_league_tables(
-        entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map
-    )
-
-    standings_tab1, standings_tab2, standings_tab3 = st.tabs([
-        "🟢 Live Standings (In Play)",
-        f"📊 Official Standings (GW {last_completed_gw})",
-        "🎯 Starting XI Stats"
-    ])
-
-    with standings_tab1:
-        st.subheader("Live Standings " + dash + " Active Round (GW " + str(current_gw) + ")")
-        st.caption("Updated continuously with active points. Movement indicators show changes against previous official rank.")
-        st.table(live_table_df)
-
-    with standings_tab2:
-        st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
-        st.caption("Standings after the most recently concluded gameweek.")
-        st.table(official_table_df)
-
-    with standings_tab3:
-        render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
-
-# ----------------- XI STATS DEDICATED SECTION -----------------
-elif st.session_state.page == "XI Stats":
-    st.title("🎯 Starting XI Matchday Stats" + dash + selected_league_key)
-    
-    static_data = fetch_fpl_static()
-    league_details, _ = fetch_league_data(active_league_id)
-    
-    if not static_data or not league_details:
-        st.error("Failed to load league data. Verify connection.")
-        st.stop()
-        
-    entries = league_details.get("league_entries", [])
-    matches = league_details.get("matches", [])
-    
-    if not entries or not matches:
-        st.warning("No league data available for this competition.")
-        st.stop()
-
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
-    
-    all_events = sorted(list({m["event"] for m in matches}))
-    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
-    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
-
-    render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
-
-# ----------------- RECORDS SECTION -----------------
-elif st.session_state.page == "Records":
-    top_r1, top_r2 = st.columns([5, 1])
-    with top_r1:
-        st.title("🏆 Hall of Records" + dash + selected_league_key)
-        st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
-    with top_r2:
-        st.write("")
-        if st.button("🔄 Refresh Records", use_container_width = True):
-            st.rerun()
-
-    filename, sheets_dict, raw_bytes = load_records_data()
-
-    if not filename or sheets_dict is None:
-        st.warning("No records spreadsheet found. Ensure 'records.ods' is committed inside your Assets folder.")
-    elif isinstance(sheets_dict, Exception):
-        st.error(f"Error reading {filename}: {str(sheets_dict)}")
-        st.info("Ensure **odfpy** is added to your requirements.txt file so Streamlit can read .ods files.")
-    else:
-        st.download_button(
-            label = f"📥 Download Archive ({filename})",
-            data = raw_bytes,
-            file_name = filename,
-            mime = "application/octet-stream",
-            use_container_width = False
-        )
-        st.write("")
-
-        sheet_names = list(sheets_dict.keys())
-        record_tabs = st.tabs(sheet_names)
-
-        for idx, s_name in enumerate(sheet_names):
-            with record_tabs[idx]:
-                df_sheet = sheets_dict[s_name].fillna("")
-                if not df_sheet.empty:
-                    df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
-                    first_col = df_sheet.columns[0]
-                    st.table(df_sheet.set_index(first_col))
-                else:
-                    st.info("No records recorded in this sheet.")
-
-# ----------------- EPL SCORES SECTION -----------------
-elif st.session_state.page == "EPL SCORES":
-    st.title("⚽ EPL SCORES")
+# ----------------- 3. EPL SCORES SECTION -----------------
+elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
+    st.title("⚽ EPL Scores")
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
@@ -1557,7 +1433,7 @@ elif st.session_state.page == "EPL SCORES":
                     bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
                     st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
 
-# ----------------- RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
+# ----------------- 4. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
     
@@ -1589,7 +1465,6 @@ elif st.session_state.page == "Results Analyser":
     
     if view_mode == "By Gameweek":
         all_events = sorted(list({m["event"] for m in matches}))
-        # Default to the most recently completed gameweek
         finished_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
         default_gw = finished_events[-1] if finished_events else (all_events[0] if all_events else 1)
         default_gw_idx = all_events.index(default_gw) if default_gw in all_events else 0
@@ -1729,7 +1604,6 @@ elif st.session_state.page == "Results Analyser":
             curr1 = 0
             curr2 = 0
 
-            # Maintain the fixture ordering as returned by the Premier League schedule
             for f_item in gw_fixtures:
                 h_team_id = f_item.get("team_h")
                 a_team_id = f_item.get("team_a")
@@ -1816,22 +1690,7 @@ elif st.session_state.page == "Results Analyser":
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
-# ----------------- NEWSLETTERS SECTION -----------------
-elif st.session_state.page == "Newsletters":
-    st.title("Dellarverse Gazette")
-    st.caption("Official match reports, power rankings and editorial coverage")
-
-    news_tab1, news_tab2 = st.tabs(["📰 League Newsletter", "🏆 Cup Newsletter"])
-
-    with news_tab1:
-        st.subheader("Official League Gazette")
-        render_pdf("latest_league.pdf", "League Newsletter")
-
-    with news_tab2:
-        st.subheader("Official Cup Gazette")
-        render_pdf("latest_cup.pdf", "Cup Newsletter")
-
-# ----------------- SQUAD ANALYSER SECTION -----------------
+# ----------------- 5. SQUAD ANALYSER SECTION -----------------
 elif st.session_state.page == "Squad Analyser":
     st.title("Squad Analyser" + dash + selected_league_key)
     
@@ -2034,3 +1893,154 @@ elif st.session_state.page == "Squad Analyser":
                 "news": "Injury Report"
             }).set_index("Player")
         )
+
+# ----------------- 6. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
+elif st.session_state.page in ["GACS", "XI Stats"]:
+    st.title("🎯 GACS" + dash + selected_league_key)
+    
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
+    if not static_data or not league_details:
+        st.error("Failed to load league data. Verify connection.")
+        st.stop()
+        
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    
+    if not entries or not matches:
+        st.warning("No league data available for this competition.")
+        st.stop()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    all_events = sorted(list({m["event"] for m in matches}))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
+    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
+
+    render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
+
+# ----------------- 7. STANDINGS SECTION -----------------
+elif st.session_state.page == "Standings":
+    st.title("🏆 Standings" + dash + selected_league_key)
+    
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    
+    if not static_data or not league_details:
+        st.error("Failed to load league standings. Verify connection.")
+        st.stop()
+        
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    
+    if not entries or not matches:
+        st.warning("No league table data available for this competition.")
+        st.stop()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    all_events = sorted(list({m["event"] for m in matches}))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
+
+    if unplayed_events:
+        current_gw = unplayed_events[0]
+    else:
+        current_gw = all_events[-1] if all_events else 1
+
+    last_completed_gw = current_gw - 1 if current_gw > 1 else 1
+
+    live_data = fetch_live_event(current_gw)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+    
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        elem_int_id = int(elem_str_id)
+        elem_obj = element_lookup.get(elem_int_id, {})
+        c_id = elem_obj.get("team")
+        if c_id:
+            m_val = e_info.get("stats", {}).get("minutes", 0)
+            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+    official_table_df, live_table_df = calculate_league_tables(
+        entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map
+    )
+
+    standings_tab1, standings_tab2, standings_tab3 = st.tabs([
+        "🟢 Live Standings (In Play)",
+        f"📊 Official Standings (GW {last_completed_gw})",
+        "🎯 GACS"
+    ])
+
+    with standings_tab1:
+        st.subheader("Live Standings " + dash + " Active Round (GW " + str(current_gw) + ")")
+        st.caption("Updated continuously with active points. Movement indicators show changes against previous official rank.")
+        st.table(live_table_df)
+
+    with standings_tab2:
+        st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
+        st.caption("Standings after the most recently concluded gameweek.")
+        st.table(official_table_df)
+
+    with standings_tab3:
+        render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
+
+# ----------------- 8. NEWSLETTERS SECTION -----------------
+elif st.session_state.page == "Newsletters":
+    st.title("Dellarverse Gazette")
+    st.caption("Official match reports, power rankings and editorial coverage")
+
+    news_tab1, news_tab2 = st.tabs(["📰 League Newsletter", "🏆 Cup Newsletter"])
+
+    with news_tab1:
+        st.subheader("Official League Gazette")
+        render_pdf("latest_league.pdf", "League Newsletter")
+
+    with news_tab2:
+        st.subheader("Official Cup Gazette")
+        render_pdf("latest_cup.pdf", "Cup Newsletter")
+
+# ----------------- 9. RECORDS SECTION -----------------
+elif st.session_state.page == "Records":
+    top_r1, top_r2 = st.columns([5, 1])
+    with top_r1:
+        st.title("🏆 Hall of Records" + dash + selected_league_key)
+        st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
+    with top_r2:
+        st.write("")
+        if st.button("🔄 Refresh Records", use_container_width = True):
+            st.rerun()
+
+    filename, sheets_dict, raw_bytes = load_records_data()
+
+    if not filename or sheets_dict is None:
+        st.warning("No records spreadsheet found. Ensure 'records.ods' is committed inside your Assets folder.")
+    elif isinstance(sheets_dict, Exception):
+        st.error(f"Error reading {filename}: {str(sheets_dict)}")
+        st.info("Ensure **odfpy** is added to your requirements.txt file so Streamlit can read .ods files.")
+    else:
+        st.download_button(
+            label = f"📥 Download Archive ({filename})",
+            data = raw_bytes,
+            file_name = filename,
+            mime = "application/octet-stream",
+            use_container_width = False
+        )
+        st.write("")
+
+        sheet_names = list(sheets_dict.keys())
+        record_tabs = st.tabs(sheet_names)
+
+        for idx, s_name in enumerate(sheet_names):
+            with record_tabs[idx]:
+                df_sheet = sheets_dict[s_name].fillna("")
+                if not df_sheet.empty:
+                    df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
+                    first_col = df_sheet.columns[0]
+                    st.table(df_sheet.set_index(first_col))
+                else:
+                    st.info("No records recorded in this sheet.")
