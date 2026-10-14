@@ -595,6 +595,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             "pos_num": pos_type,
             "Pos": pos_str,
             "Club": team_map.get(club_id, ""),
+            "club_id": club_id,
             "State": state,
             "Mins": mins,
             "Pts": pts,
@@ -1660,64 +1661,110 @@ elif st.session_state.page == "Results Analyser":
         live_data = fetch_live_event(gw_num)
         live_elements = live_data.get("elements", {}) if live_data else {}
 
-        def build_player_rows(picks_list):
-            if not picks_list:
-                return pd.DataFrame(), pd.DataFrame()
-            starters = []
-            bench = []
-            for p in picks_list.get("picks", []):
-                elem_id = p["element"]
-                raw_elem = element_lookup.get(elem_id, {})
-                stats = live_elements.get(str(elem_id), {}).get("stats", {})
-                pos_type = raw_elem.get("element_type", 1)
-                row = {
-                    "Player": raw_elem.get("web_name", "Unknown"),
-                    "pos_num": pos_type,
-                    "Pos": pos_map.get(pos_type, ""),
-                    "Club": team_map.get(raw_elem.get("team"), ""),
-                    "Mins": stats.get("minutes", 0),
-                    "Pts": stats.get("total_points", 0),
-                    "G": stats.get("goals_scored", 0),
-                    "A": stats.get("assists", 0),
-                    "CS": stats.get("clean_sheets", 0),
-                    "GC": stats.get("goals_conceded", 0),
-                    "Bonus": stats.get("bonus", 0),
-                    "pick_pos": p.get("position", 99)
-                }
-                if p.get("position", 99) <= 11:
-                    starters.append(row)
-                else:
-                    bench.append(row)
-            starters_df = pd.DataFrame(starters)
-            bench_df = pd.DataFrame(bench)
-            if not starters_df.empty:
-                starters_df = starters_df.sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
-            if not bench_df.empty:
-                bench_df = bench_df.sort_values(by = "pick_pos", ascending = True)
-            return starters_df, bench_df
+        club_minutes = {}
+        for elem_str_id, e_info in live_elements.items():
+            try:
+                elem_int_id = int(elem_str_id)
+            except (ValueError, TypeError):
+                continue
+            elem_obj = element_lookup.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                m_val = e_info.get("stats", {}).get("minutes", 0)
+                club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
-        team1_starters, team1_bench = build_player_rows(picks1_data)
-        team2_starters, team2_bench = build_player_rows(picks2_data)
+        t1_start, t1_b, _, _, _, _ = evaluate_lineup(
+            picks1_data, live_elements, element_lookup, club_minutes, pos_map, team_map
+        )
+        t2_start, t2_b, _, _, _, _ = evaluate_lineup(
+            picks2_data, live_elements, element_lookup, club_minutes, pos_map, team_map
+        )
+
+        t1_active = []
+        if not t1_start.empty:
+            for _, r in t1_start.iterrows():
+                if r.get("sub_action") != "Subbed Off":
+                    t1_active.append(r)
+        if not t1_b.empty:
+            for _, r in t1_b.iterrows():
+                if r.get("sub_action") == "Subbed On":
+                    t1_active.append(r)
+
+        t2_active = []
+        if not t2_start.empty:
+            for _, r in t2_start.iterrows():
+                if r.get("sub_action") != "Subbed Off":
+                    t2_active.append(r)
+        if not t2_b.empty:
+            for _, r in t2_b.iterrows():
+                if r.get("sub_action") == "Subbed On":
+                    t2_active.append(r)
+
+        # ----------------- EPL MATCH PROGRESSION GRAPH -----------------
+        epl_fixtures = fetch_epl_fixtures(gw_num)
+        gw_fixtures = [f for f in epl_fixtures if f.get("event") == gw_num] if epl_fixtures else []
+        if not gw_fixtures and epl_fixtures:
+            gw_fixtures = epl_fixtures
+
+        if gw_fixtures:
+            gw_fixtures = sorted(gw_fixtures, key = lambda x: (x.get("kickoff_time") or "", x.get("id", 0)))
+            labels = []
+            cum1 = []
+            cum2 = []
+            curr1 = 0
+            curr2 = 0
+
+            for f_item in gw_fixtures:
+                h_team_id = f_item.get("team_h")
+                a_team_id = f_item.get("team_a")
+                h_code = team_short_map.get(h_team_id, "H")
+                a_code = team_short_map.get(a_team_id, "A")
+                m_label = f"{h_code} v {a_code}"
+
+                p1_pts = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_team_id, a_team_id))
+                p2_pts = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_team_id, a_team_id))
+
+                curr1 += p1_pts
+                curr2 += p2_pts
+
+                labels.append(m_label)
+                cum1.append(curr1)
+                cum2.append(curr2)
+
+            chart_df = pd.DataFrame({
+                alias1: cum1,
+                alias2: cum2
+            }, index = labels)
+
+            st.markdown(f"#### Gameweek {gw_num} Points Progression")
+            st.caption("Cumulative matchday points tracking each EPL fixture ordered chronologically by kick off")
+            try:
+                st.line_chart(chart_df, color = [active_theme["accent"], "#38bdf8"])
+            except TypeError:
+                st.line_chart(chart_df)
+
+            st.divider()
+
         display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
 
         side1, side2 = st.columns(2)
         with side1:
             st.subheader(alias1 + " Lineup")
-            if not team1_starters.empty:
+            if not t1_start.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.table(team1_starters[display_cols].set_index("Player"))
+                st.table(t1_start[display_cols].set_index("Player"))
                 st.markdown("**Bench Substitutes**")
-                st.table(team1_bench[display_cols].set_index("Player"))
+                st.table(t1_b[display_cols].set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
         with side2:
             st.subheader(alias2 + " Lineup")
-            if not team2_starters.empty:
+            if not t2_start.empty:
                 st.markdown("**Starting XI (GK First)**")
-                st.table(team2_starters[display_cols].set_index("Player"))
+                st.table(t2_start[display_cols].set_index("Player"))
                 st.markdown("**Bench Substitutes**")
-                st.table(team2_bench[display_cols].set_index("Player"))
+                st.table(t2_b[display_cols].set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
