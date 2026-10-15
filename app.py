@@ -144,23 +144,24 @@ def format_remaining_players(in_play, yet_to_play):
         return str(yet_to_play) + " yet to play"
     return "0 to play"
 
-def clean_numeric_display(df):
+def format_table_floats(df):
+    """Enforces clean integer formatting for whole ranks and 1 decimal place for floats."""
     if df is None or df.empty:
         return df
-    df_out = df.copy()
-    for col in df_out.columns:
-        s_num = pd.to_numeric(df_out[col], errors = "coerce")
+    formatted = df.copy()
+    for col in formatted.columns:
+        s_num = pd.to_numeric(formatted[col], errors = "coerce")
         if s_num.notna().any():
             non_null = s_num.dropna()
             if (non_null % 1 == 0).all():
-                df_out[col] = df_out[col].map(
+                formatted[col] = formatted[col].map(
                     lambda x: f"{int(round(float(x)))}" if pd.notna(x) and str(x).strip() != "" and str(x).strip().lower() != "nan" else ""
                 )
             else:
-                df_out[col] = s_num.map(
+                formatted[col] = s_num.map(
                     lambda x: f"{x:.1f}" if pd.notna(x) else ""
                 )
-    return df_out.fillna("")
+    return formatted.fillna("")
 
 # Sidebar Brand and Ordered Navigation
 if logo_path.exists():
@@ -484,6 +485,7 @@ def load_power_rankings_data():
         base_dir
     ]
     
+    # 1. Search for dedicated power rankings file in Assets
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -511,6 +513,7 @@ def load_power_rankings_data():
         except Exception as err:
             return target_file.name, err, raw_bytes
 
+    # 2. Check if a worksheet named 'Power Rankings' exists inside any spreadsheet
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -905,7 +908,7 @@ def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
             continue
 
         starters_df, bench_df, _, _, _, _ = evaluate_lineup(
-            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map
+            picks, live_elements_gw, element_lookup, club_minutes, pos_map, team_map
         )
 
         active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
@@ -1892,204 +1895,9 @@ elif st.session_state.page == "Squad Analyser":
     entries = league_details.get("league_entries", [])
     entry_options = {
         e["entry_id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})"
-        for e in entries
-    }
+        for e in entriesAn explanation snippet was accidentally spliced into the middle of the waiver filtering logic around line 2088[cite: 7]. 
 
-    if not entry_options:
-        st.error("No teams found for this league.")
-        st.stop()
-
-    entry_keys = list(entry_options.keys())
-    default_entry_idx = entry_keys.index(88) if 88 in entry_keys else 0
-
-    selected_entry_id = st.sidebar.selectbox(
-        "Select Your Team",
-        options = entry_keys,
-        format_func = lambda x: entry_options.get(x, str(x)),
-        index = default_entry_idx,
-        key = "team_selector_" + str(active_league_id)
-    )
-
-    my_squad = merged[merged["owner"] == selected_entry_id].copy()
-    waiver_pool = merged[merged["owner"].isna() | (merged["owner"] == 0)].copy()
-
-    tab_lineup, tab_waivers = st.tabs(["Recommended Lineup", "Tailored Waivers & Suggested Drops"])
-
-    # ----------------- TAB 1: RECOMMENDED STARTING XI -----------------
-    with tab_lineup:
-        st.subheader("Recommended Starting XI and Bench Hierarchy")
-        
-        if my_squad.empty:
-            st.warning("No players found for this team selection.")
-        else:
-            def compute_starter_rating(r):
-                if r["avail_factor"] == 0.0:
-                    return -9999.0
-                base_score = (r["form"] * 1.8) + (r["points_per_game"] * 2.0) + (r["ict_index"] * 0.05)
-                return round(base_score * r["avail_factor"], 1)
-
-            my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis = 1)
-            sorted_squad = my_squad.sort_values(by = "starter_rating", ascending = False)
-            
-            gks = sorted_squad[sorted_squad["position"] == "GKP"]
-            defs = sorted_squad[sorted_squad["position"] == "DEF"]
-            mids = sorted_squad[sorted_squad["position"] == "MID"]
-            fwds = sorted_squad[sorted_squad["position"] == "FWD"]
-            
-            starting_xi = []
-            bench_gk = []
-            
-            if not gks.empty:
-                starting_xi.append(gks.iloc[0])
-                if len(gks) > 1:
-                    bench_gk.extend([gks.iloc[i] for i in range(1, len(gks))])
-                    
-            starting_xi.extend([defs.iloc[i] for i in range(min(3, len(defs)))])
-            starting_xi.extend([mids.iloc[i] for i in range(min(2, len(mids)))])
-            starting_xi.extend([fwds.iloc[i] for i in range(min(1, len(fwds)))])
-            
-            used_ids = {p["id"] for p in starting_xi}
-            remaining_outfield = sorted_squad[
-                (~sorted_squad["id"].isin(used_ids)) & (sorted_squad["position"] != "GKP")
-            ]
-            
-            spots_left = 11 - len(starting_xi)
-            starting_xi.extend([remaining_outfield.iloc[i] for i in range(min(spots_left, len(remaining_outfield)))])
-            
-            final_xi_ids = {p["id"] for p in starting_xi}
-            all_bench_outfield = sorted_squad[
-                (~sorted_squad["id"].isin(final_xi_ids)) & (sorted_squad["position"] != "GKP")
-            ].copy()
-            
-            def bench_priority(r):
-                fit_bonus = 100.0 if r["avail_factor"] == 1.0 else (50.0 if r["avail_factor"] > 0.0 else -500.0)
-                return fit_bonus + (r["form"] * 1.5) + (r["points_per_game"] * 1.5)
-
-            all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
-            ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
-            
-            col_start, col_bench = st.columns([3, 2])
-            
-            with col_start:
-                st.markdown("### Starters (GK First)")
-                xi_df = pd.DataFrame(starting_xi)
-                xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
-                xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
-                
-                display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "points_per_game", "form"]
-                xi_display = xi_df[display_cols].rename(columns = {
-                    "web_name": "Player",
-                    "position": "Pos",
-                    "club": "Club",
-                    "health_status": "Status",
-                    "total_points": "Total Pts",
-                    "last_2_pts": "Last 2 GWs",
-                    "next_3": "Next 3 Fixtures",
-                    "points_per_game": "PPG",
-                    "form": "Form"
-                }).copy()
-                xi_display["PPG"] = xi_display["PPG"].map(lambda x: f"{float(x):.1f}")
-                xi_display["Form"] = xi_display["Form"].map(lambda x: f"{float(x):.1f}")
-                st.table(xi_display.set_index("Player"))
-                
-            with col_bench:
-                st.markdown("### Bench Hierarchy")
-                bench_cols = ["web_name", "position", "club", "health_status", "total_points", "next_3", "form"]
-                if bench_gk:
-                    st.markdown("**Goalkeeper Reserve**")
-                    bgk_df = pd.DataFrame(bench_gk)[bench_cols].rename(columns = {
-                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3", "form": "Form"
-                    }).copy()
-                    bgk_df["Form"] = bgk_df["Form"].map(lambda x: f"{float(x):.1f}")
-                    st.table(bgk_df.set_index("Player"))
-                if not ordered_bench_outfield.empty:
-                    st.markdown("**Outfield Substitutes (Auto Sub Order)**")
-                    bo_df = ordered_bench_outfield[bench_cols].rename(columns = {
-                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3", "form": "Form"
-                    }).copy()
-                    bo_df["Form"] = bo_df["Form"].map(lambda x: f"{float(x):.1f}")
-                    st.table(bo_df.set_index("Player"))
-                    st.caption("Sub 1 prioritises 100% fit players to ensure auto sub coverage if a doubtful starter is rested.")
-
-    # ----------------- TAB 2: TAILORED WAIVERS & SUGGESTED DROPS -----------------
-    with tab_waivers:
-        st.subheader("Tactical Waiver Intelligence & Roster Triage")
-
-        all_rostered = merged[merged["owner"].isin(entry_keys)].copy()
-        league_pos_ppg = all_rostered.groupby("position")["points_per_game"].mean().round(1).to_dict()
-        squad_pos_ppg = my_squad.groupby("position")["points_per_game"].mean().round(1).to_dict()
-
-        fit_defs = len(my_squad[(my_squad["position"] == "DEF") & (my_squad["avail_factor"] >= 0.9)])
-        fit_mids = len(my_squad[(my_squad["position"] == "MID") & (my_squad["avail_factor"] >= 0.9)])
-        fit_fwds = len(my_squad[(my_squad["position"] == "FWD") & (my_squad["avail_factor"] >= 0.9)])
-
-        alerts = []
-        target_positions = []
-
-        if fit_defs < 3:
-            alerts.append(f"🛡️ **DEF Depth Emergency:** Only {fit_defs} defender(s) 100% fit for the upcoming round. Immediate cover required.")
-            target_positions.append("DEF")
-        if fit_fwds < 1:
-            alerts.append(f"⚡ **FWD Availability Crisis:** 0 fit strikers currently available in your squad.")
-            target_positions.append("FWD")
-
-        for pos_key in ["DEF", "MID", "FWD"]:
-            s_ppg = squad_pos_ppg.get(pos_key, 0.0)
-            l_ppg = league_pos_ppg.get(pos_key, 0.0)
-            if s_ppg < l_ppg - 0.7:
-                alerts.append(f"⚠️ **{pos_key} Production Deficit:** Your {pos_key} unit averages {s_ppg:.1f} PPG vs the league average of {l_ppg:.1f} PPG.")
-                if pos_key not in target_positions:
-                    target_positions.append(pos_key)
-
-        if not target_positions:
-            target_positions = ["DEF", "MID", "FWD"]
-
-        if alerts:
-            for alert_text in alerts:
-                st.warning(alert_text)
-        else:
-            st.success("✅ **Squad Balance Sound:** Roster availability and positional averages meet or exceed division baselines. Scouting high-upside upgrades.")
-
-        top_pts_ids = set(my_squad.sort_values(by = "total_points", ascending = False).head(3)["id"])
-        top_ppg_ids = set(my_squad.sort_values(by = "points_per_game", ascending = False).head(3)["id"])
-        top_form_ids = set(my_squad.sort_values(by = "form", ascending = False).head(2)["id"])
-        untouchables = top_pts_ids.union(top_ppg_ids).union(top_form_ids)
-
-        my_squad["utility_score"] = (
-            (my_squad["points_per_game"] * 1.5) + (my_squad["form"] * 1.0)
-        ) * my_squad["avail_factor"]
-
-        droppable_pool = my_squad[~my_squad["id"].isin(untouchables)].sort_values(by = "utility_score", ascending = True)
-
-        col_w1, col_w2 = st.columns([2, 3])
-        with col_w1:
-            selected_focus = st.selectbox(
-                "Filter Scout Focus",
-                ["Squad Needs (Auto)", "All Outfield", "DEF Only", "MID Only", "FWD Only"]
-            )
-            if selected_focus == "DEF Only":
-                active_pos_filter = ["DEF"]
-            elif selected_focus == "MID Only":
-                active_pos_filter = ["MID"]
-            elif selected_focus == "FWD Only":
-                active_pos_filter = ["FWD"]
-            elif selected_focus == "All Outfield":
-                active_pos_filter = ["DEF", "MID", "FWD"]
-            else:
-                active_pos_filter = target_positions
-
-        waiver_pool["target_rating"] = (
-            ((waiver_pool["form"] * 1.8) + (waiver_pool["points_per_game"] * 2.0) + (waiver_pool["ict_index"] * 0.05))
-            * waiver_pool["avail_factor"]
-        ).round(1)
-
-        candidate_waivers = waiver_pool[
-            (waiver_pool["position"].isin(active_pos_filter)) &
-            (The four-decimal-place floats in Streamlit tables happen because pandas numeric columns (`float64`) default to `0.0000` when rendered to HTML[cite: 5, 6]. Applying `.round(1)` leaves the numeric dtype intact, so Streamlit displays the trailing zeros[cite: 5].
-
-To force exactly 1 decimal place across both the Squad Analyser and Power Rankings tables[cite: 5, 6], we format the float values directly using string formatting (e.g. `x.map("{:.1f}".format)`) and introduce a global helper `format_table_floats(df)` that ensures any floating-point number in any table is capped at 1 decimal place.
-
-Here is the complete, updated `app.py`:
+Here is the clean, complete `app.py` with that line fixed and strict 1-decimal formatting applied across all tables[cite: 5, 6].
 
 ```python
 import streamlit as st
@@ -2242,9 +2050,18 @@ def format_table_floats(df):
     """Enforces strict 1 decimal place display for all float columns in a dataframe."""
     formatted = df.copy()
     for col in formatted.columns:
-        if pd.api.types.is_float_dtype(formatted[col]):
-            formatted[col] = formatted[col].map(lambda x: f"{x:.1f}" if pd.notna(x) else "")
-    return formatted
+        s_num = pd.to_numeric(formatted[col], errors = "coerce")
+        if s_num.notna().any():
+            non_null = s_num.dropna()
+            if (non_null % 1 == 0).all():
+                formatted[col] = formatted[col].map(
+                    lambda x: f"{int(round(float(x)))}" if pd.notna(x) and str(x).strip() != "" and str(x).strip().lower() != "nan" else ""
+                )
+            else:
+                formatted[col] = s_num.map(
+                    lambda x: f"{x:.1f}" if pd.notna(x) else ""
+                )
+    return formatted.fillna("")
 
 # Sidebar Brand and Ordered Navigation
 if logo_path.exists():
@@ -2568,7 +2385,6 @@ def load_power_rankings_data():
         base_dir
     ]
     
-    # 1. Search for dedicated power rankings file in Assets
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -2596,7 +2412,6 @@ def load_power_rankings_data():
         except Exception as err:
             return target_file.name, err, raw_bytes
 
-    # 2. Check if a worksheet named 'Power Rankings' exists inside any spreadsheet
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -2791,7 +2606,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     used_bench_ids = set()
     
-    # GK substitution
     gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
     if gk_starter and gk_starter["State"] == "DNP":
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
@@ -2800,7 +2614,6 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
             
-    # Outfield substitutions
     dnp_outfield = [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]
     for dnp_s in dnp_outfield:
         for b_cand in bench:
@@ -3264,12 +3077,12 @@ elif st.session_state.page == "LIVE SCORES":
                     sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
                     with sc_col1:
                         st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + str(item["t1_proj"]) + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
+                        st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t1_proj']:.1f}" + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
                     with sc_col2:
                         st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
                     with sc_col3:
                         st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + str(item["t2_proj"]) + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
+                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t2_proj']:.1f}" + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
                     
                     st.progress(item["prob1"] / 100.0)
                     
@@ -3314,10 +3127,15 @@ elif st.session_state.page == "LIVE SCORES":
         alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
         st.markdown("### " + alias_e1)
         if not active_spot["t1_start"].empty:
+            t1_s_view = active_spot["t1_start"][display_cols].copy()
+            t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Starting XI (GK First)**")
-            st.table(active_spot["t1_start"][display_cols].set_index("Player"))
+            st.table(t1_s_view.set_index("Player"))
+
+            t1_b_view = active_spot["t1_b"][display_cols].copy()
+            t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Bench Substitutes**")
-            st.table(active_spot["t1_b"][display_cols].set_index("Player"))
+            st.table(t1_b_view.set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 
@@ -3325,10 +3143,15 @@ elif st.session_state.page == "LIVE SCORES":
         alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
         st.markdown("### " + alias_e2)
         if not active_spot["t2_start"].empty:
+            t2_s_view = active_spot["t2_start"][display_cols].copy()
+            t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Starting XI (GK First)**")
-            st.table(active_spot["t2_start"][display_cols].set_index("Player"))
+            st.table(t2_s_view.set_index("Player"))
+
+            t2_b_view = active_spot["t2_b"][display_cols].copy()
+            t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Bench Substitutes**")
-            st.table(active_spot["t2_b"][display_cols].set_index("Player"))
+            st.table(t2_b_view.set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 
@@ -3700,7 +3523,7 @@ elif st.session_state.page == "Results Analyser":
             st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>" + e2_info.get("entry_name", "Team 2") + "</p>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
