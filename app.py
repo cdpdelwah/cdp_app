@@ -800,6 +800,149 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play
 
+@st.cache_data(ttl = 300)
+def resolve_cup_match_score(manager_alias, gw_num):
+    teams_registry = get_all_32_teams_registry()
+    static_data = fetch_fpl_static()
+    if not static_data:
+        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+
+    t_info = teams_registry.get(str(manager_alias).strip().lower())
+    if not t_info or not t_info.get("entry_id"):
+        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
+    picks = fetch_entry_event(t_info["entry_id"], gw_num)
+    live_data = fetch_live_event(gw_num)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        try:
+            elem_int_id = int(elem_str_id)
+        except (ValueError, TypeError):
+            continue
+        elem_obj = element_lookup.get(elem_int_id, {})
+        c_id = elem_obj.get("team")
+        if c_id:
+            m_val = e_info.get("stats", {}).get("minutes", 0)
+            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+    starters, bench, live_score, proj_score, in_play, ytp = evaluate_lineup(
+        picks, live_elements, element_lookup, club_minutes, pos_map, team_map
+    )
+    active_p = []
+    if not starters.empty:
+        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+    if not bench.empty:
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+
+    max_player_pts = max(active_p) if active_p else 0
+    return live_score, max_player_pts, starters, bench, in_play, ytp
+
+@st.cache_data(ttl = 300)
+def calculate_group_standings():
+    cup_df = load_cup_matches()
+    teams_registry = get_all_32_teams_registry()
+    if cup_df is None or cup_df.empty:
+        return []
+
+    group_matches = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
+
+    unique_aliases = set()
+    for _, r in group_matches.iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        if m1 and m1.lower() != "nan":
+            unique_aliases.add(m1)
+        if m2 and m2.lower() != "nan":
+            unique_aliases.add(m2)
+
+    standings_dict = {
+        m: {
+            "Manager": m,
+            "Team": teams_registry.get(m.lower(), {}).get("team_name", m),
+            "Division": teams_registry.get(m.lower(), {}).get("league_key", "").split(" ")[0],
+            "W": 0, "D": 0, "L": 0, "PF": 0, "Pts": 0, "High_Score": 0, "H2H": {}
+        }
+        for m in unique_aliases
+    }
+
+    for _, r in group_matches.iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        gw = int(r["Week"])
+        if m1 not in standings_dict or m2 not in standings_dict:
+            continue
+
+        s1, high1, _, _, _, _ = resolve_cup_match_score(m1, gw)
+        s2, high2, _, _, _, _ = resolve_cup_match_score(m2, gw)
+
+        standings_dict[m1]["PF"] += s1
+        standings_dict[m2]["PF"] += s2
+        standings_dict[m1]["High_Score"] = max(standings_dict[m1]["High_Score"], high1)
+        standings_dict[m2]["High_Score"] = max(standings_dict[m2]["High_Score"], high2)
+
+        if s1 > s2:
+            standings_dict[m1]["W"] += 1
+            standings_dict[m1]["Pts"] += 3
+            standings_dict[m2]["L"] += 1
+            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 3
+        elif s2 > s1:
+            standings_dict[m2]["W"] += 1
+            standings_dict[m2]["Pts"] += 3
+            standings_dict[m1]["L"] += 1
+            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 3
+        elif s1 > 0 or s2 > 0:
+            standings_dict[m1]["D"] += 1
+            standings_dict[m1]["Pts"] += 1
+            standings_dict[m2]["D"] += 1
+            standings_dict[m2]["Pts"] += 1
+            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
+            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
+
+    rows = list(standings_dict.values())
+
+    def sort_tiebreakers(a, b):
+        if a["Pts"] != b["Pts"]:
+            return b["Pts"] - a["Pts"]
+        if a["PF"] != b["PF"]:
+            return b["PF"] - a["PF"]
+        h2h_a = a["H2H"].get(b["Manager"], 0)
+        h2h_b = b["H2H"].get(a["Manager"], 0)
+        if h2h_a != h2h_b:
+            return h2h_b - h2h_a
+        return b["High_Score"] - a["High_Score"]
+
+    import functools
+    sorted_rows = sorted(rows, key = functools.cmp_to_key(sort_tiebreakers))
+
+    display_table = []
+    for rank, item in enumerate(sorted_rows, 1):
+        if rank <= 8:
+            zone = "🏆 Cup (Top 8)"
+        elif rank <= 24:
+            zone = "⚔️ Playoff (9-24)"
+        else:
+            zone = "🪣 Bucket (25-32)"
+
+        display_table.append({
+            "Pos": rank,
+            "Zone": zone,
+            "Manager": item["Manager"],
+            "Team": item["Team"],
+            "Div": item["Division"],
+            "W": item["W"],
+            "D": item["D"],
+            "L": item["L"],
+            "PF": item["PF"],
+            "Pts": item["Pts"],
+            "Best XI Pt": item["High_Score"]
+        })
+
+    return display_table
+
 def calculate_league_tables(entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map):
     lentry_map = {e["id"]: e for e in entries}
     
@@ -1555,38 +1698,6 @@ elif st.session_state.page == "Cup & Bucket":
 
     all_cup_gws = sorted(list(set(cup_df["Week"].unique()) - {0}))
 
-    def resolve_cup_match_score(manager_alias, gw_num):
-        t_info = teams_registry.get(str(manager_alias).strip().lower())
-        if not t_info or not t_info.get("entry_id"):
-            return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
-        picks = fetch_entry_event(t_info["entry_id"], gw_num)
-        live_data = fetch_live_event(gw_num)
-        live_elements = live_data.get("elements", {}) if live_data else {}
-
-        club_minutes = {}
-        for elem_str_id, e_info in live_elements.items():
-            try:
-                elem_int_id = int(elem_str_id)
-            except (ValueError, TypeError):
-                continue
-            elem_obj = element_lookup.get(elem_int_id, {})
-            c_id = elem_obj.get("team")
-            if c_id:
-                m_val = e_info.get("stats", {}).get("minutes", 0)
-                club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
-
-        starters, bench, live_score, proj_score, in_play, ytp = evaluate_lineup(
-            picks, live_elements, element_lookup, club_minutes, pos_map, team_map
-        )
-        active_p = []
-        if not starters.empty:
-            active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
-        if not bench.empty:
-            active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
-
-        max_player_pts = max(active_p) if active_p else 0
-        return live_score, max_player_pts, starters, bench, in_play, ytp
-
     cup_tab_live, cup_tab_standings, cup_tab_analyser = st.tabs([
         "🔴 Live Cup Matchday",
         "📊 32-Team Group Standings",
@@ -1604,6 +1715,7 @@ elif st.session_state.page == "Cup & Bucket":
             if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
                 fetch_entry_event.clear()
                 fetch_live_event.clear()
+                resolve_cup_match_score.clear()
                 st.rerun()
 
         gw_cup_matches = cup_df[cup_df["Week"] == active_cup_gw].copy()
@@ -1618,8 +1730,8 @@ elif st.session_state.page == "Cup & Bucket":
                 if not m1_alias or not m2_alias or m1_alias.lower() == "nan" or m2_alias.lower() == "nan":
                     continue
 
-                s1, _, st1, b1, inp1, ytp1 = resolve_cup_match_score(m1_alias, active_cup_gw)
-                s2, _, st2, b2, inp2, ytp2 = resolve_cup_match_score(m2_alias, active_cup_gw)
+                s1, _, _, _, inp1, ytp1 = resolve_cup_match_score(m1_alias, active_cup_gw)
+                s2, _, _, _, inp2, ytp2 = resolve_cup_match_score(m2_alias, active_cup_gw)
 
                 info1 = teams_registry.get(m1_alias.lower(), {})
                 info2 = teams_registry.get(m2_alias.lower(), {})
@@ -1683,105 +1795,28 @@ elif st.session_state.page == "Cup & Bucket":
         st.subheader("Combined 32-Team Group Standings (GW 6 – GW 20)")
         st.caption("Tiebreaker Hierarchy: 1. Points → 2. Player Points (PF) → 3. Head-to-Head → 4. Highest Individual Player Score in Group Stage")
 
-        group_matches = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
+        with st.spinner("Calculating group standings across 8 matchdays..."):
+            display_table = calculate_group_standings()
 
-        unique_aliases = set()
-        for _, r in group_matches.iterrows():
-            m1 = str(r.get("Team 1", "")).strip()
-            m2 = str(r.get("Team 2", "")).strip()
-            if m1 and m1.lower() != "nan":
-                unique_aliases.add(m1)
-            if m2 and m2.lower() != "nan":
-                unique_aliases.add(m2)
-
-        standings_dict = {
-            m: {
-                "Manager": m,
-                "Team": teams_registry.get(m.lower(), {}).get("team_name", m),
-                "Division": teams_registry.get(m.lower(), {}).get("league_key", "").split(" ")[0],
-                "W": 0, "D": 0, "L": 0, "PF": 0, "Pts": 0, "High_Score": 0, "H2H": {}
-            }
-            for m in unique_aliases
-        }
-
-        for _, r in group_matches.iterrows():
-            m1 = str(r.get("Team 1", "")).strip()
-            m2 = str(r.get("Team 2", "")).strip()
-            gw = int(r["Week"])
-            if m1 not in standings_dict or m2 not in standings_dict:
-                continue
-
-            s1, high1, _, _, _, _ = resolve_cup_match_score(m1, gw)
-            s2, high2, _, _, _, _ = resolve_cup_match_score(m2, gw)
-
-            standings_dict[m1]["PF"] += s1
-            standings_dict[m2]["PF"] += s2
-            standings_dict[m1]["High_Score"] = max(standings_dict[m1]["High_Score"], high1)
-            standings_dict[m2]["High_Score"] = max(standings_dict[m2]["High_Score"], high2)
-
-            if s1 > s2:
-                standings_dict[m1]["W"] += 1
-                standings_dict[m1]["Pts"] += 3
-                standings_dict[m2]["L"] += 1
-                standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 3
-            elif s2 > s1:
-                standings_dict[m2]["W"] += 1
-                standings_dict[m2]["Pts"] += 3
-                standings_dict[m1]["L"] += 1
-                standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 3
-            elif s1 > 0 or s2 > 0:
-                standings_dict[m1]["D"] += 1
-                standings_dict[m1]["Pts"] += 1
-                standings_dict[m2]["D"] += 1
-                standings_dict[m2]["Pts"] += 1
-                standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
-                standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
-
-        rows = list(standings_dict.values())
-
-        def sort_tiebreakers(a, b):
-            if a["Pts"] != b["Pts"]:
-                return b["Pts"] - a["Pts"]
-            if a["PF"] != b["PF"]:
-                return b["PF"] - a["PF"]
-            h2h_a = a["H2H"].get(b["Manager"], 0)
-            h2h_b = b["H2H"].get(a["Manager"], 0)
-            if h2h_a != h2h_b:
-                return h2h_b - h2h_a
-            return b["High_Score"] - a["High_Score"]
-
-        import functools
-        sorted_rows = sorted(rows, key = functools.cmp_to_key(sort_tiebreakers))
-
-        display_table = []
-        for rank, item in enumerate(sorted_rows, 1):
-            if rank <= 8:
-                zone = "🏆 Cup (Top 8)"
-            elif rank <= 24:
-                zone = "⚔️ Playoff (9-24)"
-            else:
-                zone = "🪣 Bucket (25-32)"
-
-            display_table.append({
-                "Pos": rank,
-                "Zone": zone,
-                "Manager": item["Manager"],
-                "Team": item["Team"],
-                "Div": item["Division"],
-                "W": item["W"],
-                "D": item["D"],
-                "L": item["L"],
-                "PF": item["PF"],
-                "Pts": item["Pts"],
-                "Best XI Pt": item["High_Score"]
-            })
-
-        table_df = pd.DataFrame(display_table)
-        st.table(table_df.set_index("Pos"))
+        if display_table:
+            table_df = pd.DataFrame(display_table)
+            st.table(table_df.set_index("Pos"))
+        else:
+            st.info("Group standings calculations unavailable.")
 
     with cup_tab_analyser:
         st.subheader("📋 Cup Results Analyser")
         st.caption("Inspect cross-league matchday lineups, key events and match progression charts")
+
+        group_matches_temp = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
+        unique_aliases_temp = set()
+        for _, r in group_matches_temp.iterrows():
+            m1 = str(r.get("Team 1", "")).strip()
+            m2 = str(r.get("Team 2", "")).strip()
+            if m1 and m1.lower() != "nan":
+                unique_aliases_temp.add(m1)
+            if m2 and m2.lower() != "nan":
+                unique_aliases_temp.add(m2)
 
         c_col1, c_col2 = st.columns([1, 2])
         with c_col1:
@@ -1808,7 +1843,7 @@ elif st.session_state.page == "Cup & Bucket":
             else:
                 st.info("No fixtures found for this gameweek.")
         else:
-            all_cup_managers = sorted(list(unique_aliases))
+            all_cup_managers = sorted(list(unique_aliases_temp))
             with c_col2:
                 chosen_mgr = st.selectbox("Select Manager", all_cup_managers, key = "c_mgr_picker")
             mgr_matches_df = cup_df[(cup_df["Team 1"] == chosen_mgr) | (cup_df["Team 2"] == chosen_mgr)].copy()
@@ -1850,7 +1885,7 @@ elif st.session_state.page == "Cup & Bucket":
             st.divider()
 
             epl_fixtures = fetch_epl_fixtures(c_gw)
-            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
+            gw_fixtures = [f for f in epl_fixtures if f.get("event"] == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
                 gw_fixtures = epl_fixtures
 
@@ -2249,7 +2284,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
                     if h_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
@@ -2977,7 +3012,7 @@ elif st.session_state.page == "Standings":
     with standings_tab2:
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
         st.caption("Standings after the most recently concluded gameweek.")
-        st.table(official_table_df)
+        st.table(official_df)
 
     with standings_tab3:
         render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
