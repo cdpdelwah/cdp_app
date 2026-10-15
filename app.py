@@ -1968,21 +1968,49 @@ elif st.session_state.page == "Squad Analyser":
 
             all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
             ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
-            
-            col_start, col_bench = st.columns([3, 2])
-            
-            with col_start:
-                st.markdown("### Starters (GK First)")
-                xi_df = pd.DataFrame(starting_xi)
-                xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
-                xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
-                
-                # Format to exact 1 decimal string representation
-                xi_df["PPG"] = xi_df["points_per_game"].map(lambda x: f"{x:.1f}")
-                xi_df["Form"] = xi_df["form"].map(lambda x: f"{x:.1f}")
 
-                display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
-                st.table(xi_df[display_cols].rename(columns = {
+            # Build Bench rows with explicit sub priority order
+            bench_rows = []
+            for bg in bench_gk:
+                bg_dict = bg.to_dict()
+                bg_dict["Role"] = "GK Sub"
+                bench_rows.append(bg_dict)
+            for idx, (_, bo) in enumerate(ordered_bench_outfield.iterrows(), 1):
+                bo_dict = bo.to_dict()
+                bo_dict["Role"] = f"Sub {idx}"
+                bench_rows.append(bo_dict)
+
+            # 1. Starting XI Table (Full Width)
+            st.markdown("### Starting XI (GK First)")
+            xi_df = pd.DataFrame(starting_xi)
+            xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
+            xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
+            
+            xi_df["PPG"] = xi_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
+            xi_df["Form"] = xi_df["form"].map(lambda x: f"{float(x):.1f}")
+
+            display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+            xi_display = xi_df[display_cols].rename(columns = {
+                "web_name": "Player",
+                "position": "Pos",
+                "club": "Club",
+                "health_status": "Status",
+                "total_points": "Total Pts",
+                "last_2_pts": "Last 2 GWs",
+                "next_3": "Next 3 Fixtures"
+            })
+            st.table(xi_display.set_index("Player"))
+
+            # 2. Bench Hierarchy Table (Full Width with Identical Columns)
+            if bench_rows:
+                st.markdown("### Bench Hierarchy")
+                b_df = pd.DataFrame(bench_rows)
+                b_df["PPG"] = b_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
+                b_df["Form"] = b_df["form"].map(lambda x: f"{float(x):.1f}")
+
+                b_cols = ["Role", "web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+                b_display = b_df[b_cols].rename(columns = {
+                    "Role": "Role",
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
@@ -1990,27 +2018,9 @@ elif st.session_state.page == "Squad Analyser":
                     "total_points": "Total Pts",
                     "last_2_pts": "Last 2 GWs",
                     "next_3": "Next 3 Fixtures"
-                }).set_index("Player"))
-                
-            with col_bench:
-                st.markdown("### Bench Hierarchy")
-                if bench_gk:
-                    st.markdown("**Goalkeeper Reserve**")
-                    bgk_df = pd.DataFrame(bench_gk).copy()
-                    bgk_df["Form"] = bgk_df["form"].map(lambda x: f"{x:.1f}")
-                    bgk_cols = ["web_name", "position", "club", "health_status", "total_points", "next_3", "Form"]
-                    st.table(bgk_df[bgk_cols].rename(columns = {
-                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3"
-                    }).set_index("Player"))
-                if not ordered_bench_outfield.empty:
-                    st.markdown("**Outfield Substitutes (Auto Sub Order)**")
-                    bo_df = ordered_bench_outfield.copy()
-                    bo_df["Form"] = bo_df["form"].map(lambda x: f"{x:.1f}")
-                    bo_cols = ["web_name", "position", "club", "health_status", "total_points", "next_3", "Form"]
-                    st.table(bo_df[bo_cols].rename(columns = {
-                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3"
-                    }).set_index("Player"))
-                    st.caption("Sub 1 prioritises 100% fit players to ensure auto sub coverage if a doubtful starter is rested.")
+                })
+                st.table(b_display.set_index("Role"))
+                st.caption("Sub 1 prioritises 100% fit outfield players to ensure automatic substitution cover if a doubtful starter is rested.")
 
     # ----------------- TAB 2: TAILORED WAIVERS & SUGGESTED DROPS -----------------
     with tab_waivers:
