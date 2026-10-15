@@ -174,9 +174,9 @@ st.sidebar.caption("Stats, not facts | Season X Command Center")
 NAV_ITEMS = [
     "Home",
     "LIVE SCORES",
-    "🏆 Cup & Bucket",
     "EPL Scores",
     "Results Analyser",
+    "Cup & Bucket",
     "Squad Analyser",
     "GACS",
     "Standings",
@@ -1281,11 +1281,11 @@ if st.session_state.page == "Home":
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
     with r1_c2:
-        st.button("🏆 Cup & Bucket", on_click = set_page, args = ("🏆 Cup & Bucket",), use_container_width = True)
-    with r1_c3:
         st.button("⚽ EPL Scores", on_click = set_page, args = ("EPL Scores",), use_container_width = True)
-    with r1_c4:
+    with r1_c3:
         st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
+    with r1_c4:
+        st.button("Cup & Bucket", on_click = set_page, args = ("Cup & Bucket",), use_container_width = True)
 
     st.write("")
     r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
@@ -1493,7 +1493,7 @@ elif st.session_state.page == "LIVE SCORES":
     active_spot = match_summaries[spotlight_idx]
     
     s_c1, s_c2 = st.columns(2)
-    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "Bonus"]
+    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
     with s_c1:
         alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
@@ -1528,7 +1528,7 @@ elif st.session_state.page == "LIVE SCORES":
             st.info("Lineup selections not yet available.")
 
 # ----------------- 3. 🏆 CUP & BUCKET COMPETITION -----------------
-elif st.session_state.page == "🏆 Cup & Bucket":
+elif st.session_state.page == "Cup & Bucket":
     st.title("🏆 Cup & Bucket Competition")
     st.caption("32-Team Inter-League Championship • CDP, SDM, BDR and LDE")
 
@@ -1555,7 +1555,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
 
     all_cup_gws = sorted(list(set(cup_df["Week"].unique()) - {0}))
 
-    # Helper function to evaluate match score and max individual player score
     def resolve_cup_match_score(manager_alias, gw_num):
         t_info = teams_registry.get(str(manager_alias).strip().lower())
         if not t_info or not t_info.get("entry_id"):
@@ -1594,7 +1593,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
         "📋 Cup Results Analyser"
     ])
 
-    # 1. LIVE CUP MATCHDAY
     with cup_tab_live:
         top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
         with top_m1:
@@ -1681,12 +1679,10 @@ elif st.session_state.page == "🏆 Cup & Bucket":
 
                             st.progress(card["prob1"] / 100.0)
 
-    # 2. 32-TEAM GROUP STANDINGS & TIEBREAKERS
     with cup_tab_standings:
         st.subheader("Combined 32-Team Group Standings (GW 6 – GW 20)")
         st.caption("Tiebreaker Hierarchy: 1. Points → 2. Player Points (PF) → 3. Head-to-Head → 4. Highest Individual Player Score in Group Stage")
 
-        # Compile Group Stage matches (GW 6 to GW 20)
         group_matches = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
 
         unique_aliases = set()
@@ -1708,7 +1704,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
             for m in unique_aliases
         }
 
-        # Calculate Group Stage Match Results
         for _, r in group_matches.iterrows():
             m1 = str(r.get("Team 1", "")).strip()
             m2 = str(r.get("Team 2", "")).strip()
@@ -1742,7 +1737,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
                 standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
                 standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
 
-        # Multi-variable sort adhering strictly to tiebreaker rules
         rows = list(standings_dict.values())
 
         def sort_tiebreakers(a, b):
@@ -1750,12 +1744,10 @@ elif st.session_state.page == "🏆 Cup & Bucket":
                 return b["Pts"] - a["Pts"]
             if a["PF"] != b["PF"]:
                 return b["PF"] - a["PF"]
-            # Head-to-Head points check
             h2h_a = a["H2H"].get(b["Manager"], 0)
             h2h_b = b["H2H"].get(a["Manager"], 0)
             if h2h_a != h2h_b:
                 return h2h_b - h2h_a
-            # Highest individual player score check
             return b["High_Score"] - a["High_Score"]
 
         import functools
@@ -1787,7 +1779,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
         table_df = pd.DataFrame(display_table)
         st.table(table_df.set_index("Pos"))
 
-    # 3. CUP RESULTS ANALYSER
     with cup_tab_analyser:
         st.subheader("📋 Cup Results Analyser")
         st.caption("Inspect cross-league matchday lineups, key events and match progression charts")
@@ -1858,7 +1849,6 @@ elif st.session_state.page == "🏆 Cup & Bucket":
                 st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
             st.divider()
 
-            # Points Progression Chart for Cup Matchup
             epl_fixtures = fetch_epl_fixtures(c_gw)
             gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
@@ -2259,7 +2249,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
                     if h_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
@@ -2377,10 +2367,10 @@ elif st.session_state.page == "Results Analyser":
             st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{score1} {dash} {score2}</h2>".format(score1=score1, dash=dash, score2=score2), unsafe_allow_html = True)
-            st.markdown(f"<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>{status_text} (GW {gw_num})</p>", unsafe_allow_html = True)
+            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown("### " + alias2, unsafe_allow_html = True)
+            st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
