@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import pandas as pd
 import math
@@ -145,7 +146,6 @@ def format_remaining_players(in_play, yet_to_play):
     return "0 to play"
 
 def format_table_floats(df):
-    """Enforces clean integer formatting for whole ranks and 1 decimal place for floats."""
     if df is None or df.empty:
         return df
     formatted = df.copy()
@@ -982,6 +982,44 @@ def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
 
 # ----------------- 1. HOME PAGE -----------------
 if st.session_state.page == "Home":
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
+
+    matches = league_details.get("matches", []) if league_details else []
+    all_events = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
+    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
+
+    events_list = static_data.get("events", []) if static_data else []
+    if isinstance(events_list, dict):
+        events_list = events_list.get("data", [])
+
+    target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+    lineup_iso = target_ev.get("deadline_time") if target_ev else None
+
+    if not lineup_iso and all_fixtures:
+        gw_fixtures = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
+        if gw_fixtures:
+            gw_fixtures = sorted(gw_fixtures, key = lambda x: x.get("kickoff_time"))
+            earliest_ko = gw_fixtures[0].get("kickoff_time")
+            try:
+                lineup_dt = pd.to_datetime(earliest_ko) - pd.Timedelta(minutes = 90)
+                lineup_iso = lineup_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+
+    if lineup_iso:
+        try:
+            lineup_dt = pd.to_datetime(lineup_iso)
+            waiver_dt = lineup_dt - pd.Timedelta(hours = 24)
+            waiver_iso = waiver_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            waiver_iso = lineup_iso
+    else:
+        lineup_iso = ""
+        waiver_iso = ""
+
     col_brand, col_intro = st.columns([1, 4])
     with col_brand:
         if logo_path.exists():
@@ -989,21 +1027,194 @@ if st.session_state.page == "Home":
     with col_intro:
         st.markdown(f"""
         <div style="margin-top: 5px;">
-            <span style="background-color: {active_theme['badge_bg']}; color: {active_theme['accent']}; border: 1px solid {active_theme['accent']}; font-weight: 800; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; letter-spacing: 1px;">
-                {active_theme['tag']}
-            </span>
-            <h1 style="margin: 0.4rem 0 0.1rem 0; font-size: 2.4rem;">CDP App {dash} Season X</h1>
+            <h1 style="margin: 0.1rem 0 0.1rem 0; font-size: 2.4rem;">CDP App {dash} Season X</h1>
             <p style="color: #94a3b8; margin: 0; font-size: 0.95rem;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
         """, unsafe_allow_html = True)
 
-    st.write("")
-    
-    with st.container(border = True):
-        st.subheader("Current Competition Status")
-        st.markdown(f"**Active Division:** <span style='color: {active_theme['accent']}; font-weight: bold; font-size: 1.1rem;'>{selected_league_key}</span>", unsafe_allow_html = True)
-        st.caption("Live feed connected to Premier League Draft API")
-    
+    countdown_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background-color: #000000;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }}
+        .container {{
+            display: flex;
+            gap: 12px;
+            width: 100%;
+        }}
+        .card {{
+            flex: 1;
+            background-color: #090c13;
+            border: 1px solid #182030;
+            border-radius: 8px;
+            padding: 10px 14px;
+            transition: border 0.2s ease;
+        }}
+        .card:hover {{
+            border-color: {active_theme['accent']};
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3px;
+        }}
+        .title {{
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .gw-tag {{
+            font-size: 0.68rem;
+            font-weight: 800;
+            color: {active_theme['accent']};
+            background-color: {active_theme['badge_bg']};
+            border: 1px solid {active_theme['accent']};
+            padding: 1px 6px;
+            border-radius: 4px;
+        }}
+        .clock-row {{
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+            margin: 2px 0 3px 0;
+        }}
+        .num {{
+            font-family: "SF Mono", "Consolas", "Courier New", monospace;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #ffffff;
+        }}
+        .sec-num {{
+            font-family: "SF Mono", "Consolas", "Courier New", monospace;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: {active_theme['accent']};
+        }}
+        .unit {{
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #64748b;
+            margin-left: 1px;
+        }}
+        .sub {{
+            font-size: 0.72rem;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        @media (max-width: 600px) {{
+            .container {{
+                flex-direction: column;
+                gap: 8px;
+            }}
+            .card {{
+                padding: 8px 12px;
+            }}
+            .num, .sec-num {{
+                font-size: 1.3rem;
+            }}
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <span class="title">⚡ Waiver Deadline</span>
+                <span class="gw-tag">GW {current_gw}</span>
+            </div>
+            <div id="waiver-clock" class="clock-row">
+                <span class="num">--<span class="unit">d</span></span>
+                <span class="num">--<span class="unit">h</span></span>
+                <span class="num">--<span class="unit">m</span></span>
+                <span class="sec-num">--<span class="unit">s</span></span>
+            </div>
+            <div id="waiver-sub" class="sub">Calculating local time...</div>
+        </div>
+        <div class="card">
+            <div class="header">
+                <span class="title">🔒 Lineup Set Deadline</span>
+                <span class="gw-tag">GW {current_gw}</span>
+            </div>
+            <div id="lineup-clock" class="clock-row">
+                <span class="num">--<span class="unit">d</span></span>
+                <span class="num">--<span class="unit">h</span></span>
+                <span class="num">--<span class="unit">m</span></span>
+                <span class="sec-num">--<span class="unit">s</span></span>
+            </div>
+            <div id="lineup-sub" class="sub">Calculating local time...</div>
+        </div>
+    </div>
+
+    <script>
+        const waiverTarget = new Date("{waiver_iso}").getTime();
+        const lineupTarget = new Date("{lineup_iso}").getTime();
+
+        const opts = {{ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }};
+        if (!isNaN(waiverTarget)) {{
+            const wLocal = new Date(waiverTarget).toLocaleDateString(undefined, opts);
+            document.getElementById("waiver-sub").textContent = wLocal + " (24h before kickoff)";
+        }}
+        if (!isNaN(lineupTarget)) {{
+            const lLocal = new Date(lineupTarget).toLocaleDateString(undefined, opts);
+            document.getElementById("lineup-sub").textContent = lLocal + " (90m before kickoff)";
+        }}
+
+        function updateClocks() {{
+            const now = new Date().getTime();
+
+            function renderTimer(target, clockId, subId, passedText) {{
+                const clockEl = document.getElementById(clockId);
+                const subEl = document.getElementById(subId);
+                if (!clockEl) return;
+
+                const diff = target - now;
+                if (isNaN(target) || diff <= 0) {{
+                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.15rem; font-family: monospace;">DEADLINE PASSED</span>';
+                    if (subEl) subEl.textContent = passedText;
+                    return;
+                }}
+
+                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((diff % (1000 * 60)) / 1000);
+
+                const pad = (n) => String(n).padStart(2, '0');
+
+                clockEl.innerHTML = `
+                    <span class="num">${{pad(d)}}<span class="unit">d</span></span>
+                    <span class="num">${{pad(h)}}<span class="unit">h</span></span>
+                    <span class="num">${{pad(m)}}<span class="unit">m</span></span>
+                    <span class="sec-num">${{pad(s)}}<span class="unit">s</span></span>
+                `;
+            }}
+
+            renderTimer(waiverTarget, 'waiver-clock', 'waiver-sub', 'Waivers Processed • Free Agency Active');
+            renderTimer(lineupTarget, 'lineup-clock', 'lineup-sub', 'Lineups Locked • Round in Progress');
+        }}
+
+        updateClocks();
+        setInterval(updateClocks, 1000);
+    </script>
+    </body>
+    </html>
+    """
+    components.html(countdown_html, height = 155)
+
     st.markdown("#### Quick Launchpad")
     
     r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
@@ -1969,7 +2180,6 @@ elif st.session_state.page == "Squad Analyser":
             all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
             ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
 
-            # Build Bench rows with explicit sub priority order
             bench_rows = []
             for bg in bench_gk:
                 bg_dict = bg.to_dict()
@@ -1980,7 +2190,6 @@ elif st.session_state.page == "Squad Analyser":
                 bo_dict["Role"] = f"Sub {idx}"
                 bench_rows.append(bo_dict)
 
-            # 1. Starting XI Table (Full Width)
             st.markdown("### Starting XI (GK First)")
             xi_df = pd.DataFrame(starting_xi)
             xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
@@ -2001,7 +2210,6 @@ elif st.session_state.page == "Squad Analyser":
             })
             st.table(xi_display.set_index("Player"))
 
-            # 2. Bench Hierarchy Table (Full Width with Identical Columns)
             if bench_rows:
                 st.markdown("### Bench Hierarchy")
                 b_df = pd.DataFrame(bench_rows)
