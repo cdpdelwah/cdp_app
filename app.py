@@ -174,6 +174,7 @@ st.sidebar.caption("Stats, not facts | Season X Command Center")
 NAV_ITEMS = [
     "Home",
     "LIVE SCORES",
+    "🏆 Cup & Bucket",
     "EPL Scores",
     "Results Analyser",
     "Squad Analyser",
@@ -449,7 +450,7 @@ def load_records_data():
         for folder in potential_folders:
             if folder.exists() and folder.is_dir():
                 for f in folder.iterdir():
-                    if f.is_file() and f.suffix.lower() in valid_extensions and "power" not in f.name.lower():
+                    if f.is_file() and f.suffix.lower() in valid_extensions and "power" not in f.name.lower() and "cup" not in f.name.lower():
                         target_file = f
                         break
             if target_file:
@@ -527,6 +528,43 @@ def load_power_rankings_data():
 
     return None, None, None
 
+@st.cache_data(ttl = 600)
+def load_cup_matches():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    potential_folders = [
+        base_dir / "Assets",
+        base_dir / "assets",
+        Path("Assets"),
+        Path("assets"),
+        base_dir
+    ]
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions and "cupmatch" in f.name.lower().replace(" ", "").replace("_", ""):
+                    target_file = f
+                    break
+        if target_file:
+            break
+
+    if not target_file or not target_file.exists():
+        return None
+
+    ext = target_file.suffix.lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(target_file)
+        elif ext == ".ods":
+            df = pd.read_excel(target_file, engine = "odf")
+        else:
+            df = pd.read_excel(target_file, engine = "openpyxl")
+        
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except Exception:
+        return None
+
 @st.cache_data(ttl = 3600)
 def fetch_fpl_static():
     url = "https://draft.premierleague.com/api/bootstrap" + chr(45) + "static"
@@ -549,6 +587,28 @@ def fetch_league_data(league_id):
         return None, None
         
     return det_resp.json(), stat_resp.json()
+
+@st.cache_data(ttl = 600)
+def get_all_32_teams_registry():
+    registry = {}
+    for l_key, l_id in LEAGUE_PRESETS.items():
+        details, _ = fetch_league_data(l_id)
+        if details:
+            entries = details.get("league_entries", [])
+            for e in entries:
+                alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+                info = {
+                    "entry_id": e.get("entry_id"),
+                    "league_entry_id": e.get("id"),
+                    "league_id": l_id,
+                    "league_key": l_key,
+                    "team_name": e.get("entry_name", "Team"),
+                    "manager_name": f"{e.get('player_first_name', '')} {e.get('player_last_name', '')}".strip(),
+                    "alias": alias
+                }
+                registry[alias.lower()] = info
+                registry[e.get("entry_name", "").strip().lower()] = info
+    return registry
 
 @st.cache_data(ttl = 60)
 def fetch_entry_event(entry_id, event):
@@ -1221,29 +1281,30 @@ if st.session_state.page == "Home":
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
     with r1_c2:
-        st.button("⚽ EPL Scores", on_click = set_page, args = ("EPL Scores",), use_container_width = True)
+        st.button("🏆 Cup & Bucket", on_click = set_page, args = ("🏆 Cup & Bucket",), use_container_width = True)
     with r1_c3:
-        st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
+        st.button("⚽ EPL Scores", on_click = set_page, args = ("EPL Scores",), use_container_width = True)
     with r1_c4:
-        st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
+        st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
 
     st.write("")
     r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
     with r2_c1:
-        st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
+        st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
     with r2_c2:
-        st.button("🏆 Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
+        st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
     with r2_c3:
-        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
+        st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
     with r2_c4:
-        st.button("⚡ Power Rankings", on_click = set_page, args = ("Power Rankings",), use_container_width = True)
+        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
     with r2_c5:
-        st.button("📜 Records", on_click = set_page, args = ("Records",), use_container_width = True)
+        st.button("⚡ Power Rankings", on_click = set_page, args = ("Power Rankings",), use_container_width = True)
 
     st.divider()
 
     st.subheader("Core Capabilities")
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities and real time auto subs.")
+    st.markdown("* **Cup & Bucket**: Cross-league tournament portal featuring 32-team group standings, live cup scoreboards and cup results analyser.")
     st.markdown("* **EPL Scores**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns and chronological matchday points progression graphs.")
     st.markdown("* **Squad Analyser**: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.")
@@ -1466,7 +1527,493 @@ elif st.session_state.page == "LIVE SCORES":
         else:
             st.info("Lineup selections not yet available.")
 
-# ----------------- 3. EPL SCORES SECTION -----------------
+# ----------------- 3. 🏆 CUP & BUCKET COMPETITION -----------------
+elif st.session_state.page == "🏆 Cup & Bucket":
+    st.title("🏆 Cup & Bucket Competition")
+    st.caption("32-Team Inter-League Championship • CDP, SDM, BDR and LDE")
+
+    cup_df = load_cup_matches()
+    static_data = fetch_fpl_static()
+
+    if cup_df is None or cup_df.empty:
+        st.warning("No 'cupmatches' spreadsheet found. Place 'cupmatches.xlsx', '.ods' or '.csv' in your Assets folder.")
+        st.stop()
+
+    if not static_data:
+        st.error("Failed to connect to Premier League API.")
+        st.stop()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+
+    teams_registry = get_all_32_teams_registry()
+
+    cup_df.columns = [str(c).strip().title() for c in cup_df.columns]
+    cup_df["Week"] = pd.to_numeric(cup_df["Week"], errors = "coerce").fillna(0).astype(int)
+
+    all_cup_gws = sorted(list(set(cup_df["Week"].unique()) - {0}))
+
+    # Helper function to evaluate match score and max individual player score
+    def resolve_cup_match_score(manager_alias, gw_num):
+        t_info = teams_registry.get(str(manager_alias).strip().lower())
+        if not t_info or not t_info.get("entry_id"):
+            return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
+        picks = fetch_entry_event(t_info["entry_id"], gw_num)
+        live_data = fetch_live_event(gw_num)
+        live_elements = live_data.get("elements", {}) if live_data else {}
+
+        club_minutes = {}
+        for elem_str_id, e_info in live_elements.items():
+            try:
+                elem_int_id = int(elem_str_id)
+            except (ValueError, TypeError):
+                continue
+            elem_obj = element_lookup.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                m_val = e_info.get("stats", {}).get("minutes", 0)
+                club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+        starters, bench, live_score, proj_score, in_play, ytp = evaluate_lineup(
+            picks, live_elements, element_lookup, club_minutes, pos_map, team_map
+        )
+        active_p = []
+        if not starters.empty:
+            active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+        if not bench.empty:
+            active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+
+        max_player_pts = max(active_p) if active_p else 0
+        return live_score, max_player_pts, starters, bench, in_play, ytp
+
+    cup_tab_live, cup_tab_standings, cup_tab_analyser = st.tabs([
+        "🔴 Live Cup Matchday",
+        "📊 32-Team Group Standings",
+        "📋 Cup Results Analyser"
+    ])
+
+    # 1. LIVE CUP MATCHDAY
+    with cup_tab_live:
+        top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
+        with top_m1:
+            st.caption("Around the Grounds live inter-league cup matches with live auto-subs and scoreline forecasts")
+        with top_m2:
+            active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
+        with top_m3:
+            st.write("")
+            if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
+                fetch_entry_event.clear()
+                fetch_live_event.clear()
+                st.rerun()
+
+        gw_cup_matches = cup_df[cup_df["Week"] == active_cup_gw].copy()
+
+        if gw_cup_matches.empty:
+            st.info(f"No cup matches scheduled for Gameweek {active_cup_gw}.")
+        else:
+            live_cup_cards = []
+            for _, r in gw_cup_matches.iterrows():
+                m1_alias = str(r.get("Team 1", "")).strip()
+                m2_alias = str(r.get("Team 2", "")).strip()
+                if not m1_alias or not m2_alias or m1_alias.lower() == "nan" or m2_alias.lower() == "nan":
+                    continue
+
+                s1, _, st1, b1, inp1, ytp1 = resolve_cup_match_score(m1_alias, active_cup_gw)
+                s2, _, st2, b2, inp2, ytp2 = resolve_cup_match_score(m2_alias, active_cup_gw)
+
+                info1 = teams_registry.get(m1_alias.lower(), {})
+                info2 = teams_registry.get(m2_alias.lower(), {})
+
+                is_fin = (inp1 + ytp1 + inp2 + ytp2 == 0) and (s1 > 0 or s2 > 0)
+                prob1, prob2 = calculate_win_probability(s1, s1, inp1 + ytp1, s2, s2, inp2 + ytp2, is_fin)
+
+                live_cup_cards.append({
+                    "m1": m1_alias,
+                    "m2": m2_alias,
+                    "t1_name": info1.get("team_name", "Team 1"),
+                    "t2_name": info2.get("team_name", "Team 2"),
+                    "l1": info1.get("league_key", "").split(" ")[0],
+                    "l2": info2.get("league_key", "").split(" ")[0],
+                    "s1": s1,
+                    "s2": s2,
+                    "inp1": inp1,
+                    "ytp1": ytp1,
+                    "inp2": inp2,
+                    "ytp2": ytp2,
+                    "prob1": prob1,
+                    "prob2": prob2,
+                    "is_fin": is_fin,
+                    "comp": r.get("Comp", "Cup"),
+                    "stage": r.get("Stage", ""),
+                    "leg": r.get("Leg", "")
+                })
+
+            for idx in range(0, len(live_cup_cards), 2):
+                col_c1, col_c2 = st.columns(2)
+                pair = [live_cup_cards[idx]]
+                if idx + 1 < len(live_cup_cards):
+                    pair.append(live_cup_cards[idx + 1])
+                cols = [col_c1, col_c2]
+                for c_i, card in enumerate(pair):
+                    with cols[c_i]:
+                        with st.container(border = True):
+                            hdr_l, hdr_r = st.columns([3, 1])
+                            with hdr_l:
+                                st.markdown(f"<h4 style='margin: 0; color: #ffffff;'>{card['m1']} <span style='font-size: 0.8rem; color: #64748b;'>({card['l1']})</span> vs {card['m2']} <span style='font-size: 0.8rem; color: #64748b;'>({card['l2']})</span></h4>", unsafe_allow_html = True)
+                            with hdr_r:
+                                stage_tag = f"{card['stage']} {card['leg']}".strip()
+                                st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.8rem; color: {active_theme['accent']}; font-weight: bold;'>{stage_tag}</p>", unsafe_allow_html = True)
+
+                            rem1 = format_remaining_players(card["inp1"], card["ytp1"])
+                            rem2 = format_remaining_players(card["inp2"], card["ytp2"])
+
+                            sc1, sc2, sc3 = st.columns([5, 1, 5])
+                            with sc1:
+                                st.markdown(f"<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>{card['s1']}</h3>", unsafe_allow_html = True)
+                                st.caption(rem1)
+                            with sc2:
+                                st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
+                            with sc3:
+                                st.markdown(f"<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>{card['s2']}</h3>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #64748b;'>{rem2}</p>", unsafe_allow_html = True)
+
+                            st.progress(card["prob1"] / 100.0)
+
+    # 2. 32-TEAM GROUP STANDINGS & TIEBREAKERS
+    with cup_tab_standings:
+        st.subheader("Combined 32-Team Group Standings (GW 6 – GW 20)")
+        st.caption("Tiebreaker Hierarchy: 1. Points → 2. Player Points (PF) → 3. Head-to-Head → 4. Highest Individual Player Score in Group Stage")
+
+        # Compile Group Stage matches (GW 6 to GW 20)
+        group_matches = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
+
+        unique_aliases = set()
+        for _, r in group_matches.iterrows():
+            m1 = str(r.get("Team 1", "")).strip()
+            m2 = str(r.get("Team 2", "")).strip()
+            if m1 and m1.lower() != "nan":
+                unique_aliases.add(m1)
+            if m2 and m2.lower() != "nan":
+                unique_aliases.add(m2)
+
+        standings_dict = {
+            m: {
+                "Manager": m,
+                "Team": teams_registry.get(m.lower(), {}).get("team_name", m),
+                "Division": teams_registry.get(m.lower(), {}).get("league_key", "").split(" ")[0],
+                "W": 0, "D": 0, "L": 0, "PF": 0, "Pts": 0, "High_Score": 0, "H2H": {}
+            }
+            for m in unique_aliases
+        }
+
+        # Calculate Group Stage Match Results
+        for _, r in group_matches.iterrows():
+            m1 = str(r.get("Team 1", "")).strip()
+            m2 = str(r.get("Team 2", "")).strip()
+            gw = int(r["Week"])
+            if m1 not in standings_dict or m2 not in standings_dict:
+                continue
+
+            s1, high1, _, _, _, _ = resolve_cup_match_score(m1, gw)
+            s2, high2, _, _, _, _ = resolve_cup_match_score(m2, gw)
+
+            standings_dict[m1]["PF"] += s1
+            standings_dict[m2]["PF"] += s2
+            standings_dict[m1]["High_Score"] = max(standings_dict[m1]["High_Score"], high1)
+            standings_dict[m2]["High_Score"] = max(standings_dict[m2]["High_Score"], high2)
+
+            if s1 > s2:
+                standings_dict[m1]["W"] += 1
+                standings_dict[m1]["Pts"] += 3
+                standings_dict[m2]["L"] += 1
+                standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 3
+            elif s2 > s1:
+                standings_dict[m2]["W"] += 1
+                standings_dict[m2]["Pts"] += 3
+                standings_dict[m1]["L"] += 1
+                standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 3
+            elif s1 > 0 or s2 > 0:
+                standings_dict[m1]["D"] += 1
+                standings_dict[m1]["Pts"] += 1
+                standings_dict[m2]["D"] += 1
+                standings_dict[m2]["Pts"] += 1
+                standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
+                standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
+
+        # Multi-variable sort adhering strictly to tiebreaker rules
+        rows = list(standings_dict.values())
+
+        def sort_tiebreakers(a, b):
+            if a["Pts"] != b["Pts"]:
+                return b["Pts"] - a["Pts"]
+            if a["PF"] != b["PF"]:
+                return b["PF"] - a["PF"]
+            # Head-to-Head points check
+            h2h_a = a["H2H"].get(b["Manager"], 0)
+            h2h_b = b["H2H"].get(a["Manager"], 0)
+            if h2h_a != h2h_b:
+                return h2h_b - h2h_a
+            # Highest individual player score check
+            return b["High_Score"] - a["High_Score"]
+
+        import functools
+        sorted_rows = sorted(rows, key = functools.cmp_to_key(sort_tiebreakers))
+
+        display_table = []
+        for rank, item in enumerate(sorted_rows, 1):
+            if rank <= 8:
+                zone = "🏆 Cup (Top 8)"
+            elif rank <= 24:
+                zone = "⚔️ Playoff (9-24)"
+            else:
+                zone = "🪣 Bucket (25-32)"
+
+            display_table.append({
+                "Pos": rank,
+                "Zone": zone,
+                "Manager": item["Manager"],
+                "Team": item["Team"],
+                "Div": item["Division"],
+                "W": item["W"],
+                "D": item["D"],
+                "L": item["L"],
+                "PF": item["PF"],
+                "Pts": item["Pts"],
+                "Best XI Pt": item["High_Score"]
+            })
+
+        table_df = pd.DataFrame(display_table)
+        st.table(table_df.set_index("Pos"))
+
+    # 3. CUP RESULTS ANALYSER
+    with cup_tab_analyser:
+        st.subheader("📋 Cup Results Analyser")
+        st.caption("Inspect cross-league matchday lineups, key events and match progression charts")
+
+        c_col1, c_col2 = st.columns([1, 2])
+        with c_col1:
+            cup_view_mode = st.radio("Browse Cup Fixtures", ["By Gameweek", "By Manager"], horizontal = True, key = "c_view_mode")
+
+        selected_cup_match = None
+
+        if cup_view_mode == "By Gameweek":
+            with c_col2:
+                chosen_c_gw = st.selectbox("Select Gameweek", all_cup_gws, key = "c_gw_picker")
+            gw_matches_df = cup_df[cup_df["Week"] == chosen_c_gw].copy()
+            gw_matches_df = gw_matches_df[gw_matches_df["Team 1"].notna() & gw_matches_df["Team 2"].notna()]
+
+            def cup_match_label(idx):
+                row = gw_matches_df.iloc[idx]
+                m1 = str(row["Team 1"]).strip()
+                m2 = str(row["Team 2"]).strip()
+                stage = f"{row.get('Stage', '')} {row.get('Leg', '')}".strip()
+                return f"{m1} vs {m2} ({stage})"
+
+            if not gw_matches_df.empty:
+                m_sel_idx = st.selectbox("Select Matchup", range(len(gw_matches_df)), format_func = cup_match_label, key = "c_m_sel")
+                selected_cup_match = gw_matches_df.iloc[m_sel_idx]
+            else:
+                st.info("No fixtures found for this gameweek.")
+        else:
+            all_cup_managers = sorted(list(unique_aliases))
+            with c_col2:
+                chosen_mgr = st.selectbox("Select Manager", all_cup_managers, key = "c_mgr_picker")
+            mgr_matches_df = cup_df[(cup_df["Team 1"] == chosen_mgr) | (cup_df["Team 2"] == chosen_mgr)].copy()
+            mgr_matches_df = mgr_matches_df.sort_values(by = "Week")
+
+            def cup_mgr_label(idx):
+                row = mgr_matches_df.iloc[idx]
+                m1 = str(row["Team 1"]).strip()
+                m2 = str(row["Team 2"]).strip()
+                return f"GW {row['Week']}: {m1} vs {m2} ({row.get('Stage', '')})"
+
+            if not mgr_matches_df.empty:
+                mgr_m_idx = st.selectbox("Select Matchup", range(len(mgr_matches_df)), format_func = cup_mgr_label, key = "c_mgr_m_sel")
+                selected_cup_match = mgr_matches_df.iloc[mgr_m_idx]
+
+        if selected_cup_match is not None:
+            c_gw = int(selected_cup_match["Week"])
+            c_m1 = str(selected_cup_match["Team 1"]).strip()
+            c_m2 = str(selected_cup_match["Team 2"]).strip()
+
+            c_s1, _, c_st1, c_b1, _, _ = resolve_cup_match_score(c_m1, c_gw)
+            c_s2, _, c_st2, c_b2, _, _ = resolve_cup_match_score(c_m2, c_gw)
+
+            info1 = teams_registry.get(c_m1.lower(), {})
+            info2 = teams_registry.get(c_m2.lower(), {})
+
+            st.divider()
+            r1, r2, r3 = st.columns([4, 2, 4])
+            with r1:
+                st.markdown(f"### {c_m1}")
+                st.caption(f"{info1.get('team_name', '')} • {info1.get('league_key', '')}")
+            with r2:
+                st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{c_s1} {dash} {c_s2}</h2>", unsafe_allow_html = True)
+                stage_desc = f"{selected_cup_match.get('Comp', 'Cup')} {selected_cup_match.get('Stage', '')} {selected_cup_match.get('Leg', '')}".strip()
+                st.markdown(f"<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
+            with r3:
+                st.markdown(f"<h3 style='text-align: right;'>{c_m2}</h3>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
+            st.divider()
+
+            # Points Progression Chart for Cup Matchup
+            epl_fixtures = fetch_epl_fixtures(c_gw)
+            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
+            if not gw_fixtures and epl_fixtures:
+                gw_fixtures = epl_fixtures
+
+            c1_active = []
+            if not c_st1.empty:
+                c1_active.extend([r for _, r in c_st1.iterrows() if r.get("sub_action") != "Subbed Off"])
+            if not c_b1.empty:
+                c1_active.extend([r for _, r in c_b1.iterrows() if r.get("sub_action") == "Subbed On"])
+
+            c2_active = []
+            if not c_st2.empty:
+                c2_active.extend([r for _, r in c_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
+            if not c_b2.empty:
+                c2_active.extend([r for _, r in c_b2.iterrows() if r.get("sub_action") == "Subbed On"])
+
+            if gw_fixtures:
+                labels = []
+                records = []
+                curr1 = 0
+                curr2 = 0
+
+                def get_fixture_contributors(active_players, h_id, a_id):
+                    entries_list = []
+                    for p in active_players:
+                        if p.get("club_id") in (h_id, a_id):
+                            p_name = p.get("Player", "Unknown")
+                            cats = []
+                            g = int(p.get("G", 0))
+                            a = int(p.get("A", 0))
+                            cs = int(p.get("CS", 0))
+                            bonus = int(p.get("Bonus", 0))
+                            pos = p.get("Pos", "")
+
+                            if g > 0:
+                                cats.append(f"{g}⚽" if g > 1 else "⚽")
+                            if a > 0:
+                                cats.append(f"{a}🎯" if a > 1 else "🎯")
+                            if cs > 0 and pos in ["GKP", "DEF"]:
+                                cats.append("🛡️")
+                            if bonus > 0:
+                                cats.append(f"{bonus}⭐")
+
+                            if cats:
+                                entries_list.append(f"{p_name} ({' '.join(cats)})")
+                    return ", ".join(entries_list) if entries_list else "None"
+
+                for f_item in gw_fixtures:
+                    h_team_id = f_item.get("team_h")
+                    a_team_id = f_item.get("team_a")
+                    h_code = team_short_map.get(h_team_id, "H")
+                    a_code = team_short_map.get(a_team_id, "A")
+                    m_label = f"{h_code} v {a_code}"
+
+                    p1_pts = sum(int(p["Pts"]) for p in c1_active if p.get("club_id") in (h_team_id, a_team_id))
+                    p2_pts = sum(int(p["Pts"]) for p in c2_active if p.get("club_id") in (h_team_id, a_team_id))
+
+                    curr1 += p1_pts
+                    curr2 += p2_pts
+
+                    contrib1 = get_fixture_contributors(c1_active, h_team_id, a_team_id)
+                    contrib2 = get_fixture_contributors(c2_active, h_team_id, a_team_id)
+
+                    labels.append(m_label)
+                    records.append({
+                        "Match": m_label,
+                        "Manager": c_m1,
+                        "Points": curr1,
+                        "Added": f"+{p1_pts}",
+                        "Key Events": contrib1
+                    })
+                    records.append({
+                        "Match": m_label,
+                        "Manager": c_m2,
+                        "Points": curr2,
+                        "Added": f"+{p2_pts}",
+                        "Key Events": contrib2
+                    })
+
+                chart_df = pd.DataFrame(records)
+
+                st.markdown(f"#### Gameweek {c_gw} Points Progression")
+                st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
+
+                chart = alt.Chart(chart_df).mark_line(point = True).encode(
+                    x = alt.X(
+                        "Match:N", 
+                        sort = labels, 
+                        title = None, 
+                        axis = alt.Axis(
+                            labelAngle = -90, 
+                            labelOverlap = False, 
+                            labelColor = "#94a3b8",
+                            labelFontSize = 9,
+                            grid = False
+                        )
+                    ),
+                    y = alt.Y(
+                        "Points:Q", 
+                        title = "Cumulative Points", 
+                        axis = alt.Axis(
+                            labelColor = "#94a3b8", 
+                            gridColor = "#182030",
+                            domainColor = "#182030"
+                        )
+                    ),
+                    color = alt.Color(
+                        "Manager:N",
+                        scale = alt.Scale(domain = [c_m1, c_m2], range = [active_theme["accent"], "#38bdf8"]),
+                        legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
+                    ),
+                    tooltip = [
+                        alt.Tooltip("Manager:N", title = "Manager"),
+                        alt.Tooltip("Match:N", title = "Match"),
+                        alt.Tooltip("Points:Q", title = "Total Pts"),
+                        alt.Tooltip("Added:N", title = "Match Pts"),
+                        alt.Tooltip("Key Events:N", title = "Key Events")
+                    ]
+                ).properties(
+                    height = 360,
+                    background = "#000000"
+                ).configure_view(
+                    strokeWidth = 0,
+                    fill = "#000000"
+                ).configure_axis(
+                    domainColor = "#182030"
+                )
+
+                st.altair_chart(chart, use_container_width = True)
+                st.divider()
+
+            display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
+            side1, side2 = st.columns(2)
+            with side1:
+                st.subheader(f"{c_m1} Lineup")
+                if not c_st1.empty:
+                    st.markdown("**Starting XI (GK First)**")
+                    st.table(c_st1[display_cols].set_index("Player"))
+                    st.markdown("**Bench Substitutes**")
+                    st.table(c_b1[display_cols].set_index("Player"))
+                else:
+                    st.info("Lineups not yet available.")
+
+            with side2:
+                st.subheader(f"{c_m2} Lineup")
+                if not c_st2.empty:
+                    st.markdown("**Starting XI (GK First)**")
+                    st.table(c_st2[display_cols].set_index("Player"))
+                    st.markdown("**Bench Substitutes**")
+                    st.table(c_b2[display_cols].set_index("Player"))
+                else:
+                    st.info("Lineups not yet available.")
+
+# ----------------- 4. EPL SCORES SECTION -----------------
 elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
     st.title("⚽ EPL Scores")
     
@@ -1723,7 +2270,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                     bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
                     st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
 
-# ----------------- 4. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
+# ----------------- 5. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
     
@@ -1830,10 +2377,10 @@ elif st.session_state.page == "Results Analyser":
             st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
+            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{score1} {dash} {score2}</h2>".format(score1=score1, dash=dash, score2=score2), unsafe_allow_html = True)
+            st.markdown(f"<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>{status_text} (GW {gw_num})</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
+            st.markdown("### " + alias2, unsafe_allow_html = True)
             st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
@@ -2026,7 +2573,7 @@ elif st.session_state.page == "Results Analyser":
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
-# ----------------- 5. SQUAD ANALYSER SECTION -----------------
+# ----------------- 6. SQUAD ANALYSER SECTION -----------------
 elif st.session_state.page == "Squad Analyser":
     st.title("Squad Analyser" + dash + selected_league_key)
     
@@ -2350,7 +2897,7 @@ elif st.session_state.page == "Squad Analyser":
         else:
             st.info("No matching waiver options found with sufficient points and playing chance.")
 
-# ----------------- 6. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
+# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
     st.title("🎯 GACS" + dash + selected_league_key)
     
@@ -2378,7 +2925,7 @@ elif st.session_state.page in ["GACS", "XI Stats"]:
 
     render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
 
-# ----------------- 7. STANDINGS SECTION -----------------
+# ----------------- 8. STANDINGS SECTION -----------------
 elif st.session_state.page == "Standings":
     st.title("🏆 Standings" + dash + selected_league_key)
     
@@ -2445,7 +2992,7 @@ elif st.session_state.page == "Standings":
     with standings_tab3:
         render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
 
-# ----------------- 8. NEWSLETTERS SECTION -----------------
+# ----------------- 9. NEWSLETTERS SECTION -----------------
 elif st.session_state.page == "Newsletters":
     st.title("Dellarverse Gazette")
     st.caption("Official match reports, power rankings and editorial coverage")
@@ -2460,7 +3007,7 @@ elif st.session_state.page == "Newsletters":
         st.subheader("Official Cup Gazette")
         render_pdf("latest_cup.pdf", "Cup Newsletter")
 
-# ----------------- 9. POWER RANKINGS SECTION -----------------
+# ----------------- 10. POWER RANKINGS SECTION -----------------
 elif st.session_state.page == "Power Rankings":
     top_p1, top_p2 = st.columns([5, 1])
     with top_p1:
@@ -2512,7 +3059,7 @@ elif st.session_state.page == "Power Rankings":
             else:
                 st.info("No data in this sheet.")
 
-# ----------------- 10. RECORDS SECTION -----------------
+# ----------------- 11. RECORDS SECTION -----------------
 elif st.session_state.page == "Records":
     top_r1, top_r2 = st.columns([5, 1])
     with top_r1:
