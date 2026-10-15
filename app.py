@@ -2219,7 +2219,7 @@ elif st.session_state.page == "Cup & Bucket":
                 st.altair_chart(chart, use_container_width = True)
                 st.divider()
 
-            display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
+            display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
             side1, side2 = st.columns(2)
             with side1:
                 st.subheader(f"{c_m1} Lineup")
