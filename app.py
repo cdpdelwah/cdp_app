@@ -834,9 +834,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
     )
     active_p = []
     if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action"] != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp
@@ -1885,7 +1885,7 @@ elif st.session_state.page == "Cup & Bucket":
             st.divider()
 
             epl_fixtures = fetch_epl_fixtures(c_gw)
-            gw_fixtures = [f for f in epl_fixtures if f.get("event"] == c_gw] if epl_fixtures else []
+            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
                 gw_fixtures = epl_fixtures
 
@@ -2284,7 +2284,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
                     if h_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
@@ -3012,7 +3012,7 @@ elif st.session_state.page == "Standings":
     with standings_tab2:
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
         st.caption("Standings after the most recently concluded gameweek.")
-        st.table(official_df)
+        st.table(official_table_df)
 
     with standings_tab3:
         render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
