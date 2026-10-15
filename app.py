@@ -1681,7 +1681,7 @@ elif st.session_state.page == "Results Analyser":
                         if a > 0:
                             cats.append(f"{a}🎯" if a > 1 else "🎯")
                         if cs > 0 and pos in ["GKP", "DEF"]:
-                            cats.append("🛡️ CS")
+                            cats.append("🛡️")
                         if bonus > 0:
                             cats.append(f"{bonus}⭐")
 
