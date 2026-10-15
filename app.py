@@ -1716,6 +1716,7 @@ elif st.session_state.page == "Cup & Bucket":
                 fetch_entry_event.clear()
                 fetch_live_event.clear()
                 resolve_cup_match_score.clear()
+                calculate_group_standings.clear()
                 st.rerun()
 
         gw_cup_matches = cup_df[cup_df["Week"] == active_cup_gw].copy()
@@ -1790,6 +1791,208 @@ elif st.session_state.page == "Cup & Bucket":
                                 st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #64748b;'>{rem2}</p>", unsafe_allow_html = True)
 
                             st.progress(card["prob1"] / 100.0)
+
+            # --- MATCH SPOTLIGHT AND LINEUP BREAKDOWN IN LIVE CUP TAB ---
+            st.divider()
+            st.subheader("Match Spotlight and Lineup Breakdown")
+
+            valid_spotlight_cards = [c for c in live_cup_cards if c["m1"] and c["m2"] and c["m1"].lower() != "nan" and c["m2"].lower() != "nan"]
+
+            if valid_spotlight_cards:
+                def cup_spot_label(i):
+                    c = valid_spotlight_cards[i]
+                    stage_str = f"{c['stage']} {c['leg']}".strip()
+                    return f"{c['m1']} ({c['s1']}) vs ({c['s2']}) {c['m2']} ({stage_str})"
+
+                c_spot_idx = st.selectbox("Inspect Cup Matchup Details", range(len(valid_spotlight_cards)), format_func = cup_spot_label, key = "cup_spot_sel")
+                active_c_spot = valid_spotlight_cards[c_spot_idx]
+
+                spot_m1 = active_c_spot["m1"]
+                spot_m2 = active_c_spot["m2"]
+
+                spot_s1, _, spot_st1, spot_b1, _, _ = resolve_cup_match_score(spot_m1, active_cup_gw)
+                spot_s2, _, spot_st2, spot_b2, _, _ = resolve_cup_match_score(spot_m2, active_cup_gw)
+
+                s_info1 = teams_registry.get(spot_m1.lower(), {})
+                s_info2 = teams_registry.get(spot_m2.lower(), {})
+
+                st.divider()
+                sr1, sr2, sr3 = st.columns([4, 2, 4])
+                with sr1:
+                    st.markdown(f"### {spot_m1}")
+                    st.caption(f"{s_info1.get('team_name', '')} • {s_info1.get('league_key', '')}")
+                with sr2:
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{spot_s1} {dash} {spot_s2}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>{active_c_spot['stage']} {active_c_spot['leg']} (GW {active_cup_gw})</p>", unsafe_allow_html = True)
+                with sr3:
+                    st.markdown(f"<h3 style='text-align: right;'>{spot_m2}</h3>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
+                st.divider()
+
+                # Cup Lineup Tables & Progression Chart
+                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
+                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
+                if not gw_fixtures_c and epl_fixtures_c:
+                    gw_fixtures_c = epl_fixtures_c
+
+                c1_active_s = []
+                if not spot_st1.empty:
+                    c1_active_s.extend([r for _, r in spot_st1.iterrows() if r.get("sub_action") != "Subbed Off"])
+                if not spot_b1.empty:
+                    c1_active_s.extend([r for _, r in spot_b1.iterrows() if r.get("sub_action") == "Subbed On"])
+
+                c2_active_s = []
+                if not spot_st2.empty:
+                    c2_active_s.extend([r for _, r in spot_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
+                if not spot_b2.empty:
+                    c2_active_s.extend([r for _, r in spot_b2.iterrows() if r.get("sub_action") == "Subbed On"])
+
+                if gw_fixtures_c:
+                    labels_c = []
+                    records_c = []
+                    curr1_c = 0
+                    curr2_c = 0
+
+                    def get_fixture_contributors_c(active_players, h_id, a_id):
+                        entries_list = []
+                        for p in active_players:
+                            if p.get("club_id") in (h_id, a_id):
+                                p_name = p.get("Player", "Unknown")
+                                cats = []
+                                g = int(p.get("G", 0))
+                                a = int(p.get("A", 0))
+                                cs = int(p.get("CS", 0))
+                                bonus = int(p.get("Bonus", 0))
+                                pos = p.get("Pos", "")
+
+                                if g > 0:
+                                    cats.append(f"{g}⚽" if g > 1 else "⚽")
+                                if a > 0:
+                                    cats.append(f"{a}🎯" if a > 1 else "🎯")
+                                if cs > 0 and pos in ["GKP", "DEF"]:
+                                    cats.append("🛡️")
+                                if bonus > 0:
+                                    cats.append(f"{bonus}⭐")
+
+                                if cats:
+                                    entries_list.append(f"{p_name} ({' '.join(cats)})")
+                        return ", ".join(entries_list) if entries_list else "None"
+
+                    for f_item in gw_fixtures_c:
+                        h_team_id = f_item.get("team_h")
+                        a_team_id = f_item.get("team_a")
+                        h_code = team_short_map.get(h_team_id, "H")
+                        a_code = team_short_map.get(a_team_id, "A")
+                        m_label = f"{h_code} v {a_code}"
+
+                        p1_pts = sum(int(p["Pts"]) for p in c1_active_s if p.get("club_id") in (h_team_id, a_team_id))
+                        p2_pts = sum(int(p["Pts"]) for p in c2_active_s if p.get("club_id") in (h_team_id, a_team_id))
+
+                        curr1_c += p1_pts
+                        curr2_c += p2_pts
+
+                        contrib1 = get_fixture_contributors_c(c1_active_s, h_team_id, a_team_id)
+                        contrib2 = get_fixture_contributors_c(c2_active_s, h_team_id, a_team_id)
+
+                        labels_c.append(m_label)
+                        records_c.append({
+                            "Match": m_label,
+                            "Manager": spot_m1,
+                            "Points": curr1_c,
+                            "Added": f"+{p1_pts}",
+                            "Key Events": contrib1
+                        })
+                        records_c.append({
+                            "Match": m_label,
+                            "Manager": spot_m2,
+                            "Points": curr2_c,
+                            "Added": f"+{p2_pts}",
+                            "Key Events": contrib2
+                        })
+
+                    chart_df_c = pd.DataFrame(records_c)
+
+                    st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
+                    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
+
+                    chart_c = alt.Chart(chart_df_c).mark_line(point = True).encode(
+                        x = alt.X(
+                            "Match:N", 
+                            sort = labels_c, 
+                            title = None, 
+                            axis = alt.Axis(
+                                labelAngle = -90, 
+                                labelOverlap = False, 
+                                labelColor = "#94a3b8",
+                                labelFontSize = 9,
+                                grid = False
+                            )
+                        ),
+                        y = alt.Y(
+                            "Points:Q", 
+                            title = "Cumulative Points", 
+                            axis = alt.Axis(
+                                labelColor = "#94a3b8", 
+                                gridColor = "#182030",
+                                domainColor = "#182030"
+                            )
+                        ),
+                        color = alt.Color(
+                            "Manager:N",
+                            scale = alt.Scale(domain = [spot_m1, spot_m2], range = [active_theme["accent"], "#38bdf8"]),
+                            legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
+                        ),
+                        tooltip = [
+                            alt.Tooltip("Manager:N", title = "Manager"),
+                            alt.Tooltip("Match:N", title = "Match"),
+                            alt.Tooltip("Points:Q", title = "Total Pts"),
+                            alt.Tooltip("Added:N", title = "Match Pts"),
+                            alt.Tooltip("Key Events:N", title = "Key Events")
+                        ]
+                    ).properties(
+                        height = 360,
+                        background = "#000000"
+                    ).configure_view(
+                        strokeWidth = 0,
+                        fill = "#000000"
+                    ).configure_axis(
+                        domainColor = "#182030"
+                    )
+
+                    st.altair_chart(chart_c, use_container_width = True)
+                    st.divider()
+
+                display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+                side1_c, side2_c = st.columns(2)
+                with side1_c:
+                    st.subheader(f"{spot_m1} Lineup")
+                    if not spot_st1.empty:
+                        s1_view = spot_st1[display_cols].copy()
+                        s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        st.markdown("**Starting XI (GK First)**")
+                        st.table(s1_view.set_index("Player"))
+
+                        b1_view = spot_b1[display_cols].copy()
+                        b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        st.markdown("**Bench Substitutes**")
+                        st.table(b1_view.set_index("Player"))
+                    else:
+                        st.info("Lineups not yet available.")
+
+                with side2_c:
+                    st.subheader(f"{spot_m2} Lineup")
+                    if not spot_st2.empty:
+                        s2_view = spot_st2[display_cols].copy()
+                        s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        st.markdown("**Starting XI (GK First)**")
+                        st.table(s2_view.set_index("Player"))
+
+                        b2_view = spot_b2[display_cols].copy()
+                        b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        st.markdown("**Bench Substitutes**")
+                        st.table(b2_view.set_index("Player"))
+                    else:
+                        st.info("Lineups not yet available.")
 
     with cup_tab_standings:
         st.subheader("Combined 32-Team Group Standings (GW 6 – GW 20)")
@@ -2021,20 +2224,30 @@ elif st.session_state.page == "Cup & Bucket":
             with side1:
                 st.subheader(f"{c_m1} Lineup")
                 if not c_st1.empty:
+                    s1_view = c_st1[display_cols].copy()
+                    s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Starting XI (GK First)**")
-                    st.table(c_st1[display_cols].set_index("Player"))
+                    st.table(s1_view.set_index("Player"))
+
+                    b1_view = c_b1[display_cols].copy()
+                    b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Bench Substitutes**")
-                    st.table(c_b1[display_cols].set_index("Player"))
+                    st.table(b1_view.set_index("Player"))
                 else:
                     st.info("Lineups not yet available.")
 
             with side2:
                 st.subheader(f"{c_m2} Lineup")
                 if not c_st2.empty:
+                    s2_view = c_st2[display_cols].copy()
+                    s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Starting XI (GK First)**")
-                    st.table(c_st2[display_cols].set_index("Player"))
+                    st.table(s2_view.set_index("Player"))
+
+                    b2_view = c_b2[display_cols].copy()
+                    b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Bench Substitutes**")
-                    st.table(c_b2[display_cols].set_index("Player"))
+                    st.table(b2_view.set_index("Player"))
                 else:
                     st.info("Lineups not yet available.")
 
