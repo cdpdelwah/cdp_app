@@ -127,10 +127,8 @@ def get_manager_alias(first_name, last_name):
             
     return fn if fn else full_name
 
-# Positional hierarchy mapping for display ordering
 POS_ORDER = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
 
-# Bind navigation directly to session state
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
@@ -187,19 +185,16 @@ active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème
 # Dynamic Pure Black CSS Engine with Adaptive League Accent
 st.markdown(f"""
 <style>
-    /* Global Pure Black Canvas */
     .stApp {{
         background-color: #000000 !important;
         color: #f1f5f9 !important;
     }}
 
-    /* Sidebar Background */
     section[data-testid="stSidebar"] {{
         background-color: #06070a !important;
         border-right: 1px solid #141824 !important;
     }}
 
-    /* Typography Hierarchy */
     h1, h2, h3, h4, h5, h6 {{
         color: #ffffff !important;
         font-weight: 700 !important;
@@ -214,7 +209,6 @@ st.markdown(f"""
         color: #64748b !important;
     }}
 
-    /* Matchday Card Containers */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
         background-color: #090c13 !important;
         border: 1px solid #182030 !important;
@@ -226,7 +220,6 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
-    /* Universal Table Styling */
     table {{
         color: #f1f5f9 !important;
         background-color: #090c13 !important;
@@ -263,7 +256,6 @@ st.markdown(f"""
         background-color: #121724 !important;
     }}
 
-    /* Expandable Dropdown Styling */
     div[data-testid="stExpander"] {{
         background-color: #090c13 !important;
         border: 1px solid #182030 !important;
@@ -276,7 +268,6 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
-    /* High Contrast Dropdown Select Trigger Box */
     div[data-baseweb="select"],
     div[data-baseweb="select"] > div {{
         background-color: #ffffff !important;
@@ -292,7 +283,6 @@ st.markdown(f"""
         font-weight: 700 !important;
     }}
 
-    /* Dropdown Popover Menu Container */
     div[data-baseweb="popover"],
     div[data-baseweb="popover"] > div,
     div[data-baseweb="menu"],
@@ -305,7 +295,6 @@ st.markdown(f"""
         border-radius: 6px !important;
     }}
 
-    /* Text Contrast Override inside Popover Menu */
     div[data-baseweb="popover"] *,
     div[data-baseweb="popover"] div,
     div[data-baseweb="popover"] span,
@@ -332,7 +321,6 @@ st.markdown(f"""
         -webkit-text-fill-color: #000000 !important;
     }}
 
-    /* Altair Chart Pure Black Background Enforcement */
     div[data-testid="stVegaLiteChart"],
     div[data-testid="stVegaLiteChart"] > div,
     .vega-embed,
@@ -341,7 +329,6 @@ st.markdown(f"""
         background-color: #000000 !important;
     }}
 
-    /* Adaptive Action Buttons */
     button[kind="primary"] {{
         background-color: {active_theme['accent']} !important;
         color: #000000 !important;
@@ -368,7 +355,6 @@ st.markdown(f"""
         color: {active_theme['accent']} !important;
     }}
 
-    /* Dynamic Progress Bar */
     div[data-testid="stProgressBar"] > div {{
         background-color: #121824 !important;
     }}
@@ -480,7 +466,6 @@ def load_power_rankings_data():
         base_dir
     ]
     
-    # 1. Search for dedicated power rankings file in Assets
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -508,7 +493,6 @@ def load_power_rankings_data():
         except Exception as err:
             return target_file.name, err, raw_bytes
 
-    # 2. Check if a worksheet named 'Power Rankings' exists inside any spreadsheet
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
@@ -571,6 +555,14 @@ def fetch_epl_fixtures(event):
         return []
     return resp.json()
 
+@st.cache_data(ttl = 3600)
+def fetch_all_epl_fixtures():
+    url = "https://fantasy.premierleague.com/api/fixtures/"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return []
+    return resp.json()
+
 def get_availability_multiplier(row):
     status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
@@ -580,14 +572,14 @@ def get_availability_multiplier(row):
     if pd.notna(chance):
         val = float(chance)
         if val >= 75:
-            return 0.90
+            return 0.9
         if val >= 50:
-            return 0.65
+            return 0.6
         if val >= 25:
-            return 0.35
+            return 0.3
         return 0.0
     if status == "d":
-        return 0.65
+        return 0.6
     return 1.0
 
 def get_health_label(row):
@@ -1026,7 +1018,7 @@ if st.session_state.page == "Home":
     st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities and real time auto subs.")
     st.markdown("* **EPL Scores**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns and chronological matchday points progression graphs.")
-    st.markdown("* **Squad Analyser**: Formations, injury probability factoring and starting eleven hierarchy.")
+    st.markdown("* **Squad Analyser**: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.")
     st.markdown("* **GACS**: Weekly starting lineup goals, assists and clean sheets with gameweek selection.")
     st.markdown("* **Standings**: Real time in play standings with movement indicators and official frozen tables.")
     st.markdown("* **Newsletters**: Embedded full page previews for both League and Cup gazettes.")
@@ -1604,7 +1596,7 @@ elif st.session_state.page == "Results Analyser":
             st.markdown("<p style='text-align: center; color: #64748b; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #64748b; margin: 0;'>" + e2_info.get("entry_name", "Team 2") + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
@@ -1689,7 +1681,6 @@ elif st.session_state.page == "Results Analyser":
                             entries_list.append(f"{p_name} ({' '.join(cats)})")
                 return ", ".join(entries_list) if entries_list else "None"
 
-            # Maintain the fixture ordering as returned by the Premier League schedule
             for f_item in gw_fixtures:
                 h_team_id = f_item.get("team_h")
                 a_team_id = f_item.get("team_a")
@@ -1803,6 +1794,7 @@ elif st.session_state.page == "Squad Analyser":
     
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     
     if not static_data or not league_details or not element_status:
         st.error("Failed to load league data. Verify connection and try again.")
@@ -1812,20 +1804,68 @@ elif st.session_state.page == "Squad Analyser":
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
 
+    # Identify current and upcoming gameweeks
+    matches = league_details.get("matches", [])
+    all_events = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
+    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
+
+    # Calculate last 2 completed gameweeks for recent points
+    finished_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
+    prev_gw1 = finished_events[-1] if finished_events else 0
+    prev_gw2 = finished_events[-2] if len(finished_events) >= 2 else 0
+
+    live_prev1 = fetch_live_event(prev_gw1) if prev_gw1 > 0 else None
+    live_prev2 = fetch_live_event(prev_gw2) if prev_gw2 > 0 else None
+
+    # Helper function to compute upcoming 3 fixtures
+    def get_next_3_fixtures(team_id):
+        if not all_fixtures or not team_id:
+            return "TBD"
+        upcoming = [
+            f for f in all_fixtures 
+            if not f.get("finished", False) and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+        ]
+        upcoming = sorted(upcoming, key = lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))
+        next_3 = upcoming[:3]
+        if not next_3:
+            return "None"
+        labels = []
+        for f in next_3:
+            if f.get("team_h") == team_id:
+                opp = team_map.get(f.get("team_a"), "OPP")
+                labels.append(f"{opp} (H)")
+            else:
+                opp = team_map.get(f.get("team_h"), "OPP")
+                labels.append(f"{opp} (A)")
+        return ", ".join(labels)
+
     elements_df = pd.DataFrame(static_data["elements"])
     elements_df["position"] = elements_df["element_type"].map(pos_map)
     elements_df["club"] = elements_df["team"].map(team_map)
-    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0)
-    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0)
-    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0)
+    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0.0).round(1)
     elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
     elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors = "coerce")
 
-    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1)
+    # Calculate last 2 GW points
+    def calc_last_2_pts(elem_id):
+        pts = 0
+        s_id = str(elem_id)
+        if live_prev1:
+            pts += live_prev1.get("elements", {}).get(s_id, {}).get("stats", {}).get("total_points", 0)
+        if live_prev2:
+            pts += live_prev2.get("elements", {}).get(s_id, {}).get("stats", {}).get("total_points", 0)
+        return pts
+
+    elements_df["last_2_pts"] = elements_df["id"].map(calc_last_2_pts)
+    elements_df["next_3"] = elements_df["team"].map(get_next_3_fixtures)
+    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1).round(1)
     elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
 
     status_df = pd.DataFrame(element_status["element_status"])
-    merged = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
+    merged = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
@@ -1851,19 +1891,21 @@ elif st.session_state.page == "Squad Analyser":
     my_squad = merged[merged["owner"] == selected_entry_id].copy()
     waiver_pool = merged[merged["owner"].isna() | (merged["owner"] == 0)].copy()
 
-    tab_lineup, tab_waivers, tab_squad = st.tabs(["Recommended Lineup", "Top Waiver Targets", "Full Squad Overview"])
+    tab_lineup, tab_waivers = st.tabs(["Recommended Lineup", "Tailored Waivers & Suggested Drops"])
 
+    # ----------------- TAB 1: RECOMMENDED STARTING XI -----------------
     with tab_lineup:
-        st.subheader("Recommended Starting XI and Bench Strategy")
+        st.subheader("Recommended Starting XI and Bench Hierarchy")
         
         if my_squad.empty:
             st.warning("No players found for this team selection.")
         else:
+            # Calibrated Tactical Formula: Form (1.8), PPG (2.0), ICT (0.05) & Availability
             def compute_starter_rating(r):
                 if r["avail_factor"] == 0.0:
-                    return 0 - 9999.0
-                base_score = (r["form"] * 2.5) + (r["points_per_game"] * 1.8) + (r["ict_index"] * 0.05)
-                return base_score * r["avail_factor"]
+                    return -9999.0
+                base_score = (r["form"] * 1.8) + (r["points_per_game"] * 2.0) + (r["ict_index"] * 0.05)
+                return round(base_score * r["avail_factor"], 1)
 
             my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis = 1)
             sorted_squad = my_squad.sort_values(by = "starter_rating", ascending = False)
@@ -1899,8 +1941,8 @@ elif st.session_state.page == "Squad Analyser":
             ].copy()
             
             def bench_priority(r):
-                fit_bonus = 100.0 if r["avail_factor"] == 1.0 else (50.0 if r["avail_factor"] > 0.0 else 0 - 500.0)
-                return fit_bonus + (r["form"] * 2.0) + r["points_per_game"]
+                fit_bonus = 100.0 if r["avail_factor"] == 1.0 else (50.0 if r["avail_factor"] > 0.0 else -500.0)
+                return fit_bonus + (r["form"] * 1.5) + (r["points_per_game"] * 1.5)
 
             all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
             ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
@@ -1913,93 +1955,163 @@ elif st.session_state.page == "Squad Analyser":
                 xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
                 xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
                 
-                st.table(xi_df[["web_name", "position", "club", "health_status", "form", "points_per_game"]].rename(columns = {
+                display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "points_per_game", "form"]
+                st.table(xi_df[display_cols].rename(columns = {
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
                     "health_status": "Status",
-                    "form": "Form",
-                    "points_per_game": "PPG"
+                    "total_points": "Total Pts",
+                    "last_2_pts": "Last 2 GWs",
+                    "next_3": "Next 3 Fixtures",
+                    "points_per_game": "PPG",
+                    "form": "Form"
                 }).set_index("Player"))
                 
             with col_bench:
                 st.markdown("### Bench Hierarchy")
+                bench_cols = ["web_name", "position", "club", "health_status", "total_points", "next_3", "form"]
                 if bench_gk:
                     st.markdown("**Goalkeeper Reserve**")
-                    bgk_df = pd.DataFrame(bench_gk)[["web_name", "position", "club", "health_status"]]
-                    st.table(bgk_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status"}).set_index("Player"))
+                    bgk_df = pd.DataFrame(bench_gk)[bench_cols]
+                    st.table(bgk_df.rename(columns = {
+                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3", "form": "Form"
+                    }).set_index("Player"))
                 if not ordered_bench_outfield.empty:
                     st.markdown("**Outfield Substitutes (Auto Sub Order)**")
-                    bo_df = ordered_bench_outfield[["web_name", "position", "club", "health_status", "form"]]
-                    st.table(bo_df.rename(columns = {"web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "form": "Form"}).set_index("Player"))
-                    st.caption("Sub 1 prioritises 100% fit players to guarantee cover if a doubtful starter misses out.")
+                    bo_df = ordered_bench_outfield[bench_cols]
+                    st.table(bo_df.rename(columns = {
+                        "web_name": "Player", "position": "Pos", "club": "Club", "health_status": "Status", "total_points": "Total Pts", "next_3": "Next 3", "form": "Form"
+                    }).set_index("Player"))
+                    st.caption("Sub 1 prioritises 100% fit players to ensure auto sub coverage if a doubtful starter is rested.")
 
+    # ----------------- TAB 2: TAILORED WAIVERS & SUGGESTED DROPS -----------------
     with tab_waivers:
-        st.subheader("Waiver Wire and Free Agent Intelligence")
-        
-        col_w1, col_w2, col_w3 = st.columns([2, 2, 2])
-        with col_w1:
-            scout_mode = st.radio("Scout Focus", ["This Gameweek (Ready Now)", "Stash Targets (High Ceiling / Sidelined)"])
-        with col_w2:
-            pos_filter = st.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default = ["DEF", "MID", "FWD"])
-        with col_w3:
-            min_pts = st.slider("Minimum Total Points", 0, 50, 5)
-            
-        filtered_waivers = waiver_pool[
-            (waiver_pool["position"].isin(pos_filter)) & 
-            (waiver_pool["total_points"] >= min_pts)
-        ].copy()
-        
-        if "This Gameweek" in scout_mode:
-            filtered_waivers = filtered_waivers[filtered_waivers["avail_factor"] >= 0.65]
-            filtered_waivers["cdp_score"] = (
-                ((filtered_waivers["form"] * 2.5) + (filtered_waivers["points_per_game"] * 1.8) + (filtered_waivers["ict_index"] * 0.1))
-                * filtered_waivers["avail_factor"]
-            ).round(2)
-            score_label = "GW Rating"
-        else:
-            filtered_waivers["cdp_score"] = (
-                (filtered_waivers["points_per_game"] * 3.0) + 
-                (filtered_waivers["form"] * 1.5) + 
-                (filtered_waivers["ict_index"] * 0.15)
-            ).round(2)
-            score_label = "Stash Value"
-        
-        top_waivers = filtered_waivers.sort_values(by = "cdp_score", ascending = False).head(15)
-        
-        display_cols = ["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news", "cdp_score"]
-        st.table(
-            top_waivers[display_cols].rename(columns = {
-                "web_name": "Player",
-                "position": "Pos",
-                "club": "Team",
-                "health_status": "Status",
-                "form": "Form",
-                "points_per_game": "PPG",
-                "total_points": "Total Pts",
-                "news": "Notes",
-                "cdp_score": score_label
-            }).set_index("Player")
-        )
+        st.subheader("Tactical Waiver Intelligence & Roster Triage")
 
-    with tab_squad:
-        st.subheader("Your Full 15 Man Roster")
-        squad_display = my_squad.copy()
-        squad_display["pos_rank"] = squad_display["position"].map(POS_ORDER)
-        squad_display = squad_display.sort_values(by = ["pos_rank", "total_points"], ascending = [True, False])
-        
-        st.table(
-            squad_display[["web_name", "position", "club", "health_status", "form", "points_per_game", "total_points", "news"]].rename(columns = {
-                "web_name": "Player",
-                "position": "Pos",
-                "club": "Club",
-                "health_status": "Availability",
-                "form": "Form",
-                "points_per_game": "PPG",
-                "total_points": "Total Pts",
-                "news": "Injury Report"
-            }).set_index("Player")
-        )
+        # 1. Diagnose Squad Weaknesses
+        all_rostered = merged[merged["owner"].isin(entry_keys)].copy()
+        league_pos_ppg = all_rostered.groupby("position")["points_per_game"].mean().round(1).to_dict()
+        squad_pos_ppg = my_squad.groupby("position")["points_per_game"].mean().round(1).to_dict()
+
+        fit_defs = len(my_squad[(my_squad["position"] == "DEF") & (my_squad["avail_factor"] >= 0.9)])
+        fit_mids = len(my_squad[(my_squad["position"] == "MID") & (my_squad["avail_factor"] >= 0.9)])
+        fit_fwds = len(my_squad[(my_squad["position"] == "FWD") & (my_squad["avail_factor"] >= 0.9)])
+
+        alerts = []
+        target_positions = []
+
+        if fit_defs < 3:
+            alerts.append(f"🛡️ **DEF Depth Emergency:** Only {fit_defs} defender(s) 100% fit for the upcoming round. Immediate cover required.")
+            target_positions.append("DEF")
+        if fit_fwds < 1:
+            alerts.append(f"⚡ **FWD Availability Crisis:** 0 fit strikers currently available in your squad.")
+            target_positions.append("FWD")
+
+        # Check production deficits against division averages
+        for pos_key in ["DEF", "MID", "FWD"]:
+            s_ppg = squad_pos_ppg.get(pos_key, 0.0)
+            l_ppg = league_pos_ppg.get(pos_key, 0.0)
+            if s_ppg < l_ppg - 0.7:
+                alerts.append(f"⚠️ **{pos_key} Production Deficit:** Your {pos_key} unit averages {s_ppg:.1f} PPG vs the league average of {l_ppg:.1f} PPG.")
+                if pos_key not in target_positions:
+                    target_positions.append(pos_key)
+
+        if not target_positions:
+            target_positions = ["DEF", "MID", "FWD"]
+
+        # Render Diagnostics Banner
+        if alerts:
+            for alert_text in alerts:
+                st.warning(alert_text)
+        else:
+            st.success("✅ **Squad Balance Sound:** Roster availability and positional averages meet or exceed division baselines. Scouting high-upside upgrades.")
+
+        # 2. Untouchables Filter (Core Assets Are Protected From Drop Advice)
+        top_pts_ids = set(my_squad.sort_values(by = "total_points", ascending = False).head(3)["id"])
+        top_ppg_ids = set(my_squad.sort_values(by = "points_per_game", ascending = False).head(3)["id"])
+        top_form_ids = set(my_squad.sort_values(by = "form", ascending = False).head(2)["id"])
+        untouchables = top_pts_ids.union(top_ppg_ids).union(top_form_ids)
+
+        # 3. Rate Expendable Drop Candidates (Bottom Utility Tier)
+        my_squad["utility_score"] = (
+            (my_squad["points_per_game"] * 1.5) + (my_squad["form"] * 1.0)
+        ) * my_squad["avail_factor"]
+
+        droppable_pool = my_squad[~my_squad["id"].isin(untouchables)].sort_values(by = "utility_score", ascending = True)
+
+        # 4. Filter and Rank Waiver Targets
+        col_w1, col_w2 = st.columns([2, 3])
+        with col_w1:
+            selected_focus = st.selectbox(
+                "Filter Scout Focus",
+                ["Squad Needs (Auto)", "All Outfield", "DEF Only", "MID Only", "FWD Only"]
+            )
+            if selected_focus == "DEF Only":
+                active_pos_filter = ["DEF"]
+            elif selected_focus == "MID Only":
+                active_pos_filter = ["MID"]
+            elif selected_focus == "FWD Only":
+                active_pos_filter = ["FWD"]
+            elif selected_focus == "All Outfield":
+                active_pos_filter = ["DEF", "MID", "FWD"]
+            else:
+                active_pos_filter = target_positions
+
+        waiver_pool["target_rating"] = (
+            ((waiver_pool["form"] * 1.8) + (waiver_pool["points_per_game"] * 2.0) + (waiver_pool["ict_index"] * 0.05))
+            * waiver_pool["avail_factor"]
+        ).round(1)
+
+        candidate_waivers = waiver_pool[
+            (waiver_pool["position"].isin(active_pos_filter)) &
+            (waiver_pool["avail_factor"] >= 0.6) &
+            (waiver_pool["total_points"] >= 5)
+        ].sort_values(by = "target_rating", ascending = False).head(10)
+
+        # 5. Build Side-by-Side Trade-off Table
+        tradeoff_rows = []
+        for _, w_cand in candidate_waivers.iterrows():
+            w_pos = w_cand["position"]
+            # Prioritise dropping a candidate in the same position first
+            pos_drops = droppable_pool[droppable_pool["position"] == w_pos]
+            if not pos_drops.empty:
+                drop_player = pos_drops.iloc[0]
+            elif not droppable_pool.empty:
+                drop_player = droppable_pool.iloc[0]
+            else:
+                drop_player = None
+
+            if drop_player is not None:
+                form_diff = round(w_cand["form"] - drop_player["form"], 1)
+                ppg_diff = round(w_cand["points_per_game"] - drop_player["points_per_game"], 1)
+                
+                diff_sign_f = f"+{form_diff}" if form_diff > 0 else f"{form_diff}"
+                diff_sign_p = f"+{ppg_diff}" if ppg_diff > 0 else f"{ppg_diff}"
+                
+                if drop_player["avail_factor"] < 1.0 and w_cand["avail_factor"] == 1.0:
+                    rationale = f"Fit Cover ({diff_sign_f} Form)"
+                elif form_diff > 1.5:
+                    rationale = f"Form Spike ({diff_sign_f} Form)"
+                else:
+                    rationale = f"{diff_sign_p} PPG baseline"
+
+                tradeoff_rows.append({
+                    "Waiver Target": f"{w_cand['web_name']} ({w_cand['club']})",
+                    "Pos": w_pos,
+                    "Target Form": f"{w_cand['form']:.1f}",
+                    "Target PPG": f"{w_cand['points_per_game']:.1f}",
+                    "Next 3 Fixtures": w_cand["next_3"],
+                    "Suggested Drop": f"{drop_player['web_name']} ({drop_player['club']})",
+                    "Drop Status": drop_player["health_status"],
+                    "Upgrade Delta": rationale
+                })
+
+        if tradeoff_rows:
+            trade_df = pd.DataFrame(tradeoff_rows)
+            st.table(trade_df.set_index("Waiver Target"))
+        else:
+            st.info("No matching waiver options found with sufficient points and playing chance.")
 
 # ----------------- 6. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
