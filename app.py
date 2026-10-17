@@ -874,7 +874,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
 
     bench_left_pts = sum(int(b["Pts"]) for b in bench if b["sub_action"] != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
@@ -920,9 +920,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
     )
     active_p = []
     if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action"] != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
@@ -1936,10 +1936,9 @@ elif st.session_state.page == "Cup & Bucket":
                 st.divider()
 
                 # Cup Lineup Tables & Progression Chart
-                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
-                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
-                if not gw_fixtures_c and epl_fixtures_c:
-                    gw_fixtures_c = epl_fixtures_c
+                gw_fixtures_c = [f for f in all_fixtures if f.get("event") == active_cup_gw] if all_fixtures else []
+                if not gw_fixtures_c and all_fixtures:
+                    gw_fixtures_c = all_fixtures
 
                 c1_active_s = []
                 if not spot_st1.empty:
