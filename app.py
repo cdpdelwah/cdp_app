@@ -700,9 +700,29 @@ def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is
     pct1 = max(1, min(99, pct1))
     return pct1, 100 - pct1
 
+def calculate_optimum_score(all_players_df):
+    gkps = all_players_df[all_players_df["Pos"] == "GKP"]
+    defs = all_players_df[all_players_df["Pos"] == "DEF"]
+    mids = all_players_df[all_players_df["Pos"] == "MID"]
+    fwds = all_players_df[all_players_df["Pos"] == "FWD"]
+    
+    if gkps.empty:
+        return 0
+    best_gk = int(gkps["Pts"].max())
+    
+    best_score = -1
+    for d in range(3, len(defs) + 1):
+        for m in range(2, len(mids) + 1):
+            f = 10 - d - m
+            if f >= 1 and f <= len(fwds):
+                score = best_gk + int(defs.nlargest(d, "Pts")["Pts"].sum()) + int(mids.nlargest(m, "Pts")["Pts"].sum()) + int(fwds.nlargest(f, "Pts")["Pts"].sum())
+                if score > best_score:
+                    best_score = score
+    return best_score if best_score != -1 else (best_gk + int(defs["Pts"].sum()) + int(mids["Pts"].sum()) + int(fwds["Pts"].sum()))
+
 def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map):
     if not picks_list:
-        return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0, 0
+        return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0, 0, 0, 0
         
     raw_players = []
     for p in picks_list.get("picks", []):
@@ -795,24 +815,28 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     in_play = sum(1 for p in active_lineup if p["State"] == "LIVE")
     yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
     
+    bench_left_pts = sum(b["Pts"] for b in bench if b["sub_action"] != "Subbed On")
+    all_players_df = pd.DataFrame(raw_players)
+    optimum_score = calculate_optimum_score(all_players_df)
+    
     starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
     bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True)
     
-    return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play
+    return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play, bench_left_pts, optimum_score
 
 @st.cache_data(ttl = 300)
 def resolve_cup_match_score(manager_alias, gw_num):
     teams_registry = get_all_32_teams_registry()
     static_data = fetch_fpl_static()
     if not static_data:
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
+        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
 
     t_info = teams_registry.get(str(manager_alias).strip().lower())
     if not t_info or not t_info.get("entry_id"):
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0
+        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
     picks = fetch_entry_event(t_info["entry_id"], gw_num)
     live_data = fetch_live_event(gw_num)
     live_elements = live_data.get("elements", {}) if live_data else {}
@@ -829,17 +853,17 @@ def resolve_cup_match_score(manager_alias, gw_num):
             m_val = e_info.get("stats", {}).get("minutes", 0)
             club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
-    starters, bench, live_score, proj_score, in_play, ytp = evaluate_lineup(
+    starters, bench, live_score, proj_score, in_play, ytp, bench_pts, opt_score = evaluate_lineup(
         picks, live_elements, element_lookup, club_minutes, pos_map, team_map
     )
     active_p = []
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
-    return live_score, max_player_pts, starters, bench, in_play, ytp
+    return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
 
 @st.cache_data(ttl = 300)
 def calculate_group_standings():
@@ -876,8 +900,8 @@ def calculate_group_standings():
         if m1 not in standings_dict or m2 not in standings_dict:
             continue
 
-        s1, high1, _, _, _, _ = resolve_cup_match_score(m1, gw)
-        s2, high2, _, _, _, _ = resolve_cup_match_score(m2, gw)
+        s1, high1, _, _, _, _, _, _ = resolve_cup_match_score(m1, gw)
+        s2, high2, _, _, _, _, _, _ = resolve_cup_match_score(m2, gw)
 
         standings_dict[m1]["PF"] += s1
         standings_dict[m2]["PF"] += s2
@@ -1003,8 +1027,8 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
             else:
                 p1 = fetch_entry_event(lentry_map[t1_id].get("entry_id"), current_gw)
                 p2 = fetch_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
-                _, _, s1, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
-                _, _, s2, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+                _, _, s1, _, _, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
+                _, _, s2, _, _, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
                 
             live_stats[t1_id]["pf"] += s1
             live_stats[t2_id]["pf"] += s2
@@ -1108,7 +1132,7 @@ def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
             })
             continue
 
-        starters_df, bench_df, _, _, _, _ = evaluate_lineup(
+        starters_df, bench_df, _, _, _, _, _, _ = evaluate_lineup(
             picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map
         )
 
@@ -1533,8 +1557,8 @@ elif st.session_state.page == "LIVE SCORES":
         p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
         p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
         
-        t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
-        t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+        t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp, t1_bp, t1_opt = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
+        t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp, t2_bp, t2_opt = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
         
         if is_fin:
             t1_score = m.get("league_entry_1_points", t1_live)
@@ -1557,6 +1581,10 @@ elif st.session_state.page == "LIVE SCORES":
             "t1_ytp": t1_ytp,
             "t2_in_play": t2_in_play,
             "t2_ytp": t2_ytp,
+            "t1_bp": t1_bp,
+            "t1_opt": t1_opt,
+            "t2_bp": t2_bp,
+            "t2_opt": t2_opt,
             "prob1": prob1,
             "prob2": prob2,
             "is_fin": is_fin,
@@ -1593,11 +1621,13 @@ elif st.session_state.page == "LIVE SCORES":
                     with sc_col1:
                         st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
                         st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t1_proj']:.1f}" + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
+                        st.markdown(f"<p style='margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
                     with sc_col2:
                         st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
                     with sc_col3:
                         st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
                         st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t2_proj']:.1f}" + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
+                        st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
                     
                     st.progress(item["prob1"] / 100.0)
                     
@@ -1640,7 +1670,8 @@ elif st.session_state.page == "LIVE SCORES":
 
     with s_c1:
         alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
-        st.markdown("### " + alias_e1)
+        st.markdown(f"### {alias_e1}")
+        st.caption(f"Bench Left: {active_spot['t1_bp']} pts | Optimum Score: {active_spot['t1_opt']} pts")
         if not active_spot["t1_start"].empty:
             t1_s_view = active_spot["t1_start"][display_cols].copy()
             if "Proj" in t1_s_view.columns:
@@ -1658,7 +1689,8 @@ elif st.session_state.page == "LIVE SCORES":
 
     with s_c2:
         alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
-        st.markdown("### " + alias_e2)
+        st.markdown(f"### {alias_e2}")
+        st.caption(f"Bench Left: {active_spot['t2_bp']} pts | Optimum Score: {active_spot['t2_opt']} pts")
         if not active_spot["t2_start"].empty:
             t2_s_view = active_spot["t2_start"][display_cols].copy()
             if "Proj" in t2_s_view.columns:
@@ -1735,8 +1767,8 @@ elif st.session_state.page == "Cup & Bucket":
                 if not m1_alias or not m2_alias or m1_alias.lower() == "nan" or m2_alias.lower() == "nan":
                     continue
 
-                s1, _, _, _, inp1, ytp1 = resolve_cup_match_score(m1_alias, active_cup_gw)
-                s2, _, _, _, inp2, ytp2 = resolve_cup_match_score(m2_alias, active_cup_gw)
+                s1, _, _, _, inp1, ytp1, bp1, opt1 = resolve_cup_match_score(m1_alias, active_cup_gw)
+                s2, _, _, _, inp2, ytp2, bp2, opt2 = resolve_cup_match_score(m2_alias, active_cup_gw)
 
                 info1 = teams_registry.get(m1_alias.lower(), {})
                 info2 = teams_registry.get(m2_alias.lower(), {})
@@ -1757,6 +1789,10 @@ elif st.session_state.page == "Cup & Bucket":
                     "ytp1": ytp1,
                     "inp2": inp2,
                     "ytp2": ytp2,
+                    "bp1": bp1,
+                    "opt1": opt1,
+                    "bp2": bp2,
+                    "opt2": opt2,
                     "prob1": prob1,
                     "prob2": prob2,
                     "is_fin": is_fin,
@@ -1788,11 +1824,13 @@ elif st.session_state.page == "Cup & Bucket":
                             with sc1:
                                 st.markdown(f"<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>{card['s1']}</h3>", unsafe_allow_html = True)
                                 st.caption(rem1)
+                                st.markdown(f"<p style='margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
                             with sc2:
                                 st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
                             with sc3:
                                 st.markdown(f"<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>{card['s2']}</h3>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #64748b;'>{rem2}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>{rem2}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
 
                             st.progress(card["prob1"] / 100.0)
 
@@ -1814,8 +1852,8 @@ elif st.session_state.page == "Cup & Bucket":
                 spot_m1 = active_c_spot["m1"]
                 spot_m2 = active_c_spot["m2"]
 
-                spot_s1, _, spot_st1, spot_b1, _, _ = resolve_cup_match_score(spot_m1, active_cup_gw)
-                spot_s2, _, spot_st2, spot_b2, _, _ = resolve_cup_match_score(spot_m2, active_cup_gw)
+                spot_s1, _, spot_st1, spot_b1, _, _, spot_bp1, spot_opt1 = resolve_cup_match_score(spot_m1, active_cup_gw)
+                spot_s2, _, spot_st2, spot_b2, _, _, spot_bp2, spot_opt2 = resolve_cup_match_score(spot_m2, active_cup_gw)
 
                 s_info1 = teams_registry.get(spot_m1.lower(), {})
                 s_info2 = teams_registry.get(spot_m2.lower(), {})
@@ -1970,6 +2008,7 @@ elif st.session_state.page == "Cup & Bucket":
                 side1_c, side2_c = st.columns(2)
                 with side1_c:
                     st.subheader(f"{spot_m1} Lineup")
+                    st.caption(f"Bench Left: {spot_bp1} pts | Optimum Score: {spot_opt1} pts")
                     if not spot_st1.empty:
                         s1_view = spot_st1[display_cols].copy()
                         if "Proj" in s1_view.columns:
@@ -1987,6 +2026,7 @@ elif st.session_state.page == "Cup & Bucket":
 
                 with side2_c:
                     st.subheader(f"{spot_m2} Lineup")
+                    st.caption(f"Bench Left: {spot_bp2} pts | Optimum Score: {spot_opt2} pts")
                     if not spot_st2.empty:
                         s2_view = spot_st2[display_cols].copy()
                         if "Proj" in s2_view.columns:
@@ -2075,8 +2115,8 @@ elif st.session_state.page == "Cup & Bucket":
             c_m1 = str(selected_cup_match["Team 1"]).strip()
             c_m2 = str(selected_cup_match["Team 2"]).strip()
 
-            c_s1, _, c_st1, c_b1, _, _ = resolve_cup_match_score(c_m1, c_gw)
-            c_s2, _, c_st2, c_b2, _, _ = resolve_cup_match_score(c_m2, c_gw)
+            c_s1, _, c_st1, c_b1, _, _, c_bp1, c_opt1 = resolve_cup_match_score(c_m1, c_gw)
+            c_s2, _, c_st2, c_b2, _, _, c_bp2, c_opt2 = resolve_cup_match_score(c_m2, c_gw)
 
             info1 = teams_registry.get(c_m1.lower(), {})
             info2 = teams_registry.get(c_m2.lower(), {})
@@ -2231,6 +2271,7 @@ elif st.session_state.page == "Cup & Bucket":
             side1, side2 = st.columns(2)
             with side1:
                 st.subheader(f"{c_m1} Lineup")
+                st.caption(f"Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts")
                 if not c_st1.empty:
                     s1_view = c_st1[display_cols].copy()
                     if "Proj" in s1_view.columns:
@@ -2248,6 +2289,7 @@ elif st.session_state.page == "Cup & Bucket":
 
             with side2:
                 st.subheader(f"{c_m2} Lineup")
+                st.caption(f"Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
                 if not c_st2.empty:
                     s2_view = c_st2[display_cols].copy()
                     if "Proj" in s2_view.columns:
@@ -2290,7 +2332,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
             if ev.get("is_current"):
                 curr_from_static = ev.get("id")
                 break
-        default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_gws else 1)
+        default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_events else 1)
 
     top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
     with top_e1:
@@ -2652,10 +2694,10 @@ elif st.session_state.page == "Results Analyser":
                 m_val = e_info.get("stats", {}).get("minutes", 0)
                 club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
-        t1_start, t1_b, _, _, _, _ = evaluate_lineup(
+        t1_start, t1_b, _, _, _, _, _, _ = evaluate_lineup(
             picks1_data, live_elements, element_lookup, club_minutes, pos_map, team_map
         )
-        t2_start, t2_b, _, _, _, _ = evaluate_lineup(
+        t2_start, t2_b, _, _, _, _, _, _ = evaluate_lineup(
             picks2_data, live_elements, element_lookup, club_minutes, pos_map, team_map
         )
 
@@ -2806,20 +2848,34 @@ elif st.session_state.page == "Results Analyser":
         with side1:
             st.subheader(alias1 + " Lineup")
             if not t1_start.empty:
+                t1_s_view = t1_start[display_cols].copy()
+                if "Proj" in t1_s_view.columns:
+                    t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
                 st.markdown("**Starting XI (GK First)**")
-                st.table(t1_start[display_cols].set_index("Player"))
+                st.table(t1_s_view.set_index("Player"))
+
+                t1_b_view = t1_b[display_cols].copy()
+                if "Proj" in t1_b_view.columns:
+                    t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
                 st.markdown("**Bench Substitutes**")
-                st.table(t1_b[display_cols].set_index("Player"))
+                st.table(t1_b_view.set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
         with side2:
             st.subheader(alias2 + " Lineup")
             if not t2_start.empty:
+                t2_s_view = t2_start[display_cols].copy()
+                if "Proj" in t2_s_view.columns:
+                    t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
                 st.markdown("**Starting XI (GK First)**")
-                st.table(t2_start[display_cols].set_index("Player"))
+                st.table(t2_s_view.set_index("Player"))
+
+                t2_b_view = t2_b[display_cols].copy()
+                if "Proj" in t2_b_view.columns:
+                    t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
                 st.markdown("**Bench Substitutes**")
-                st.table(t2_b[display_cols].set_index("Player"))
+                st.table(t2_b_view.set_index("Player"))
             else:
                 st.info("Lineup selections not yet available for this gameweek.")
 
