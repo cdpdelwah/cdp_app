@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import requests
 import pandas as pd
 import math
+import functools
 import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
@@ -32,7 +33,7 @@ LEAGUE_PRESETS = {
     "LDE (Liger Del Eager)": 240
 }
 
-# Thematic identity colors extracted directly from the Season X league crests
+# Thematic identity colours extracted directly from the Season X league crests
 LEAGUE_THEMES = {
     "CDP (Crème Dellar Prem)": {
         "accent": "#f59e0b",
@@ -701,6 +702,8 @@ def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is
     return pct1, 100 - pct1
 
 def calculate_optimum_score(all_players_df):
+    if all_players_df is None or all_players_df.empty:
+        return 0
     gkps = all_players_df[all_players_df["Pos"] == "GKP"]
     defs = all_players_df[all_players_df["Pos"] == "DEF"]
     mids = all_players_df[all_players_df["Pos"] == "MID"]
@@ -715,20 +718,31 @@ def calculate_optimum_score(all_players_df):
         for m in range(2, len(mids) + 1):
             f = 10 - d - m
             if f >= 1 and f <= len(fwds):
-                score = best_gk + int(defs.nlargest(d, "Pts")["Pts"].sum()) + int(mids.nlargest(m, "Pts")["Pts"].sum()) + int(fwds.nlargest(f, "Pts")["Pts"].sum())
+                score = (
+                    best_gk
+                    + int(defs.nlargest(d, "Pts")["Pts"].sum())
+                    + int(mids.nlargest(m, "Pts")["Pts"].sum())
+                    + int(fwds.nlargest(f, "Pts")["Pts"].sum())
+                )
                 if score > best_score:
                     best_score = score
-    return best_score if best_score != -1 else (best_gk + int(defs["Pts"].sum()) + int(mids["Pts"].sum()) + int(fwds["Pts"].sum()))
+    if best_score != -1:
+        return best_score
+    return best_gk + int(defs["Pts"].sum()) + int(mids["Pts"].sum()) + int(fwds["Pts"].sum())
 
 def get_fdr_multiplier(team_id, current_gw, all_fixtures_list):
     if not all_fixtures_list or not team_id:
         return 1.0
+    gw_has_fixtures = any(f.get("event") == current_gw for f in all_fixtures_list)
+    if not gw_has_fixtures:
+        return 1.0
+
     team_fixtures = [
-        f for f in all_fixtures_list 
+        f for f in all_fixtures_list
         if f.get("event") == current_gw and (f.get("team_h") == team_id or f.get("team_a") == team_id)
     ]
     if not team_fixtures:
-        return 0.0  # Blank gameweek
+        return 0.0
     
     total_mult = 0.0
     for fix in team_fixtures:
@@ -748,7 +762,7 @@ def get_fdr_multiplier(team_id, current_gw, all_fixtures_list):
             
     return total_mult
 
-def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list):
+def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw = 1, all_fixtures_list = None):
     if not picks_list:
         return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0, 0, 0, 0
         
@@ -768,54 +782,46 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         
         avail = get_availability_multiplier(raw_elem)
         
-        # Option 1: Flipped Base Recipe (60% PPG / 40% Form)
         form_val = float(raw_elem.get("form") or 0.0)
         ppg_val = float(raw_elem.get("points_per_game") or 2.0)
         base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
         
-        # Option 3: Minutes Security Check (Rotation Risk / Fringe Player penalty)
         season_mins = float(raw_elem.get("minutes") or 0.0)
         if current_gw > 3:
             expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
-            if expected_min_ratio < 0.6:  # Regular sub / rotation risk
-                base_exp *= 0.8
+            if expected_min_ratio < 0.6:
+                base_exp = base_exp * 0.8
                 
         if base_exp <= 0 and avail > 0:
             base_exp = 2.0
             
-        # Fixture Difficulty Rating (FDR) scaling
         fdr_mult = get_fdr_multiplier(club_id, current_gw, all_fixtures_list)
-        base_exp *= fdr_mult
+        base_exp = base_exp * fdr_mult
 
-        # Match State & 90-Minute In-Play Smoothing
         if team_mins >= 800:
             if mins > 0:
                 state = "FT"
-                proj = pts
+                proj = float(pts)
             else:
                 state = "DNP"
-                proj = 0
+                proj = 0.0
         elif team_mins > 0:
             state = "LIVE"
-            # Find exact match minute from EPL fixtures if available
-            match_minute = 45  # Default mid-point fallback
+            match_minute = 45
             if all_fixtures_list:
                 for fix in all_fixtures_list:
                     if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id):
-                        match_minute = fix.get("minutes", 45)
-                        break
+                        if fix.get("started", False):
+                            match_minute = fix.get("minutes", 45)
+                            break
             
-            # Smooth in-play decay for remaining return expectation
-            return_expect = max(0.0, base_exp - 2.0)
-            remaining_fraction = max(0.0, (90.0 - match_minute) / 90.0)
-            
-            if match_minute < 60:
-                # 2.0 app pts: 1 pt for starting, 1 pt pending at 60'
-                app_pts_earned = 1.0 + (1.0 if match_minute >= 60 else 0.0)
+            remaining_fraction = max(0.0, (90.0 - float(match_minute)) / 90.0)
+            if mins > 0:
+                return_expect = max(0.0, base_exp - 2.0)
                 upcoming_app_pts = 1.0 if match_minute < 60 else 0.0
                 proj = round(float(pts) + upcoming_app_pts + (return_expect * remaining_fraction), 1)
             else:
-                proj = round(float(pts) + (return_expect * remaining_fraction), 1)
+                proj = round(base_exp * 0.25 * remaining_fraction, 1)
         else:
             state = "YTP"
             proj = round(base_exp, 1)
@@ -870,20 +876,160 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
                 break
 
     active_lineup = [s for s in starters if s["sub_action"] != "Subbed Off"] + [b for b in bench if b["sub_action"] == "Subbed On"]
-    live_score = sum(p["Pts"] for p in active_lineup)
-    proj_score = sum(p["Proj"] for p in active_lineup)
+    live_score = sum(int(p["Pts"]) for p in active_lineup)
+    proj_score = sum(float(p["Proj"]) for p in active_lineup)
     
     in_play = sum(1 for p in active_lineup if p["State"] == "LIVE")
     yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
     
-    bench_left_pts = sum(b["Pts"] for b in bench if b["sub_action"] != "Subbed On")
+    bench_left_pts = sum(int(b["Pts"]) for b in bench if b.get("sub_action") != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
     optimum_score = calculate_optimum_score(all_players_df)
     
-    starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
-    bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True)
+    starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False]) if starters else pd.DataFrame()
+    bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True) if bench else pd.DataFrame()
     
     return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play, bench_left_pts, optimum_score
+
+def get_active_players_from_dfs(starters_df, bench_df):
+    active_list = []
+    if starters_df is not None and not starters_df.empty:
+        for _, r in starters_df.iterrows():
+            if r.get("sub_action") != "Subbed Off":
+                active_list.append(r)
+    if bench_df is not None and not bench_df.empty:
+        for _, r in bench_df.iterrows():
+            if r.get("sub_action") == "Subbed On":
+                active_list.append(r)
+    return active_list
+
+def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, starters2_df, bench2_df, all_fixtures_list, team_short_map, accent_color):
+    gw_fixtures = []
+    if all_fixtures_list:
+        gw_fixtures = [f for f in all_fixtures_list if f.get("event") == gw_num]
+    if not gw_fixtures:
+        epl_fix = fetch_epl_fixtures(gw_num)
+        if epl_fix:
+            gw_fixtures = [f for f in epl_fix if f.get("event") == gw_num] or epl_fix
+
+    if not gw_fixtures:
+        return
+
+    t1_active = get_active_players_from_dfs(starters1_df, bench1_df)
+    t2_active = get_active_players_from_dfs(starters2_df, bench2_df)
+
+    labels = []
+    records = []
+    curr1 = 0
+    curr2 = 0
+
+    def get_fixture_contributors(active_players, h_id, a_id):
+        entries_list = []
+        for p in active_players:
+            if p.get("club_id") in (h_id, a_id):
+                p_name = p.get("Player", "Unknown")
+                cats = []
+                g = int(p.get("G", 0))
+                a = int(p.get("A", 0))
+                cs = int(p.get("CS", 0))
+                bonus = int(p.get("Bonus", 0))
+                pos = p.get("Pos", "")
+
+                if g > 0:
+                    cats.append(f"{g}⚽" if g > 1 else "⚽")
+                if a > 0:
+                    cats.append(f"{a}🎯" if a > 1 else "🎯")
+                if cs > 0 and pos in ["GKP", "DEF"]:
+                    cats.append("🛡️")
+                if bonus > 0:
+                    cats.append(f"{bonus}⭐")
+
+                if cats:
+                    entries_list.append(f"{p_name} ({' '.join(cats)})")
+        return ", ".join(entries_list) if entries_list else "None"
+
+    for f_item in gw_fixtures:
+        h_team_id = f_item.get("team_h")
+        a_team_id = f_item.get("team_a")
+        h_code = team_short_map.get(h_team_id, "H")
+        a_code = team_short_map.get(a_team_id, "A")
+        m_label = f"{h_code} v {a_code}"
+
+        p1_pts = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_team_id, a_team_id))
+        p2_pts = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_team_id, a_team_id))
+
+        curr1 += p1_pts
+        curr2 += p2_pts
+
+        contrib1 = get_fixture_contributors(t1_active, h_team_id, a_team_id)
+        contrib2 = get_fixture_contributors(t2_active, h_team_id, a_team_id)
+
+        labels.append(m_label)
+        records.append({
+            "Match": m_label,
+            "Manager": alias1,
+            "Points": curr1,
+            "Added": f"+{p1_pts}",
+            "Key Events": contrib1
+        })
+        records.append({
+            "Match": m_label,
+            "Manager": alias2,
+            "Points": curr2,
+            "Added": f"+{p2_pts}",
+            "Key Events": contrib2
+        })
+
+    chart_df = pd.DataFrame(records)
+
+    st.markdown(f"#### Gameweek {gw_num} Points Progression")
+    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
+
+    chart = alt.Chart(chart_df).mark_line(point = True).encode(
+        x = alt.X(
+            "Match:N",
+            sort = labels,
+            title = None,
+            axis = alt.Axis(
+                labelAngle = -90,
+                labelOverlap = False,
+                labelColor = "#94a3b8",
+                labelFontSize = 9,
+                grid = False
+            )
+        ),
+        y = alt.Y(
+            "Points:Q",
+            title = "Cumulative Points",
+            axis = alt.Axis(
+                labelColor = "#94a3b8",
+                gridColor = "#182030",
+                domainColor = "#182030"
+            )
+        ),
+        color = alt.Color(
+            "Manager:N",
+            scale = alt.Scale(domain = [alias1, alias2], range = [accent_color, "#38bdf8"]),
+            legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
+        ),
+        tooltip = [
+            alt.Tooltip("Manager:N", title = "Manager"),
+            alt.Tooltip("Match:N", title = "Match"),
+            alt.Tooltip("Points:Q", title = "Total Pts"),
+            alt.Tooltip("Added:N", title = "Match Pts"),
+            alt.Tooltip("Key Events:N", title = "Key Events")
+        ]
+    ).properties(
+        height = 360,
+        background = "#000000"
+    ).configure_view(
+        strokeWidth = 0,
+        fill = "#000000"
+    ).configure_axis(
+        domainColor = "#182030"
+    )
+
+    st.altair_chart(chart, use_container_width = True)
 
 @st.cache_data(ttl = 300)
 def resolve_cup_match_score(manager_alias, gw_num):
@@ -918,12 +1064,8 @@ def resolve_cup_match_score(manager_alias, gw_num):
     starters, bench, live_score, proj_score, in_play, ytp, bench_pts, opt_score = evaluate_lineup(
         picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
     )
-    active_p = []
-    if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
-    if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
-
+    active_players = get_active_players_from_dfs(starters, bench)
+    active_p = [int(p["Pts"]) for p in active_players]
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
 
@@ -1001,7 +1143,6 @@ def calculate_group_standings():
             return h2h_b - h2h_a
         return b["High_Score"] - a["High_Score"]
 
-    import functools
     sorted_rows = sorted(rows, key = functools.cmp_to_key(sort_tiebreakers))
 
     display_table = []
@@ -1009,9 +1150,9 @@ def calculate_group_standings():
         if rank <= 8:
             zone = "🏆 Cup (Top 8)"
         elif rank <= 24:
-            zone = "⚔️ Playoff (9-24)"
+            zone = "⚔️ Playoff (9 to 24)"
         else:
-            zone = "🪣 Bucket (25-32)"
+            zone = "🪣 Bucket (25 to 32)"
 
         display_table.append({
             "Pos": rank,
@@ -1532,8 +1673,8 @@ if st.session_state.page == "Home":
     st.divider()
 
     st.subheader("Core Capabilities")
-    st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities and real time auto subs.")
-    st.markdown("* **Cup & Bucket**: Cross-league tournament portal featuring 32-team group standings, live cup scoreboards and cup results analyser.")
+    st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities, real time auto subs and live points progression graphs.")
+    st.markdown("* **Cup & Bucket**: Cross league tournament portal featuring 32 team group standings, live cup scoreboards and cup results analyser.")
     st.markdown("* **EPL Scores**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
     st.markdown("* **Results Analyser**: Historical head to head match breakdowns and chronological matchday points progression graphs.")
     st.markdown("* **Squad Analyser**: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.")
@@ -1584,11 +1725,14 @@ elif st.session_state.page == "LIVE SCORES":
         if st.button("🔄 Refresh", use_container_width = True):
             fetch_entry_event.clear()
             fetch_live_event.clear()
+            fetch_epl_fixtures.clear()
+            fetch_all_epl_fixtures.clear()
             st.rerun()
 
     lentry_map = {e["id"]: e for e in entries}
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
     live_data = fetch_live_event(current_gw)
@@ -1727,12 +1871,28 @@ elif st.session_state.page == "LIVE SCORES":
     )
     
     active_spot = match_summaries[spotlight_idx]
+    alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
+    alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
+
+    # Real time Points Progression Chart on LIVE SCORES
+    render_progression_chart(
+        current_gw,
+        alias_e1,
+        alias_e2,
+        active_spot["t1_start"],
+        active_spot["t1_b"],
+        active_spot["t2_start"],
+        active_spot["t2_b"],
+        all_fixtures,
+        team_short_map,
+        active_theme["accent"]
+    )
+    st.divider()
     
     s_c1, s_c2 = st.columns(2)
     display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
     with s_c1:
-        alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
         st.markdown(f"### {alias_e1}")
         st.caption(f"Bench Left: {active_spot['t1_bp']} pts | Optimum Score: {active_spot['t1_opt']} pts")
         if not active_spot["t1_start"].empty:
@@ -1751,7 +1911,6 @@ elif st.session_state.page == "LIVE SCORES":
             st.info("Lineup selections not yet available.")
 
     with s_c2:
-        alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
         st.markdown(f"### {alias_e2}")
         st.caption(f"Bench Left: {active_spot['t2_bp']} pts | Optimum Score: {active_spot['t2_opt']} pts")
         if not active_spot["t2_start"].empty:
@@ -1772,10 +1931,11 @@ elif st.session_state.page == "LIVE SCORES":
 # ----------------- 3. 🏆 CUP & BUCKET COMPETITION -----------------
 elif st.session_state.page == "Cup & Bucket":
     st.title("🏆 Cup & Bucket Competition")
-    st.caption("32-Team Inter-League Championship • CDP, SDM, BDR and LDE")
+    st.caption("32 Team Inter League Championship • CDP, SDM, BDR and LDE")
 
     cup_df = load_cup_matches()
     static_data = fetch_fpl_static()
+    all_fixtures = fetch_all_epl_fixtures()
 
     if cup_df is None or cup_df.empty:
         st.warning("No 'cupmatches' spreadsheet found. Place 'cupmatches.xlsx', '.ods' or '.csv' in your Assets folder.")
@@ -1799,14 +1959,14 @@ elif st.session_state.page == "Cup & Bucket":
 
     cup_tab_live, cup_tab_standings, cup_tab_analyser = st.tabs([
         "🔴 Live Cup Matchday",
-        "📊 32-Team Group Standings",
+        "📊 32 Team Group Standings",
         "📋 Cup Results Analyser"
     ])
 
     with cup_tab_live:
         top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
         with top_m1:
-            st.caption("Around the Grounds live inter-league cup matches with live auto-subs and scoreline forecasts")
+            st.caption("Around the Grounds live inter league cup matches with live auto subs and scoreline forecasts")
         with top_m2:
             active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
         with top_m3:
@@ -1814,6 +1974,8 @@ elif st.session_state.page == "Cup & Bucket":
             if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
                 fetch_entry_event.clear()
                 fetch_live_event.clear()
+                fetch_epl_fixtures.clear()
+                fetch_all_epl_fixtures.clear()
                 resolve_cup_match_score.clear()
                 calculate_group_standings.clear()
                 st.rerun()
@@ -1934,138 +2096,20 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
                 st.divider()
 
-                # Cup Lineup Tables & Progression Chart
-                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
-                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
-                if not gw_fixtures_c and epl_fixtures_c:
-                    gw_fixtures_c = epl_fixtures_c
-
-                c1_active_s = []
-                if not spot_st1.empty:
-                    c1_active_s.extend([r for _, r in spot_st1.iterrows() if r.get("sub_action") != "Subbed Off"])
-                if not spot_b1.empty:
-                    c1_active_s.extend([r for _, r in spot_b1.iterrows() if r.get("sub_action") == "Subbed On"])
-
-                c2_active_s = []
-                if not spot_st2.empty:
-                    c2_active_s.extend([r for _, r in spot_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
-                if not spot_b2.empty:
-                    c2_active_s.extend([r for _, r in spot_b2.iterrows() if r.get("sub_action") == "Subbed On"])
-
-                if gw_fixtures_c:
-                    labels_c = []
-                    records_c = []
-                    curr1_c = 0
-                    curr2_c = 0
-
-                    def get_fixture_contributors_c(active_players, h_id, a_id):
-                        entries_list = []
-                        for p in active_players:
-                            if p.get("club_id") in (h_id, a_id):
-                                p_name = p.get("Player", "Unknown")
-                                cats = []
-                                g = int(p.get("G", 0))
-                                a = int(p.get("A", 0))
-                                cs = int(p.get("CS", 0))
-                                bonus = int(p.get("Bonus", 0))
-                                pos = p.get("Pos", "")
-
-                                if g > 0:
-                                    cats.append(f"{g}⚽" if g > 1 else "⚽")
-                                if a > 0:
-                                    cats.append(f"{a}🎯" if a > 1 else "🎯")
-                                if cs > 0 and pos in ["GKP", "DEF"]:
-                                    cats.append("🛡️")
-                                if bonus > 0:
-                                    cats.append(f"{bonus}⭐")
-
-                                if cats:
-                                    entries_list.append(f"{p_name} ({' '.join(cats)})")
-                        return ", ".join(entries_list) if entries_list else "None"
-
-                    for f_item in gw_fixtures_c:
-                        h_team_id = f_item.get("team_h")
-                        a_team_id = f_item.get("team_a")
-                        h_code = team_short_map.get(h_team_id, "H")
-                        a_code = team_short_map.get(a_team_id, "A")
-                        m_label = f"{h_code} v {a_code}"
-
-                        p1_pts = sum(int(p["Pts"]) for p in c1_active_s if p.get("club_id") in (h_team_id, a_team_id))
-                        p2_pts = sum(int(p["Pts"]) for p in c2_active_s if p.get("club_id") in (h_team_id, a_team_id))
-
-                        curr1_c += p1_pts
-                        curr2_c += p2_pts
-
-                        contrib1 = get_fixture_contributors_c(c1_active_s, h_team_id, a_team_id)
-                        contrib2 = get_fixture_contributors_c(c2_active_s, h_team_id, a_team_id)
-
-                        labels_c.append(m_label)
-                        records_c.append({
-                            "Match": m_label,
-                            "Manager": spot_m1,
-                            "Points": curr1_c,
-                            "Added": f"+{p1_pts}",
-                            "Key Events": contrib1
-                        })
-                        records_c.append({
-                            "Match": m_label,
-                            "Manager": spot_m2,
-                            "Points": curr2_c,
-                            "Added": f"+{p2_pts}",
-                            "Key Events": contrib2
-                        })
-
-                    chart_df_c = pd.DataFrame(records_c)
-
-                    st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
-                    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
-
-                    chart_c = alt.Chart(chart_df_c).mark_line(point = True).encode(
-                        x = alt.X(
-                            "Match:N", 
-                            sort = labels_c, 
-                            title = None, 
-                            axis = alt.Axis(
-                                labelAngle = -90, 
-                                labelOverlap = False, 
-                                labelColor = "#94a3b8",
-                                labelFontSize = 9,
-                                grid = False
-                            )
-                        ),
-                        y = alt.Y(
-                            "Points:Q", 
-                            title = "Cumulative Points", 
-                            axis = alt.Axis(
-                                labelColor = "#94a3b8", 
-                                gridColor = "#182030",
-                                domainColor = "#182030"
-                            )
-                        ),
-                        color = alt.Color(
-                            "Manager:N",
-                            scale = alt.Scale(domain = [spot_m1, spot_m2], range = [active_theme["accent"], "#38bdf8"]),
-                            legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-                        ),
-                        tooltip = [
-                            alt.Tooltip("Manager:N", title = "Manager"),
-                            alt.Tooltip("Match:N", title = "Match"),
-                            alt.Tooltip("Points:Q", title = "Total Pts"),
-                            alt.Tooltip("Added:N", title = "Match Pts"),
-                            alt.Tooltip("Key Events:N", title = "Key Events")
-                        ]
-                    ).properties(
-                        height = 360,
-                        background = "#000000"
-                    ).configure_view(
-                        strokeWidth = 0,
-                        fill = "#000000"
-                    ).configure_axis(
-                        domainColor = "#182030"
-                    )
-
-                    st.altair_chart(chart_c, use_container_width = True)
-                    st.divider()
+                # Cup Lineup Progression Chart
+                render_progression_chart(
+                    active_cup_gw,
+                    spot_m1,
+                    spot_m2,
+                    spot_st1,
+                    spot_b1,
+                    spot_st2,
+                    spot_b2,
+                    all_fixtures,
+                    team_short_map,
+                    active_theme["accent"]
+                )
+                st.divider()
 
                 display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
                 side1_c, side2_c = st.columns(2)
@@ -2106,8 +2150,8 @@ elif st.session_state.page == "Cup & Bucket":
                         st.info("Lineups not yet available.")
 
     with cup_tab_standings:
-        st.subheader("Combined 32-Team Group Standings (GW 6 – GW 20)")
-        st.caption("Tiebreaker Hierarchy: 1. Points → 2. Player Points (PF) → 3. Head-to-Head → 4. Highest Individual Player Score in Group Stage")
+        st.subheader("Combined 32 Team Group Standings (GW 6 to GW 20)")
+        st.caption("Tiebreaker Hierarchy: 1. Points → 2. Player Points (PF) → 3. Head to Head → 4. Highest Individual Player Score in Group Stage")
 
         with st.spinner("Calculating group standings across 8 matchdays..."):
             display_table = calculate_group_standings()
@@ -2120,7 +2164,7 @@ elif st.session_state.page == "Cup & Bucket":
 
     with cup_tab_analyser:
         st.subheader("📋 Cup Results Analyser")
-        st.caption("Inspect cross-league matchday lineups, key events and match progression charts")
+        st.caption("Inspect cross league matchday lineups, key events and match progression charts")
 
         group_matches_temp = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
         unique_aliases_temp = set()
@@ -2198,143 +2242,26 @@ elif st.session_state.page == "Cup & Bucket":
                 st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
             st.divider()
 
-            epl_fixtures = fetch_epl_fixtures(c_gw)
-            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
-            if not gw_fixtures and epl_fixtures:
-                gw_fixtures = epl_fixtures
+            st.caption(f"{c_m1} — Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts   |   {c_m2} — Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
 
-            c1_active = []
-            if not c_st1.empty:
-                c1_active.extend([r for _, r in c_st1.iterrows() if r.get("sub_action") != "Subbed Off"])
-            if not c_b1.empty:
-                c1_active.extend([r for _, r in c_b1.iterrows() if r.get("sub_action") == "Subbed On"])
-
-            c2_active = []
-            if not c_st2.empty:
-                c2_active.extend([r for _, r in c_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
-            if not c_b2.empty:
-                c2_active.extend([r for _, r in c_b2.iterrows() if r.get("sub_action") == "Subbed On"])
-
-            if gw_fixtures:
-                labels = []
-                records = []
-                curr1 = 0
-                curr2 = 0
-
-                def get_fixture_contributors(active_players, h_id, a_id):
-                    entries_list = []
-                    for p in active_players:
-                        if p.get("club_id") in (h_id, a_id):
-                            p_name = p.get("Player", "Unknown")
-                            cats = []
-                            g = int(p.get("G", 0))
-                            a = int(p.get("A", 0))
-                            cs = int(p.get("CS", 0))
-                            bonus = int(p.get("Bonus", 0))
-                            pos = p.get("Pos", "")
-
-                            if g > 0:
-                                cats.append(f"{g}⚽" if g > 1 else "⚽")
-                            if a > 0:
-                                cats.append(f"{a}🎯" if a > 1 else "🎯")
-                            if cs > 0 and pos in ["GKP", "DEF"]:
-                                cats.append("🛡️")
-                            if bonus > 0:
-                                cats.append(f"{bonus}⭐")
-
-                            if cats:
-                                entries_list.append(f"{p_name} ({' '.join(cats)})")
-                    return ", ".join(entries_list) if entries_list else "None"
-
-                for f_item in gw_fixtures:
-                    h_team_id = f_item.get("team_h")
-                    a_team_id = f_item.get("team_a")
-                    h_code = team_short_map.get(h_team_id, "H")
-                    a_code = team_short_map.get(a_team_id, "A")
-                    m_label = f"{h_code} v {a_code}"
-
-                    p1_pts = sum(int(p["Pts"]) for p in c1_active if p.get("club_id") in (h_team_id, a_team_id))
-                    p2_pts = sum(int(p["Pts"]) for p in c2_active if p.get("club_id") in (h_team_id, a_team_id))
-
-                    curr1 += p1_pts
-                    curr2 += p2_pts
-
-                    contrib1 = get_fixture_contributors(c1_active, h_team_id, a_team_id)
-                    contrib2 = get_fixture_contributors(c2_active, h_team_id, a_team_id)
-
-                    labels.append(m_label)
-                    records.append({
-                        "Match": m_label,
-                        "Manager": c_m1,
-                        "Points": curr1,
-                        "Added": f"+{p1_pts}",
-                        "Key Events": contrib1
-                    })
-                    records.append({
-                        "Match": m_label,
-                        "Manager": c_m2,
-                        "Points": curr2,
-                        "Added": f"+{p2_pts}",
-                        "Key Events": contrib2
-                    })
-
-                chart_df = pd.DataFrame(records)
-
-                st.markdown(f"#### Gameweek {c_gw} Points Progression")
-                st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
-
-                chart = alt.Chart(chart_df).mark_line(point = True).encode(
-                    x = alt.X(
-                        "Match:N", 
-                        sort = labels, 
-                        title = None, 
-                        axis = alt.Axis(
-                            labelAngle = -90, 
-                            labelOverlap = False, 
-                            labelColor = "#94a3b8",
-                            labelFontSize = 9,
-                            grid = False
-                        )
-                    ),
-                    y = alt.Y(
-                        "Points:Q", 
-                        title = "Cumulative Points", 
-                        axis = alt.Axis(
-                            labelColor = "#94a3b8", 
-                            gridColor = "#182030",
-                            domainColor = "#182030"
-                        )
-                    ),
-                    color = alt.Color(
-                        "Manager:N",
-                        scale = alt.Scale(domain = [c_m1, c_m2], range = [active_theme["accent"], "#38bdf8"]),
-                        legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-                    ),
-                    tooltip = [
-                        alt.Tooltip("Manager:N", title = "Manager"),
-                        alt.Tooltip("Match:N", title = "Match"),
-                        alt.Tooltip("Points:Q", title = "Total Pts"),
-                        alt.Tooltip("Added:N", title = "Match Pts"),
-                        alt.Tooltip("Key Events:N", title = "Key Events")
-                    ]
-                ).properties(
-                    height = 360,
-                    background = "#000000"
-                ).configure_view(
-                    strokeWidth = 0,
-                    fill = "#000000"
-                ).configure_axis(
-                    domainColor = "#182030"
-                )
-
-                st.altair_chart(chart, use_container_width = True)
-                st.divider()
+            render_progression_chart(
+                c_gw,
+                c_m1,
+                c_m2,
+                c_st1,
+                c_b1,
+                c_st2,
+                c_b2,
+                all_fixtures,
+                team_short_map,
+                active_theme["accent"]
+            )
+            st.divider()
 
             display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
             side1, side2 = st.columns(2)
             with side1:
                 st.subheader(f"{c_m1} Lineup")
-                st.caption(f"Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts")
                 if not c_st1.empty:
                     s1_view = c_st1[display_cols].copy()
                     if "Proj" in s1_view.columns:
@@ -2352,7 +2279,6 @@ elif st.session_state.page == "Cup & Bucket":
 
             with side2:
                 st.subheader(f"{c_m2} Lineup")
-                st.caption(f"Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
                 if not c_st2.empty:
                     s2_view = c_st2[display_cols].copy()
                     if "Proj" in s2_view.columns:
@@ -2613,8 +2539,8 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                         st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
-                    if h_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
+                    if a_psaved:
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
@@ -2686,7 +2612,7 @@ elif st.session_state.page == "Results Analyser":
         
     else:
         team_choices = {
-            e["id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})" 
+            e["id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})"
             for e in entries
         }
         with ctrl_col2:
@@ -2767,145 +2693,19 @@ elif st.session_state.page == "Results Analyser":
 
         st.caption(f"{alias1} — Bench Left: {t1_bp} pts | Optimum Score: {t1_opt} pts   |   {alias2} — Bench Left: {t2_bp} pts | Optimum Score: {t2_opt} pts")
 
-        t1_active = []
-        if not t1_start.empty:
-            for _, r in t1_start.iterrows():
-                if r.get("sub_action") != "Subbed Off":
-                    t1_active.append(r)
-        if not t1_b.empty:
-            for _, r in t1_b.iterrows():
-                if r.get("sub_action") == "Subbed On":
-                    t1_active.append(r)
-
-        t2_active = []
-        if not t2_start.empty:
-            for _, r in t2_start.iterrows():
-                if r.get("sub_action") != "Subbed Off":
-                    t2_active.append(r)
-        if not t2_b.empty:
-            for _, r in t2_b.iterrows():
-                if r.get("sub_action") == "Subbed On":
-                    t2_active.append(r)
-
-        # ----------------- EPL MATCH PROGRESSION GRAPH -----------------
-        gw_fixtures = [f for f in all_fixtures if f.get("event") == gw_num] if all_fixtures else []
-        if not gw_fixtures and all_fixtures:
-            gw_fixtures = all_fixtures
-
-        if gw_fixtures:
-            labels = []
-            records = []
-            curr1 = 0
-            curr2 = 0
-
-            def get_fixture_contributors(active_players, h_id, a_id):
-                entries_list = []
-                for p in active_players:
-                    if p.get("club_id") in (h_id, a_id):
-                        p_name = p.get("Player", "Unknown")
-                        cats = []
-                        g = int(p.get("G", 0))
-                        a = int(p.get("A", 0))
-                        cs = int(p.get("CS", 0))
-                        bonus = int(p.get("Bonus", 0))
-                        pos = p.get("Pos", "")
-
-                        if g > 0:
-                            cats.append(f"{g}⚽" if g > 1 else "⚽")
-                        if a > 0:
-                            cats.append(f"{a}🎯" if a > 1 else "🎯")
-                        if cs > 0 and pos in ["GKP", "DEF"]:
-                            cats.append("🛡️")
-                        if bonus > 0:
-                            cats.append(f"{bonus}⭐")
-
-                        if cats:
-                            entries_list.append(f"{p_name} ({' '.join(cats)})")
-                return ", ".join(entries_list) if entries_list else "None"
-
-            for f_item in gw_fixtures:
-                h_team_id = f_item.get("team_h")
-                a_team_id = f_item.get("team_a")
-                h_code = team_short_map.get(h_team_id, "H")
-                a_code = team_short_map.get(a_team_id, "A")
-                m_label = f"{h_code} v {a_code}"
-
-                p1_pts = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_team_id, a_team_id))
-                p2_pts = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_team_id, a_team_id))
-
-                curr1 += p1_pts
-                curr2 += p2_pts
-
-                contrib1 = get_fixture_contributors(t1_active, h_team_id, a_team_id)
-                contrib2 = get_fixture_contributors(t2_active, h_team_id, a_team_id)
-
-                labels.append(m_label)
-                records.append({
-                    "Match": m_label,
-                    "Manager": alias1,
-                    "Points": curr1,
-                    "Added": f"+{p1_pts}",
-                    "Key Events": contrib1
-                })
-                records.append({
-                    "Match": m_label,
-                    "Manager": alias2,
-                    "Points": curr2,
-                    "Added": f"+{p2_pts}",
-                    "Key Events": contrib2
-                })
-
-            chart_df = pd.DataFrame(records)
-
-            st.markdown(f"#### Gameweek {gw_num} Points Progression")
-            st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
-
-            chart = alt.Chart(chart_df).mark_line(point = True).encode(
-                x = alt.X(
-                    "Match:N", 
-                    sort = labels, 
-                    title = None, 
-                    axis = alt.Axis(
-                        labelAngle = -90, 
-                        labelOverlap = False, 
-                        labelColor = "#94a3b8",
-                        labelFontSize = 9,
-                        grid = False
-                    )
-                ),
-                y = alt.Y(
-                    "Points:Q", 
-                    title = "Cumulative Points", 
-                    axis = alt.Axis(
-                        labelColor = "#94a3b8", 
-                        gridColor = "#182030",
-                        domainColor = "#182030"
-                    )
-                ),
-                color = alt.Color(
-                    "Manager:N",
-                    scale = alt.Scale(domain = [alias1, alias2], range = [active_theme["accent"], "#38bdf8"]),
-                    legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-                ),
-                tooltip = [
-                    alt.Tooltip("Manager:N", title = "Manager"),
-                    alt.Tooltip("Match:N", title = "Match"),
-                    alt.Tooltip("Points:Q", title = "Total Pts"),
-                    alt.Tooltip("Added:N", title = "Match Pts"),
-                    alt.Tooltip("Key Events:N", title = "Key Events")
-                ]
-            ).properties(
-                height = 360,
-                background = "#000000"
-            ).configure_view(
-                strokeWidth = 0,
-                fill = "#000000"
-            ).configure_axis(
-                domainColor = "#182030"
-            )
-
-            st.altair_chart(chart, use_container_width = True)
-            st.divider()
+        render_progression_chart(
+            gw_num,
+            alias1,
+            alias2,
+            t1_start,
+            t1_b,
+            t2_start,
+            t2_b,
+            all_fixtures,
+            team_short_map,
+            active_theme["accent"]
+        )
+        st.divider()
 
         display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
@@ -2976,7 +2776,7 @@ elif st.session_state.page == "Squad Analyser":
         if not all_fixtures or not team_id:
             return "TBD"
         upcoming = [
-            f for f in all_fixtures 
+            f for f in all_fixtures
             if not f.get("finished", False) and (f.get("team_h") == team_id or f.get("team_a") == team_id)
         ]
         upcoming = sorted(upcoming, key = lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))
@@ -3185,7 +2985,7 @@ elif st.session_state.page == "Squad Analyser":
             for alert_text in alerts:
                 st.warning(alert_text)
         else:
-            st.success("✅ **Squad Balance Sound:** Roster availability and positional averages meet or exceed division baselines. Scouting high-upside upgrades.")
+            st.success("✅ **Squad Balance Sound:** Roster availability and positional averages meet or exceed division baselines. Scouting high upside upgrades.")
 
         top_pts_ids = set(my_squad.sort_values(by = "total_points", ascending = False).head(3)["id"])
         top_ppg_ids = set(my_squad.sort_values(by = "points_per_game", ascending = False).head(3)["id"])
