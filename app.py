@@ -916,7 +916,7 @@ def resolve_cup_match_score(manager_alias, gw_num):
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
@@ -1929,9 +1929,11 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
                 st.divider()
 
-                # --- LIVE CUP POINTS PROGRESSION GRAPH ---
-                st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
-                st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
+                # Cup Lineup Tables & Progression Chart
+                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
+                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event"] == active_cup_gw] if epl_fixtures_c else []
+                if not gw_fixtures_c and epl_fixtures_c:
+                    gw_fixtures_c = epl_fixtures_c
 
                 c1_active_s = []
                 if not spot_st1.empty:
@@ -1944,11 +1946,6 @@ elif st.session_state.page == "Cup & Bucket":
                     c2_active_s.extend([r for _, r in spot_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
                 if not spot_b2.empty:
                     c2_active_s.extend([r for _, r in spot_b2.iterrows() if r.get("sub_action") == "Subbed On"])
-
-                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
-                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
-                if not gw_fixtures_c and epl_fixtures_c:
-                    gw_fixtures_c = epl_fixtures_c
 
                 if gw_fixtures_c:
                     labels_c = []
@@ -2014,6 +2011,9 @@ elif st.session_state.page == "Cup & Bucket":
                         })
 
                     chart_df_c = pd.DataFrame(records_c)
+
+                    st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
+                    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
                     chart_c = alt.Chart(chart_df_c).mark_line(point = True).encode(
                         x = alt.X(
@@ -2196,7 +2196,7 @@ elif st.session_state.page == "Cup & Bucket":
             st.caption(f"{c_m1} — Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts   |   {c_m2} — Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
 
             epl_fixtures = fetch_epl_fixtures(c_gw)
-            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
+            gw_fixtures = [f for f in epl_fixtures if f.get("event"] == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
                 gw_fixtures = epl_fixtures
 
@@ -2450,7 +2450,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                 
             with f_col2:
                 if is_started or is_finished:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
                 else:
                     st.markdown("<p style='text-align: center; margin: 0; font-size: 1.2rem; color: #64748b;'>vs</p>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: center; margin: 0; font-size: 0.85rem; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
