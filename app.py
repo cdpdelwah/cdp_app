@@ -701,6 +701,8 @@ def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is
     return pct1, 100 - pct1
 
 def calculate_optimum_score(all_players_df):
+    if all_players_df is None or all_players_df.empty:
+        return 0
     gkps = all_players_df[all_players_df["Pos"] == "GKP"]
     defs = all_players_df[all_players_df["Pos"] == "DEF"]
     mids = all_players_df[all_players_df["Pos"] == "MID"]
@@ -869,17 +871,17 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
     
     active_p = []
-    if not starters.empty:
-        active_p.extend(int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off")
-    if not bench.empty:
-        active_p.extend(int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On")
+    if starters:
+        active_p.extend([int(r["Pts"]) for r in starters if r.get("sub_action") != "Subbed Off"])
+    if bench:
+        active_p.extend([int(r["Pts"]) for r in bench if r.get("sub_action"] == "Subbed On"])
 
-    bench_left_pts = sum(int(b["Pts"]) for b in bench if b["sub_action"] != "Subbed On")
+    bench_left_pts = sum(int(b["Pts"]) for b in bench if b.get("sub_action") != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
     optimum_score = calculate_optimum_score(all_players_df)
     
-    starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False])
-    bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True)
+    starters_df = pd.DataFrame(starters).sort_values(by = ["pos_num", "Pts"], ascending = [True, False]) if starters else pd.DataFrame()
+    bench_df = pd.DataFrame(bench).sort_values(by = "pick_pos", ascending = True) if bench else pd.DataFrame()
     
     return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play, bench_left_pts, optimum_score
 
@@ -918,9 +920,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
     )
     active_p = []
     if not starters.empty:
-        active_p.extend(int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off")
+        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend(int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On")
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
