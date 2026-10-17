@@ -768,12 +768,10 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         
         avail = get_availability_multiplier(raw_elem)
         
-        # Option 1: Flipped Base Recipe (60% PPG / 40% Form)
         form_val = float(raw_elem.get("form") or 0.0)
         ppg_val = float(raw_elem.get("points_per_game") or 2.0)
         base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
         
-        # Option 3: Minutes Security Check (Rotation Risk / Fringe Player penalty)
         season_mins = float(raw_elem.get("minutes") or 0.0)
         if current_gw > 3:
             expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
