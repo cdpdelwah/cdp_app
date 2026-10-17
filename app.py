@@ -870,9 +870,9 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     active_p = []
     if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+        active_p.extend(int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off")
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend(int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On")
 
     bench_left_pts = sum(int(b["Pts"]) for b in bench if b["sub_action"] != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
@@ -918,9 +918,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
     )
     active_p = []
     if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action"] != "Subbed Off"])
+        active_p.extend(int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off")
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend(int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On")
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
