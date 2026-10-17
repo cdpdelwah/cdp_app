@@ -728,7 +728,7 @@ def get_fdr_multiplier(team_id, current_gw, all_fixtures_list):
         if f.get("event") == current_gw and (f.get("team_h") == team_id or f.get("team_a") == team_id)
     ]
     if not team_fixtures:
-        return 0.0  # Blank gameweek
+        return 0.0
     
     total_mult = 0.0
     for fix in team_fixtures:
@@ -777,17 +777,15 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         season_mins = float(raw_elem.get("minutes") or 0.0)
         if current_gw > 3:
             expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
-            if expected_min_ratio < 0.6:  # Regular sub / rotation risk
+            if expected_min_ratio < 0.6:
                 base_exp *= 0.8
                 
         if base_exp <= 0 and avail > 0:
             base_exp = 2.0
             
-        # Fixture Difficulty Rating (FDR) scaling
         fdr_mult = get_fdr_multiplier(club_id, current_gw, all_fixtures_list)
         base_exp *= fdr_mult
 
-        # Match State & 90-Minute In-Play Smoothing
         if team_mins >= 800:
             if mins > 0:
                 state = "FT"
@@ -797,21 +795,17 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
                 proj = 0
         elif team_mins > 0:
             state = "LIVE"
-            # Find exact match minute from EPL fixtures if available
-            match_minute = 45  # Default mid-point fallback
+            match_minute = 45
             if all_fixtures_list:
                 for fix in all_fixtures_list:
                     if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id):
                         match_minute = fix.get("minutes", 45)
                         break
             
-            # Smooth in-play decay for remaining return expectation
             return_expect = max(0.0, base_exp - 2.0)
             remaining_fraction = max(0.0, (90.0 - match_minute) / 90.0)
             
             if match_minute < 60:
-                # 2.0 app pts: 1 pt for starting, 1 pt pending at 60'
-                app_pts_earned = 1.0 + (1.0 if match_minute >= 60 else 0.0)
                 upcoming_app_pts = 1.0 if match_minute < 60 else 0.0
                 proj = round(float(pts) + upcoming_app_pts + (return_expect * remaining_fraction), 1)
             else:
@@ -922,7 +916,7 @@ def resolve_cup_match_score(manager_alias, gw_num):
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
@@ -1776,6 +1770,7 @@ elif st.session_state.page == "Cup & Bucket":
 
     cup_df = load_cup_matches()
     static_data = fetch_fpl_static()
+    all_fixtures = fetch_all_epl_fixtures()
 
     if cup_df is None or cup_df.empty:
         st.warning("No 'cupmatches' spreadsheet found. Place 'cupmatches.xlsx', '.ods' or '.csv' in your Assets folder.")
@@ -1934,11 +1929,9 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
                 st.divider()
 
-                # Cup Lineup Tables & Progression Chart
-                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
-                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
-                if not gw_fixtures_c and epl_fixtures_c:
-                    gw_fixtures_c = epl_fixtures_c
+                # --- LIVE CUP POINTS PROGRESSION GRAPH ---
+                st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
+                st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
                 c1_active_s = []
                 if not spot_st1.empty:
@@ -1951,6 +1944,11 @@ elif st.session_state.page == "Cup & Bucket":
                     c2_active_s.extend([r for _, r in spot_st2.iterrows() if r.get("sub_action") != "Subbed Off"])
                 if not spot_b2.empty:
                     c2_active_s.extend([r for _, r in spot_b2.iterrows() if r.get("sub_action") == "Subbed On"])
+
+                epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
+                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
+                if not gw_fixtures_c and epl_fixtures_c:
+                    gw_fixtures_c = epl_fixtures_c
 
                 if gw_fixtures_c:
                     labels_c = []
@@ -2016,9 +2014,6 @@ elif st.session_state.page == "Cup & Bucket":
                         })
 
                     chart_df_c = pd.DataFrame(records_c)
-
-                    st.markdown(f"#### Gameweek {active_cup_gw} Points Progression")
-                    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
                     chart_c = alt.Chart(chart_df_c).mark_line(point = True).encode(
                         x = alt.X(
@@ -2198,6 +2193,8 @@ elif st.session_state.page == "Cup & Bucket":
                 st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
             st.divider()
 
+            st.caption(f"{c_m1} — Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts   |   {c_m2} — Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
+
             epl_fixtures = fetch_epl_fixtures(c_gw)
             gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
@@ -2334,7 +2331,6 @@ elif st.session_state.page == "Cup & Bucket":
             side1, side2 = st.columns(2)
             with side1:
                 st.subheader(f"{c_m1} Lineup")
-                st.caption(f"Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts")
                 if not c_st1.empty:
                     s1_view = c_st1[display_cols].copy()
                     if "Proj" in s1_view.columns:
@@ -2352,7 +2348,6 @@ elif st.session_state.page == "Cup & Bucket":
 
             with side2:
                 st.subheader(f"{c_m2} Lineup")
-                st.caption(f"Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
                 if not c_st2.empty:
                     s2_view = c_st2[display_cols].copy()
                     if "Proj" in s2_view.columns:
@@ -2455,7 +2450,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                 
             with f_col2:
                 if is_started or is_finished:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
                 else:
                     st.markdown("<p style='text-align: center; margin: 0; font-size: 1.2rem; color: #64748b;'>vs</p>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: center; margin: 0; font-size: 0.85rem; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
