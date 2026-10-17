@@ -870,7 +870,13 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     in_play = sum(1 for p in active_lineup if p["State"] == "LIVE")
     yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
     
-    bench_left_pts = sum(b["Pts"] for b in bench if b["sub_action"] != "Subbed On")
+    active_p = []
+    if not starters.empty:
+        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+    if not bench.empty:
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
+
+    bench_left_pts = sum(int(b["Pts"]) for b in bench if b["sub_action"] != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
     optimum_score = calculate_optimum_score(all_players_df)
     
@@ -916,7 +922,7 @@ def resolve_cup_match_score(manager_alias, gw_num):
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
@@ -1931,7 +1937,7 @@ elif st.session_state.page == "Cup & Bucket":
 
                 # Cup Lineup Tables & Progression Chart
                 epl_fixtures_c = fetch_epl_fixtures(active_cup_gw)
-                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event"] == active_cup_gw] if epl_fixtures_c else []
+                gw_fixtures_c = [f for f in epl_fixtures_c if f.get("event") == active_cup_gw] if epl_fixtures_c else []
                 if not gw_fixtures_c and epl_fixtures_c:
                     gw_fixtures_c = epl_fixtures_c
 
@@ -2196,7 +2202,7 @@ elif st.session_state.page == "Cup & Bucket":
             st.caption(f"{c_m1} — Bench Left: {c_bp1} pts | Optimum Score: {c_opt1} pts   |   {c_m2} — Bench Left: {c_bp2} pts | Optimum Score: {c_opt2} pts")
 
             epl_fixtures = fetch_epl_fixtures(c_gw)
-            gw_fixtures = [f for f in epl_fixtures if f.get("event"] == c_gw] if epl_fixtures else []
+            gw_fixtures = [f for f in epl_fixtures if f.get("event") == c_gw] if epl_fixtures else []
             if not gw_fixtures and epl_fixtures:
                 gw_fixtures = epl_fixtures
 
