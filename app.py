@@ -836,7 +836,7 @@ def resolve_cup_match_score(manager_alias, gw_num):
     if not starters.empty:
         active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action"] == "Subbed On"])
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp
@@ -1643,12 +1643,14 @@ elif st.session_state.page == "LIVE SCORES":
         st.markdown("### " + alias_e1)
         if not active_spot["t1_start"].empty:
             t1_s_view = active_spot["t1_start"][display_cols].copy()
-            t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
+            if "Proj" in t1_s_view.columns:
+                t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Starting XI (GK First)**")
             st.table(t1_s_view.set_index("Player"))
 
             t1_b_view = active_spot["t1_b"][display_cols].copy()
-            t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+            if "Proj" in t1_b_view.columns:
+                t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Bench Substitutes**")
             st.table(t1_b_view.set_index("Player"))
         else:
@@ -1659,12 +1661,14 @@ elif st.session_state.page == "LIVE SCORES":
         st.markdown("### " + alias_e2)
         if not active_spot["t2_start"].empty:
             t2_s_view = active_spot["t2_start"][display_cols].copy()
-            t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
+            if "Proj" in t2_s_view.columns:
+                t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Starting XI (GK First)**")
             st.table(t2_s_view.set_index("Player"))
 
             t2_b_view = active_spot["t2_b"][display_cols].copy()
-            t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+            if "Proj" in t2_b_view.columns:
+                t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Bench Substitutes**")
             st.table(t2_b_view.set_index("Player"))
         else:
@@ -1968,12 +1972,14 @@ elif st.session_state.page == "Cup & Bucket":
                     st.subheader(f"{spot_m1} Lineup")
                     if not spot_st1.empty:
                         s1_view = spot_st1[display_cols].copy()
-                        s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        if "Proj" in s1_view.columns:
+                            s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                         st.markdown("**Starting XI (GK First)**")
                         st.table(s1_view.set_index("Player"))
 
                         b1_view = spot_b1[display_cols].copy()
-                        b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        if "Proj" in b1_view.columns:
+                            b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                         st.markdown("**Bench Substitutes**")
                         st.table(b1_view.set_index("Player"))
                     else:
@@ -1983,12 +1989,14 @@ elif st.session_state.page == "Cup & Bucket":
                     st.subheader(f"{spot_m2} Lineup")
                     if not spot_st2.empty:
                         s2_view = spot_st2[display_cols].copy()
-                        s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        if "Proj" in s2_view.columns:
+                            s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                         st.markdown("**Starting XI (GK First)**")
                         st.table(s2_view.set_index("Player"))
 
                         b2_view = spot_b2[display_cols].copy()
-                        b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                        if "Proj" in b2_view.columns:
+                            b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                         st.markdown("**Bench Substitutes**")
                         st.table(b2_view.set_index("Player"))
                     else:
@@ -2225,12 +2233,14 @@ elif st.session_state.page == "Cup & Bucket":
                 st.subheader(f"{c_m1} Lineup")
                 if not c_st1.empty:
                     s1_view = c_st1[display_cols].copy()
-                    s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                    if "Proj" in s1_view.columns:
+                        s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Starting XI (GK First)**")
                     st.table(s1_view.set_index("Player"))
 
                     b1_view = c_b1[display_cols].copy()
-                    b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                    if "Proj" in b1_view.columns:
+                        b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Bench Substitutes**")
                     st.table(b1_view.set_index("Player"))
                 else:
@@ -2240,12 +2250,14 @@ elif st.session_state.page == "Cup & Bucket":
                 st.subheader(f"{c_m2} Lineup")
                 if not c_st2.empty:
                     s2_view = c_st2[display_cols].copy()
-                    s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                    if "Proj" in s2_view.columns:
+                        s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Starting XI (GK First)**")
                     st.table(s2_view.set_index("Player"))
 
                     b2_view = c_b2[display_cols].copy()
-                    b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                    if "Proj" in b2_view.columns:
+                        b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
                     st.markdown("**Bench Substitutes**")
                     st.table(b2_view.set_index("Player"))
                 else:
@@ -2788,7 +2800,7 @@ elif st.session_state.page == "Results Analyser":
             st.altair_chart(chart, use_container_width = True)
             st.divider()
 
-        display_cols = ["Player", "Pos", "Club", "Mins", "Pts", "G", "A", "CS", "GC", "Bonus"]
+        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
         side1, side2 = st.columns(2)
         with side1:
