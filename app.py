@@ -872,9 +872,9 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     active_p = []
     if starters:
-        active_p.extend([int(r["Pts"]) for r in starters if r.get("sub_action") != "Subbed Off"])
+        active_p = [int(r["Pts"]) for r in starters if r.get("sub_action") != "Subbed Off"]
     if bench:
-        active_p.extend([int(r["Pts"]) for r in bench if r.get("sub_action"] == "Subbed On"])
+        active_p = active_p + [int(r["Pts"]) for r in bench if r.get("sub_action") == "Subbed On"]
 
     bench_left_pts = sum(int(b["Pts"]) for b in bench if b.get("sub_action") != "Subbed On")
     all_players_df = pd.DataFrame(raw_players)
@@ -920,9 +920,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
     )
     active_p = []
     if not starters.empty:
-        active_p.extend([int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action") != "Subbed Off"])
+        active_p = [int(r["Pts"]) for _, r in starters.iterrows() if r.get("sub_action"] != "Subbed Off"]
     if not bench.empty:
-        active_p.extend([int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"])
+        active_p = active_p + [int(r["Pts"]) for _, r in bench.iterrows() if r.get("sub_action") == "Subbed On"]
 
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
@@ -2455,7 +2455,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                 
             with f_col2:
                 if is_started or is_finished:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
                 else:
                     st.markdown("<p style='text-align: center; margin: 0; font-size: 1.2rem; color: #64748b;'>vs</p>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: center; margin: 0; font-size: 0.85rem; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
