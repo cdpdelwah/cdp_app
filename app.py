@@ -720,7 +720,35 @@ def calculate_optimum_score(all_players_df):
                     best_score = score
     return best_score if best_score != -1 else (best_gk + int(defs["Pts"].sum()) + int(mids["Pts"].sum()) + int(fwds["Pts"].sum()))
 
-def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map):
+def get_fdr_multiplier(team_id, current_gw, all_fixtures_list):
+    if not all_fixtures_list or not team_id:
+        return 1.0
+    team_fixtures = [
+        f for f in all_fixtures_list 
+        if f.get("event") == current_gw and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+    ]
+    if not team_fixtures:
+        return 0.0  # Blank gameweek
+    
+    total_mult = 0.0
+    for fix in team_fixtures:
+        if fix.get("team_h") == team_id:
+            diff = fix.get("team_h_difficulty", 3)
+        else:
+            diff = fix.get("team_a_difficulty", 3)
+            
+        if diff <= 2:
+            total_mult += 1.10
+        elif diff == 3:
+            total_mult += 1.00
+        elif diff == 4:
+            total_mult += 0.92
+        else:
+            total_mult += 0.85
+            
+    return total_mult
+
+def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list):
     if not picks_list:
         return pd.DataFrame(), pd.DataFrame(), 0, 0.0, 0, 0, 0, 0
         
@@ -739,12 +767,27 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         team_mins = club_minutes.get(club_id, 0)
         
         avail = get_availability_multiplier(raw_elem)
+        
+        # Option 1: Flipped Base Recipe (60% PPG / 40% Form)
         form_val = float(raw_elem.get("form") or 0.0)
         ppg_val = float(raw_elem.get("points_per_game") or 2.0)
-        base_exp = ((form_val * 0.6) + (ppg_val * 0.4)) * avail
+        base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+        
+        # Option 3: Minutes Security Check (Rotation Risk / Fringe Player penalty)
+        season_mins = float(raw_elem.get("minutes") or 0.0)
+        if current_gw > 3:
+            expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
+            if expected_min_ratio < 0.6:  # Regular sub / rotation risk
+                base_exp *= 0.8
+                
         if base_exp <= 0 and avail > 0:
             base_exp = 2.0
             
+        # Fixture Difficulty Rating (FDR) scaling
+        fdr_mult = get_fdr_multiplier(club_id, current_gw, all_fixtures_list)
+        base_exp *= fdr_mult
+
+        # Match State & 90-Minute In-Play Smoothing
         if team_mins >= 800:
             if mins > 0:
                 state = "FT"
@@ -754,7 +797,25 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
                 proj = 0
         elif team_mins > 0:
             state = "LIVE"
-            proj = pts
+            # Find exact match minute from EPL fixtures if available
+            match_minute = 45  # Default mid-point fallback
+            if all_fixtures_list:
+                for fix in all_fixtures_list:
+                    if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id):
+                        match_minute = fix.get("minutes", 45)
+                        break
+            
+            # Smooth in-play decay for remaining return expectation
+            return_expect = max(0.0, base_exp - 2.0)
+            remaining_fraction = max(0.0, (90.0 - match_minute) / 90.0)
+            
+            if match_minute < 60:
+                # 2.0 app pts: 1 pt for starting, 1 pt pending at 60'
+                app_pts_earned = 1.0 + (1.0 if match_minute >= 60 else 0.0)
+                upcoming_app_pts = 1.0 if match_minute < 60 else 0.0
+                proj = round(float(pts) + upcoming_app_pts + (return_expect * remaining_fraction), 1)
+            else:
+                proj = round(float(pts) + (return_expect * remaining_fraction), 1)
         else:
             state = "YTP"
             proj = round(base_exp, 1)
@@ -828,6 +889,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
 def resolve_cup_match_score(manager_alias, gw_num):
     teams_registry = get_all_32_teams_registry()
     static_data = fetch_fpl_static()
+    all_fixtures = fetch_all_epl_fixtures()
     if not static_data:
         return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
@@ -854,7 +916,7 @@ def resolve_cup_match_score(manager_alias, gw_num):
             club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
     starters, bench, live_score, proj_score, in_play, ytp, bench_pts, opt_score = evaluate_lineup(
-        picks, live_elements, element_lookup, club_minutes, pos_map, team_map
+        picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
     )
     active_p = []
     if not starters.empty:
@@ -967,7 +1029,7 @@ def calculate_group_standings():
 
     return display_table
 
-def calculate_league_tables(entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map):
+def calculate_league_tables(entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map, all_fixtures_list):
     lentry_map = {e["id"]: e for e in entries}
     
     official_stats = {
@@ -1027,8 +1089,8 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
             else:
                 p1 = fetch_entry_event(lentry_map[t1_id].get("entry_id"), current_gw)
                 p2 = fetch_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
-                _, _, s1, _, _, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
-                _, _, s2, _, _, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+                _, _, s1, _, _, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list)
+                _, _, s2, _, _, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list)
                 
             live_stats[t1_id]["pf"] += s1
             live_stats[t2_id]["pf"] += s2
@@ -1103,7 +1165,7 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
     return official_df, live_df
 
 @st.cache_data(ttl = 300)
-def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
+def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map, all_fixtures_list):
     live_data_gw = fetch_live_event(gw)
     live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
 
@@ -1133,7 +1195,7 @@ def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
             continue
 
         starters_df, bench_df, _, _, _, _, _, _ = evaluate_lineup(
-            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map
+            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map, gw, all_fixtures_list
         )
 
         active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
@@ -1163,7 +1225,7 @@ def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map):
     return df
 
 @st.cache_data(ttl = 300)
-def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map):
+def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list):
     total_stats = {
         e["id"]: {
             "Manager": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")),
@@ -1175,7 +1237,7 @@ def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_ma
     }
 
     for gw in range(1, current_gw + 1):
-        gw_df = calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map)
+        gw_df = calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map, all_fixtures_list)
         for _, row in gw_df.iterrows():
             for e in entries:
                 if get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")) == row["Manager"]:
@@ -1191,7 +1253,7 @@ def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_ma
     ).reset_index(drop = True)
     return df
 
-def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map):
+def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list):
     st.subheader("GACS - Goals, Assists and Clean Sheets")
     st.caption("Goals (all players), Assists (all players) and Clean Sheets (GKP and DEF only) registered by players in each manager's final starting lineup.")
 
@@ -1200,10 +1262,10 @@ def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
 
     with st.spinner("Compiling starting XI performance data..."):
         if "All Season" in selected_option:
-            df = calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map)
+            df = calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list)
         else:
             chosen_gw_num = int(selected_option.split(" ")[1])
-            df = calculate_xi_stats_for_gw(entries, chosen_gw_num, element_lookup, pos_map, team_map)
+            df = calculate_xi_stats_for_gw(entries, chosen_gw_num, element_lookup, pos_map, team_map, all_fixtures_list)
 
     st.table(df.set_index("Manager"))
 
@@ -1487,6 +1549,7 @@ elif st.session_state.page == "LIVE SCORES":
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     
     if not static_data or not league_details:
         st.error("Failed to load live data. Verify connection.")
@@ -1557,8 +1620,8 @@ elif st.session_state.page == "LIVE SCORES":
         p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
         p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
         
-        t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp, t1_bp, t1_opt = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map)
-        t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp, t2_bp, t2_opt = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map)
+        t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp, t1_bp, t1_opt = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+        t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp, t2_bp, t2_opt = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
         
         if is_fin:
             t1_score = m.get("league_entry_1_points", t1_live)
@@ -2332,7 +2395,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
             if ev.get("is_current"):
                 curr_from_static = ev.get("id")
                 break
-        default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_events else 1)
+        default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_gws else 1)
 
     top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
     with top_e1:
@@ -2568,6 +2631,7 @@ elif st.session_state.page == "Results Analyser":
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     
     if not static_data or not league_details:
         st.error("Failed to load league data. Verify your connection.")
@@ -2694,12 +2758,14 @@ elif st.session_state.page == "Results Analyser":
                 m_val = e_info.get("stats", {}).get("minutes", 0)
                 club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
-        t1_start, t1_b, _, _, _, _, _, _ = evaluate_lineup(
-            picks1_data, live_elements, element_lookup, club_minutes, pos_map, team_map
+        t1_start, t1_b, _, _, _, _, t1_bp, t1_opt = evaluate_lineup(
+            picks1_data, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
         )
-        t2_start, t2_b, _, _, _, _, _, _ = evaluate_lineup(
-            picks2_data, live_elements, element_lookup, club_minutes, pos_map, team_map
+        t2_start, t2_b, _, _, _, _, t2_bp, t2_opt = evaluate_lineup(
+            picks2_data, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
         )
+
+        st.caption(f"{alias1} — Bench Left: {t1_bp} pts | Optimum Score: {t1_opt} pts   |   {alias2} — Bench Left: {t2_bp} pts | Optimum Score: {t2_opt} pts")
 
         t1_active = []
         if not t1_start.empty:
@@ -2722,10 +2788,9 @@ elif st.session_state.page == "Results Analyser":
                     t2_active.append(r)
 
         # ----------------- EPL MATCH PROGRESSION GRAPH -----------------
-        epl_fixtures = fetch_epl_fixtures(gw_num)
-        gw_fixtures = [f for f in epl_fixtures if f.get("event") == gw_num] if epl_fixtures else []
-        if not gw_fixtures and epl_fixtures:
-            gw_fixtures = epl_fixtures
+        gw_fixtures = [f for f in all_fixtures if f.get("event") == gw_num] if all_fixtures else []
+        if not gw_fixtures and all_fixtures:
+            gw_fixtures = all_fixtures
 
         if gw_fixtures:
             labels = []
@@ -3209,6 +3274,7 @@ elif st.session_state.page in ["GACS", "XI Stats"]:
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     
     if not static_data or not league_details:
         st.error("Failed to load league data. Verify connection.")
@@ -3229,7 +3295,7 @@ elif st.session_state.page in ["GACS", "XI Stats"]:
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
     current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
 
-    render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
+    render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures)
 
 # ----------------- 8. STANDINGS SECTION -----------------
 elif st.session_state.page == "Standings":
@@ -3237,6 +3303,7 @@ elif st.session_state.page == "Standings":
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     
     if not static_data or not league_details:
         st.error("Failed to load league standings. Verify connection.")
@@ -3276,7 +3343,7 @@ elif st.session_state.page == "Standings":
             club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
     official_table_df, live_table_df = calculate_league_tables(
-        entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map
+        entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map, all_fixtures
     )
 
     standings_tab1, standings_tab2, standings_tab3 = st.tabs([
@@ -3296,7 +3363,7 @@ elif st.session_state.page == "Standings":
         st.table(official_table_df)
 
     with standings_tab3:
-        render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map)
+        render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures)
 
 # ----------------- 9. NEWSLETTERS SECTION -----------------
 elif st.session_state.page == "Newsletters":
