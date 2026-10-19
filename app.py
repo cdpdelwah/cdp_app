@@ -209,29 +209,28 @@ large_mode = st.sidebar.toggle("🔍 Large Text Mode", value = False, key = "lar
 
 # Comprehensive Global Font Scalers
 root_font_size = "19px" if large_mode else "16px"
-font_body = "1.25rem" if large_mode else "1.02rem"
-font_sub = "1.1rem" if large_mode else "0.92rem"
-font_caption = "1.02rem" if large_mode else "0.86rem"
-font_table = "1.2rem" if large_mode else "0.98rem"
-font_tab = "1.22rem" if large_mode else "1.0rem"
+font_body = "1.25rem" if large_mode else "1.04rem"
+font_caption = "1.02rem" if large_mode else "0.88rem"
+font_table = "1.2rem" if large_mode else "1.0rem"
+font_tab = "1.25rem" if large_mode else "1.05rem"
 font_select = "1.2rem" if large_mode else "1.02rem"
-font_sidebar = "1.18rem" if large_mode else "0.98rem"
+font_sidebar = "1.2rem" if large_mode else "1.0rem"
 font_tooltip = "20px" if large_mode else "15px"
 font_chart_label = 13 if large_mode else 10
 
-font_h1 = "2.85rem" if large_mode else "2.3rem"
-font_h2 = "2.35rem" if large_mode else "1.85rem"
-font_h3 = "1.9rem" if large_mode else "1.45rem"
-font_h4 = "1.55rem" if large_mode else "1.2rem"
+font_h1 = "2.9rem" if large_mode else "2.35rem"
+font_h2 = "2.4rem" if large_mode else "1.9rem"
+font_h3 = "1.95rem" if large_mode else "1.5rem"
+font_h4 = "1.6rem" if large_mode else "1.25rem"
 
-# High Impact Scoreboard Scalers
-font_card_score = "3.8rem" if large_mode else "2.9rem"
-font_card_mgr = "1.55rem" if large_mode else "1.25rem"
-font_card_sub = "1.18rem" if large_mode else "0.96rem"
-font_card_bench = "1.08rem" if large_mode else "0.88rem"
-font_card_win = "1.32rem" if large_mode else "1.05rem"
-font_card_status = "1.15rem" if large_mode else "0.92rem"
-progress_bar_height = "14px" if large_mode else "10px"
+# Bold Headline Scoreboard Scalers (Commanding Display)
+font_card_mgr = "1.95rem" if large_mode else "1.62rem"
+font_card_score = "4.2rem" if large_mode else "3.4rem"
+font_card_sub = "1.18rem" if large_mode else "0.98rem"
+font_card_bench = "1.08rem" if large_mode else "0.90rem"
+font_card_win = "1.32rem" if large_mode else "1.08rem"
+font_card_status = "1.15rem" if large_mode else "0.95rem"
+progress_bar_height = "14px" if large_mode else "11px"
 
 # Dynamic Pure Black CSS Engine with Universal Accessibility Scaling
 st.markdown(f"""
@@ -504,7 +503,7 @@ st.markdown(f"""
         border-radius: 6px !important;
     }}
 
-    /* Specific Mobile Display Enhancements */
+    /* Mobile Display Specifics */
     @media (max-width: 768px) {{
         .stMarkdown, p, span, label, div {{
             font-size: {font_body} !important;
@@ -1973,7 +1972,7 @@ elif st.session_state.page == "LIVE SCORES":
                         
                         hdr_l, hdr_r = st.columns([3, 1])
                         with hdr_l:
-                            st.markdown(f"<h3 style='margin: 0; font-size: {font_card_mgr}; color: #ffffff;'>{alias1} vs {alias2}</h3>", unsafe_allow_html = True)
+                            st.markdown(f"<div style='margin: 0; font-size: {font_card_mgr}; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;'>{alias1} vs {alias2}</div>", unsafe_allow_html = True)
                         with hdr_r:
                             st.markdown(f"<p style='text-align: right; margin: 0; font-size: {font_card_status}; color: {active_theme['accent']};'><b>{status_badge}</b></p>", unsafe_allow_html = True)
                             
@@ -1982,14 +1981,14 @@ elif st.session_state.page == "LIVE SCORES":
 
                         sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
                         with sc_col1:
-                            st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{item['t1_score']}</h2>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t1_proj']:.1f} ({t1_rem_text})</p>", unsafe_allow_html = True)
+                            st.markdown(f"<div style='margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900; letter-spacing: -1px;'>{item['t1_score']}</div>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='margin: 6px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t1_proj']:.1f} ({t1_rem_text})</p>", unsafe_allow_html = True)
                             st.markdown(f"<p style='margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
                         with sc_col2:
-                            st.markdown(f"<p style='text-align: center; margin: 18px 0; color: #64748b; font-weight: bold; font-size: {font_card_sub};'>vs</p>", unsafe_allow_html = True)
+                            st.markdown(f"<div style='text-align: center; margin-top: 14px; color: #64748b; font-weight: 800; font-size: {font_card_sub}; text-transform: uppercase;'>vs</div>", unsafe_allow_html = True)
                         with sc_col3:
-                            st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{item['t2_score']}</h2>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='text-align: right; margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t2_proj']:.1f} ({t2_rem_text})</p>", unsafe_allow_html = True)
+                            st.markdown(f"<div style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900; letter-spacing: -1px;'>{item['t2_score']}</div>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: right; margin: 6px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t2_proj']:.1f} ({t2_rem_text})</p>", unsafe_allow_html = True)
                             st.markdown(f"<p style='text-align: right; margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
                         
                         st.progress(item["prob1"] / 100.0)
@@ -2197,7 +2196,7 @@ elif st.session_state.page == "Cup & Bucket":
                         with st.container(border = True):
                             hdr_l, hdr_r = st.columns([3, 1])
                             with hdr_l:
-                                st.markdown(f"<h3 style='margin: 0; font-size: {font_card_mgr}; color: #ffffff;'>{card['m1']} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({card['l1']})</span> vs {card['m2']} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({card['l2']})</span></h3>", unsafe_allow_html = True)
+                                st.markdown(f"<div style='margin: 0; font-size: {font_card_mgr}; font-weight: 800; color: #ffffff;'>{card['m1']} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({card['l1']})</span> vs {card['m2']} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({card['l2']})</span></div>", unsafe_allow_html = True)
                             with hdr_r:
                                 stage_tag = f"{card['stage']} {card['leg']}".strip()
                                 st.markdown(f"<p style='text-align: right; margin: 0; font-size: {font_card_status}; color: {active_theme['accent']}; font-weight: bold;'>{stage_tag}</p>", unsafe_allow_html = True)
@@ -2207,14 +2206,14 @@ elif st.session_state.page == "Cup & Bucket":
 
                             sc1, sc2, sc3 = st.columns([5, 1, 5])
                             with sc1:
-                                st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{card['s1']}</h2>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; font-weight: 600;'>{rem1}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<div style='margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900; letter-spacing: -1px;'>{card['s1']}</div>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='margin: 6px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; font-weight: 600;'>{rem1}</p>", unsafe_allow_html = True)
                                 st.markdown(f"<p style='margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
                             with sc2:
-                                st.markdown(f"<p style='text-align: center; margin: 18px 0; color: #64748b; font-weight: bold; font-size: {font_card_sub};'>vs</p>", unsafe_allow_html = True)
+                                st.markdown(f"<div style='text-align: center; margin-top: 14px; color: #64748b; font-weight: 800; font-size: {font_card_sub}; text-transform: uppercase;'>vs</div>", unsafe_allow_html = True)
                             with sc3:
-                                st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{card['s2']}</h2>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='text-align: right; margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>{rem2}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<div style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900; letter-spacing: -1px;'>{card['s2']}</div>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 6px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>{rem2}</p>", unsafe_allow_html = True)
                                 st.markdown(f"<p style='text-align: right; margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
 
                             st.progress(card["prob1"] / 100.0)
@@ -2248,8 +2247,8 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"### {spot_m1}")
                     st.caption(f"{s_info1.get('team_name', '')} • {s_info1.get('league_key', '')}")
                 with sr2:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{spot_s1} {dash} {spot_s2}</h2>", unsafe_allow_html = True)
-                    st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>{active_c_spot['stage']} {active_c_spot['leg']} (GW {active_cup_gw})</p>", unsafe_allow_html = True)
+                    st.markdown(f"<div style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900;'>{spot_s1} {dash} {spot_s2}</div>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 6px 0 0 0; font-weight: bold;'>{active_c_spot['stage']} {active_c_spot['leg']} (GW {active_cup_gw})</p>", unsafe_allow_html = True)
                 with sr3:
                     st.markdown(f"<h3 style='text-align: right;'>{spot_m2}</h3>", unsafe_allow_html = True)
                     st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
@@ -2394,9 +2393,9 @@ elif st.session_state.page == "Cup & Bucket":
                 st.markdown(f"### {c_m1}")
                 st.caption(f"{info1.get('team_name', '')} • {info1.get('league_key', '')}")
             with r2:
-                st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{c_s1} {dash} {c_s2}</h2>", unsafe_allow_html = True)
+                st.markdown(f"<div style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900;'>{c_s1} {dash} {c_s2}</div>", unsafe_allow_html = True)
                 stage_desc = f"{selected_cup_match.get('Comp', 'Cup')} {selected_cup_match.get('Stage', '')} {selected_cup_match.get('Leg', '')}".strip()
-                st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 6px 0 0 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
             with r3:
                 st.markdown(f"<h3 style='text-align: right;'>{c_m2}</h3>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
@@ -2537,17 +2536,17 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
             f_col1, f_col2, f_col3 = st.columns([4, 3, 4])
             
             with f_col1:
-                st.markdown(f"<h3 style='margin: 0; font-size: {font_card_mgr}; color: #ffffff;'>{h_name} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({h_short})</span></h3>", unsafe_allow_html = True)
+                st.markdown(f"<div style='margin: 0; font-size: {font_card_mgr}; font-weight: 800; color: #ffffff;'>{h_name} <span style='font-size: {font_card_bench}; color: #94a3b8;'>({h_short})</span></div>", unsafe_allow_html = True)
                 
             with f_col2:
                 if is_started or is_finished:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<div style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900;'>{h_score} {dash} {a_score}</div>", unsafe_allow_html = True)
                 else:
-                    st.markdown(f"<p style='text-align: center; margin: 0; font-size: {font_card_mgr}; color: #94a3b8;'>vs</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align: center; margin: 0; font-size: {font_card_status}; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
+                    st.markdown(f"<div style='text-align: center; margin-top: 14px; font-size: {font_card_sub}; font-weight: 800; color: #94a3b8; text-transform: uppercase;'>vs</div>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align: center; margin: 4px 0 0 0; font-size: {font_card_status}; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
                 
             with f_col3:
-                st.markdown(f"<h3 style='text-align: right; margin: 0; font-size: {font_card_mgr}; color: #ffffff;'><span style='font-size: {font_card_bench}; color: #94a3b8;'>({a_short})</span> {a_name}</h3>", unsafe_allow_html = True)
+                st.markdown(f"<div style='text-align: right; margin: 0; font-size: {font_card_mgr}; font-weight: 800; color: #ffffff;'><span style='font-size: {font_card_bench}; color: #94a3b8;'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
             with st.expander("Match Breakdown"):
                 stats_raw = f.get("stats", [])
@@ -2610,7 +2609,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                             if not isinstance(e_data, dict):
                                 continue
                             try:
-                                elem_id_int = int(elem_id_str)
+                                elem_id_int = int(elem_str_id)
                             except (ValueError, TypeError):
                                 continue
                             elem_obj = element_lookup.get(elem_id_int, {})
@@ -2819,8 +2818,8 @@ elif st.session_state.page == "Results Analyser":
             st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff;'>{score1} {dash} {score2}</h2>", unsafe_allow_html = True)
-            st.markdown("<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
+            st.markdown(f"<div style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1; color: #ffffff; font-weight: 900;'>{score1} {dash} {score2}</div>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: center; color: #94a3b8; margin: 6px 0 0 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: right; color: #94a3b8; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
