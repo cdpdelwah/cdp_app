@@ -164,7 +164,7 @@ def format_table_floats(df):
                 )
     return formatted.fillna("")
 
-# Sidebar Brand and Ordered Navigation
+# Sidebar Brand and Navigation
 if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width = True)
 else:
@@ -203,7 +203,7 @@ selected_league_key = st.sidebar.selectbox(
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
 
-# Dynamic Pure Black CSS Engine with Adaptive League Accent
+# Dynamic Pure Black CSS Engine
 st.markdown(f"""
 <style>
     .stApp {{
@@ -574,7 +574,7 @@ def fetch_fpl_static():
         return None
     return response.json()
 
-@st.cache_data(ttl = 600)
+@st.cache_data(ttl = 120)
 def fetch_league_data(league_id):
     if not league_id:
         return None, None
@@ -589,7 +589,7 @@ def fetch_league_data(league_id):
         
     return det_resp.json(), stat_resp.json()
 
-@st.cache_data(ttl = 600)
+@st.cache_data(ttl = 300)
 def get_all_32_teams_registry():
     registry = {}
     for l_key, l_id in LEAGUE_PRESETS.items():
@@ -611,7 +611,7 @@ def get_all_32_teams_registry():
                 registry[e.get("entry_name", "").strip().lower()] = info
     return registry
 
-@st.cache_data(ttl = 60)
+@st.cache_data(ttl = 45)
 def fetch_entry_event(entry_id, event):
     url = "https://draft.premierleague.com/api/entry/" + str(entry_id) + "/event/" + str(event)
     resp = requests.get(url)
@@ -635,7 +635,7 @@ def fetch_epl_fixtures(event):
         return []
     return resp.json()
 
-@st.cache_data(ttl = 3600)
+@st.cache_data(ttl = 60)
 def fetch_all_epl_fixtures():
     url = "https://fantasy.premierleague.com/api/fixtures/"
     resp = requests.get(url)
@@ -882,7 +882,12 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     in_play = sum(1 for p in active_lineup if p["State"] == "LIVE")
     yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
     
-    bench_left_pts = sum(int(b["Pts"]) for b in bench if b.get("sub_action") != "Subbed On")
+    bench_left_pts = 0
+    if bench:
+        for b in bench:
+            if b.get("sub_action") != "Subbed On":
+                bench_left_pts += int(b.get("Pts", 0))
+
     all_players_df = pd.DataFrame(raw_players)
     optimum_score = calculate_optimum_score(all_players_df)
     
@@ -1031,7 +1036,7 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
 
     st.altair_chart(chart, use_container_width = True)
 
-@st.cache_data(ttl = 300)
+@st.cache_data(ttl = 45)
 def resolve_cup_match_score(manager_alias, gw_num):
     teams_registry = get_all_32_teams_registry()
     static_data = fetch_fpl_static()
@@ -1065,11 +1070,14 @@ def resolve_cup_match_score(manager_alias, gw_num):
         picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
     )
     active_players = get_active_players_from_dfs(starters, bench)
-    active_p = [int(p["Pts"]) for p in active_players]
+    active_p = []
+    if active_players:
+        for p in active_players:
+            active_p.append(int(p.get("Pts", 0)))
     max_player_pts = max(active_p) if active_p else 0
     return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
 
-@st.cache_data(ttl = 300)
+@st.cache_data(ttl = 60)
 def calculate_group_standings():
     cup_df = load_cup_matches()
     teams_registry = get_all_32_teams_registry()
@@ -1711,222 +1719,230 @@ elif st.session_state.page == "LIVE SCORES":
     else:
         detected_gw = all_events[-1] if all_events else 1
 
-    top_c1, top_c2, top_c3 = st.columns([3, 2, 1])
-    with top_c1:
-        st.caption("Real time scoreline forecast, live projections and in match win probability")
-    with top_c2:
-        current_gw = st.selectbox(
-            "Active Gameweek",
-            all_events,
-            index = all_events.index(detected_gw) if detected_gw in all_events else 0
-        )
-    with top_c3:
-        st.write("")
-        if st.button("🔄 Refresh", use_container_width = True):
-            fetch_entry_event.clear()
-            fetch_live_event.clear()
-            fetch_epl_fixtures.clear()
-            fetch_all_epl_fixtures.clear()
-            st.rerun()
-
     lentry_map = {e["id"]: e for e in entries}
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     team_short_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
-    
-    live_data = fetch_live_event(current_gw)
-    live_elements = live_data.get("elements", {}) if live_data else {}
-    
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
-        elem_int_id = int(elem_str_id)
-        elem_obj = element_lookup.get(elem_int_id, {})
-        c_id = elem_obj.get("team")
-        if c_id:
-            m_val = e_info.get("stats", {}).get("minutes", 0)
-            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
 
-    gw_matches = [m for m in matches if m["event"] == current_gw]
-    
-    if not gw_matches:
-        st.info("No fixtures scheduled for Gameweek " + str(current_gw) + " yet.")
-        st.stop()
+    # Silent 45-second heartbeat fragment
+    @st.fragment(run_every = "45s")
+    def render_live_scores_board():
+        top_c1, top_c2, top_c3 = st.columns([3, 2, 1])
+        with top_c1:
+            st.caption("Auto-refreshes every 45s • Real-time scorelines, live projections and win probability")
+        with top_c2:
+            current_gw = st.selectbox(
+                "Active Gameweek",
+                all_events,
+                index = all_events.index(detected_gw) if detected_gw in all_events else 0,
+                key = "live_gw_sel_box"
+            )
+        with top_c3:
+            st.write("")
+            if st.button("🔄 Refresh", use_container_width = True, key = "live_ref_btn"):
+                fetch_entry_event.clear()
+                fetch_live_event.clear()
+                fetch_all_epl_fixtures.clear()
+                st.rerun(scope = "fragment")
 
-    st.subheader("Around the Grounds (GW " + str(current_gw) + ")")
-    
-    match_summaries = []
-    for m in gw_matches:
-        e1 = lentry_map.get(m["league_entry_1"], {})
-        e2 = lentry_map.get(m["league_entry_2"], {})
-        is_fin = m.get("finished", False)
+        live_data = fetch_live_event(current_gw)
+        live_elements = live_data.get("elements", {}) if live_data else {}
         
-        p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
-        p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
+        club_minutes = {}
+        for elem_str_id, e_info in live_elements.items():
+            try:
+                elem_int_id = int(elem_str_id)
+            except (ValueError, TypeError):
+                continue
+            elem_obj = element_lookup.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                m_val = e_info.get("stats", {}).get("minutes", 0)
+                club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+
+        gw_matches = [m for m in matches if m["event"] == current_gw]
         
-        t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp, t1_bp, t1_opt = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
-        t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp, t2_bp, t2_opt = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+        if not gw_matches:
+            st.info("No fixtures scheduled for Gameweek " + str(current_gw) + " yet.")
+            return
+
+        st.subheader("Around the Grounds (GW " + str(current_gw) + ")")
         
-        if is_fin:
-            t1_score = m.get("league_entry_1_points", t1_live)
-            t2_score = m.get("league_entry_2_points", t2_live)
-        else:
-            t1_score = t1_live
-            t2_score = t2_live
+        match_summaries = []
+        for m in gw_matches:
+            e1 = lentry_map.get(m["league_entry_1"], {})
+            e2 = lentry_map.get(m["league_entry_2"], {})
+            is_fin = m.get("finished", False)
             
-        prob1, prob2 = calculate_win_probability(t1_score, t1_proj, t1_in_play + t1_ytp, t2_score, t2_proj, t2_in_play + t2_ytp, is_fin)
-        
-        match_summaries.append({
-            "match": m,
-            "e1": e1,
-            "e2": e2,
-            "t1_score": t1_score,
-            "t2_score": t2_score,
-            "t1_proj": t1_proj,
-            "t2_proj": t2_proj,
-            "t1_in_play": t1_in_play,
-            "t1_ytp": t1_ytp,
-            "t2_in_play": t2_in_play,
-            "t2_ytp": t2_ytp,
-            "t1_bp": t1_bp,
-            "t1_opt": t1_opt,
-            "t2_bp": t2_bp,
-            "t2_opt": t2_opt,
-            "prob1": prob1,
-            "prob2": prob2,
-            "is_fin": is_fin,
-            "t1_start": t1_start,
-            "t1_b": t1_b,
-            "t2_start": t2_start,
-            "t2_b": t2_b
-        })
-
-    for idx in range(0, len(match_summaries), 2):
-        grid_c1, grid_c2 = st.columns(2)
-        items = [match_summaries[idx]]
-        if idx + 1 < len(match_summaries):
-            items.append(match_summaries[idx + 1])
+            p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
+            p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
             
-        cols = [grid_c1, grid_c2]
-        for c_idx, item in enumerate(items):
-            with cols[c_idx]:
-                with st.container(border = True):
-                    status_badge = "✅ FINAL" if item["is_fin"] else "🟢 LIVE"
-                    alias1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
-                    alias2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
-                    
-                    hdr_l, hdr_r = st.columns([3, 1])
-                    with hdr_l:
-                        st.markdown(f"<h4 style='margin: 0; color: #ffffff;'>{alias1} vs {alias2}</h4>", unsafe_allow_html = True)
-                    with hdr_r:
-                        st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {active_theme['accent']};'><b>{status_badge}</b></p>", unsafe_allow_html = True)
+            t1_start, t1_b, t1_live, t1_proj, t1_in_play, t1_ytp, t1_bp, t1_opt = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+            t2_start, t2_b, t2_live, t2_proj, t2_in_play, t2_ytp, t2_bp, t2_opt = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+            
+            if is_fin:
+                t1_score = m.get("league_entry_1_points", t1_live)
+                t2_score = m.get("league_entry_2_points", t2_live)
+            else:
+                t1_score = t1_live
+                t2_score = t2_live
+                
+            prob1, prob2 = calculate_win_probability(t1_score, t1_proj, t1_in_play + t1_ytp, t2_score, t2_proj, t2_in_play + t2_ytp, is_fin)
+            
+            match_summaries.append({
+                "match": m,
+                "e1": e1,
+                "e2": e2,
+                "t1_score": t1_score,
+                "t2_score": t2_score,
+                "t1_proj": t1_proj,
+                "t2_proj": t2_proj,
+                "t1_in_play": t1_in_play,
+                "t1_ytp": t1_ytp,
+                "t2_in_play": t2_in_play,
+                "t2_ytp": t2_ytp,
+                "t1_bp": t1_bp,
+                "t1_opt": t1_opt,
+                "t2_bp": t2_bp,
+                "t2_opt": t2_opt,
+                "prob1": prob1,
+                "prob2": prob2,
+                "is_fin": is_fin,
+                "t1_start": t1_start,
+                "t1_b": t1_b,
+                "t2_start": t2_start,
+                "t2_b": t2_b
+            })
+
+        for idx in range(0, len(match_summaries), 2):
+            grid_c1, grid_c2 = st.columns(2)
+            items = [match_summaries[idx]]
+            if idx + 1 < len(match_summaries):
+                items.append(match_summaries[idx + 1])
+                
+            cols = [grid_c1, grid_c2]
+            for c_idx, item in enumerate(items):
+                with cols[c_idx]:
+                    with st.container(border = True):
+                        status_badge = "✅ FINAL" if item["is_fin"] else "🟢 LIVE"
+                        alias1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
+                        alias2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
                         
-                    t1_rem_text = format_remaining_players(item["t1_in_play"], item["t1_ytp"])
-                    t2_rem_text = format_remaining_players(item["t2_in_play"], item["t2_ytp"])
+                        hdr_l, hdr_r = st.columns([3, 1])
+                        with hdr_l:
+                            st.markdown(f"<h4 style='margin: 0; color: #ffffff;'>{alias1} vs {alias2}</h4>", unsafe_allow_html = True)
+                        with hdr_r:
+                            st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {active_theme['accent']};'><b>{status_badge}</b></p>", unsafe_allow_html = True)
+                            
+                        t1_rem_text = format_remaining_players(item["t1_in_play"], item["t1_ytp"])
+                        t2_rem_text = format_remaining_players(item["t2_in_play"], item["t2_ytp"])
 
-                    sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
-                    with sc_col1:
-                        st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t1_proj']:.1f}" + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
-                        st.markdown(f"<p style='margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
-                    with sc_col2:
-                        st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
-                    with sc_col3:
-                        st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
-                        st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t2_proj']:.1f}" + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
-                        st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
-                    
-                    st.progress(item["prob1"] / 100.0)
-                    
-                    if item["prob1"] > item["prob2"]:
-                        col1_style = active_theme["accent"]
-                        col2_style = "#94a3b8"
-                    elif item["prob2"] > item["prob1"]:
-                        col1_style = "#94a3b8"
-                        col2_style = active_theme["accent"]
-                    else:
-                        col1_style = "#cbd5e1"
-                        col2_style = "#cbd5e1"
+                        sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
+                        with sc_col1:
+                            st.markdown("<h3 style='margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t1_score"]) + "</h3>", unsafe_allow_html = True)
+                            st.markdown("<p style='margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t1_proj']:.1f}" + " (" + t1_rem_text + ")</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
+                        with sc_col2:
+                            st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
+                        with sc_col3:
+                            st.markdown("<h3 style='text-align: right; margin: 0; font-size: 2.1rem; color: #ffffff;'>" + str(item["t2_score"]) + "</h3>", unsafe_allow_html = True)
+                            st.markdown("<p style='text-align: right; margin: 0; font-size: 0.8rem; color: #94a3b8; white-space: nowrap;'>Proj: " + f"{item['t2_proj']:.1f}" + " (" + t2_rem_text + ")</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.75rem; color: #64748b;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
+                        
+                        st.progress(item["prob1"] / 100.0)
+                        
+                        if item["prob1"] > item["prob2"]:
+                            col1_style = active_theme["accent"]
+                            col2_style = "#94a3b8"
+                        elif item["prob2"] > item["prob1"]:
+                            col1_style = "#94a3b8"
+                            col2_style = active_theme["accent"]
+                        else:
+                            col1_style = "#cbd5e1"
+                            col2_style = "#cbd5e1"
 
-                    p_l, p_r = st.columns(2)
-                    with p_l:
-                        st.markdown(f"<span style='color: {col1_style}; font-size: 0.85rem; font-weight: bold;'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
-                    with p_r:
-                        st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {col2_style}; font-weight: bold;'>Win: {item['prob2']}%</p>", unsafe_allow_html = True)
+                        p_l, p_r = st.columns(2)
+                        with p_l:
+                            st.markdown(f"<span style='color: {col1_style}; font-size: 0.85rem; font-weight: bold;'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
+                        with p_r:
+                            st.markdown(f"<p style='text-align: right; margin: 0; font-size: 0.85rem; color: {col2_style}; font-weight: bold;'>Win: {item['prob2']}%</p>", unsafe_allow_html = True)
 
-    st.divider()
+        st.divider()
 
-    st.subheader("Match Spotlight and Lineup Breakdown")
-    
-    def spot_label(i):
-        item = match_summaries[i]
-        alias1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
-        alias2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
-        return f"{alias1} ({item['t1_score']}) vs ({item['t2_score']}) {alias2}"
+        st.subheader("Match Spotlight and Lineup Breakdown")
+        
+        def spot_label(i):
+            item = match_summaries[i]
+            a1 = get_manager_alias(item["e1"].get("player_first_name", ""), item["e1"].get("player_last_name", ""))
+            a2 = get_manager_alias(item["e2"].get("player_first_name", ""), item["e2"].get("player_last_name", ""))
+            return f"{a1} ({item['t1_score']}) vs ({item['t2_score']}) {a2}"
 
-    spotlight_idx = st.selectbox(
-        "Inspect Matchup Details",
-        range(len(match_summaries)),
-        format_func = lambda i: spot_label(i)
-    )
-    
-    active_spot = match_summaries[spotlight_idx]
-    alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
-    alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
+        spotlight_idx = st.selectbox(
+            "Inspect Matchup Details",
+            range(len(match_summaries)),
+            format_func = lambda i: spot_label(i),
+            key = "spotlight_match_sel"
+        )
+        
+        active_spot = match_summaries[spotlight_idx]
+        alias_e1 = get_manager_alias(active_spot["e1"].get("player_first_name", ""), active_spot["e1"].get("player_last_name", ""))
+        alias_e2 = get_manager_alias(active_spot["e2"].get("player_first_name", ""), active_spot["e2"].get("player_last_name", ""))
 
-    # Real time Points Progression Chart on LIVE SCORES
-    render_progression_chart(
-        current_gw,
-        alias_e1,
-        alias_e2,
-        active_spot["t1_start"],
-        active_spot["t1_b"],
-        active_spot["t2_start"],
-        active_spot["t2_b"],
-        all_fixtures,
-        team_short_map,
-        active_theme["accent"]
-    )
-    st.divider()
-    
-    s_c1, s_c2 = st.columns(2)
-    display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        render_progression_chart(
+            current_gw,
+            alias_e1,
+            alias_e2,
+            active_spot["t1_start"],
+            active_spot["t1_b"],
+            active_spot["t2_start"],
+            active_spot["t2_b"],
+            all_fixtures,
+            team_short_map,
+            active_theme["accent"]
+        )
+        st.divider()
+        
+        s_c1, s_c2 = st.columns(2)
+        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
-    with s_c1:
-        st.markdown(f"### {alias_e1}")
-        st.caption(f"Bench Left: {active_spot['t1_bp']} pts | Optimum Score: {active_spot['t1_opt']} pts")
-        if not active_spot["t1_start"].empty:
-            t1_s_view = active_spot["t1_start"][display_cols].copy()
-            if "Proj" in t1_s_view.columns:
-                t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Starting XI (GK First)**")
-            st.table(t1_s_view.set_index("Player"))
+        with s_c1:
+            st.markdown(f"### {alias_e1}")
+            st.caption(f"Bench Left: {active_spot['t1_bp']} pts | Optimum Score: {active_spot['t1_opt']} pts")
+            if not active_spot["t1_start"].empty:
+                t1_s_view = active_spot["t1_start"][display_cols].copy()
+                if "Proj" in t1_s_view.columns:
+                    t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                st.markdown("**Starting XI (GK First)**")
+                st.table(t1_s_view.set_index("Player"))
 
-            t1_b_view = active_spot["t1_b"][display_cols].copy()
-            if "Proj" in t1_b_view.columns:
-                t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Bench Substitutes**")
-            st.table(t1_b_view.set_index("Player"))
-        else:
-            st.info("Lineup selections not yet available.")
+                t1_b_view = active_spot["t1_b"][display_cols].copy()
+                if "Proj" in t1_b_view.columns:
+                    t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                st.markdown("**Bench Substitutes**")
+                st.table(t1_b_view.set_index("Player"))
+            else:
+                st.info("Lineup selections not yet available.")
 
-    with s_c2:
-        st.markdown(f"### {alias_e2}")
-        st.caption(f"Bench Left: {active_spot['t2_bp']} pts | Optimum Score: {active_spot['t2_opt']} pts")
-        if not active_spot["t2_start"].empty:
-            t2_s_view = active_spot["t2_start"][display_cols].copy()
-            if "Proj" in t2_s_view.columns:
-                t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Starting XI (GK First)**")
-            st.table(t2_s_view.set_index("Player"))
+        with s_c2:
+            st.markdown(f"### {alias_e2}")
+            st.caption(f"Bench Left: {active_spot['t2_bp']} pts | Optimum Score: {active_spot['t2_opt']} pts")
+            if not active_spot["t2_start"].empty:
+                t2_s_view = active_spot["t2_start"][display_cols].copy()
+                if "Proj" in t2_s_view.columns:
+                    t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                st.markdown("**Starting XI (GK First)**")
+                st.table(t2_s_view.set_index("Player"))
 
-            t2_b_view = active_spot["t2_b"][display_cols].copy()
-            if "Proj" in t2_b_view.columns:
-                t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Bench Substitutes**")
-            st.table(t2_b_view.set_index("Player"))
-        else:
-            st.info("Lineup selections not yet available.")
+                t2_b_view = active_spot["t2_b"][display_cols].copy()
+                if "Proj" in t2_b_view.columns:
+                    t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                st.markdown("**Bench Substitutes**")
+                st.table(t2_b_view.set_index("Player"))
+            else:
+                st.info("Lineup selections not yet available.")
+
+    render_live_scores_board()
 
 # ----------------- 3. 🏆 CUP & BUCKET COMPETITION -----------------
 elif st.session_state.page == "Cup & Bucket":
@@ -1964,27 +1980,29 @@ elif st.session_state.page == "Cup & Bucket":
     ])
 
     with cup_tab_live:
-        top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
-        with top_m1:
-            st.caption("Around the Grounds live inter league cup matches with live auto subs and scoreline forecasts")
-        with top_m2:
-            active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
-        with top_m3:
-            st.write("")
-            if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
-                fetch_entry_event.clear()
-                fetch_live_event.clear()
-                fetch_epl_fixtures.clear()
-                fetch_all_epl_fixtures.clear()
-                resolve_cup_match_score.clear()
-                calculate_group_standings.clear()
-                st.rerun()
+        @st.fragment(run_every = "45s")
+        def render_live_cup_board():
+            top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
+            with top_m1:
+                st.caption("Auto-refreshes every 45s • Around the Grounds live inter-league cup matches with live auto subs")
+            with top_m2:
+                active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
+            with top_m3:
+                st.write("")
+                if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
+                    fetch_entry_event.clear()
+                    fetch_live_event.clear()
+                    fetch_all_epl_fixtures.clear()
+                    resolve_cup_match_score.clear()
+                    calculate_group_standings.clear()
+                    st.rerun(scope = "fragment")
 
-        gw_cup_matches = cup_df[cup_df["Week"] == active_cup_gw].copy()
+            gw_cup_matches = cup_df[cup_df["Week"] == active_cup_gw].copy()
 
-        if gw_cup_matches.empty:
-            st.info(f"No cup matches scheduled for Gameweek {active_cup_gw}.")
-        else:
+            if gw_cup_matches.empty:
+                st.info(f"No cup matches scheduled for Gameweek {active_cup_gw}.")
+                return
+
             live_cup_cards = []
             for _, r in gw_cup_matches.iterrows():
                 m1_alias = str(r.get("Team 1", "")).strip()
@@ -2059,7 +2077,6 @@ elif st.session_state.page == "Cup & Bucket":
 
                             st.progress(card["prob1"] / 100.0)
 
-            # --- MATCH SPOTLIGHT AND LINEUP BREAKDOWN IN LIVE CUP TAB ---
             st.divider()
             st.subheader("Match Spotlight and Lineup Breakdown")
 
@@ -2096,7 +2113,6 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"<p style='text-align: right; color: #64748b; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
                 st.divider()
 
-                # Cup Lineup Progression Chart
                 render_progression_chart(
                     active_cup_gw,
                     spot_m1,
@@ -2148,6 +2164,8 @@ elif st.session_state.page == "Cup & Bucket":
                         st.table(b2_view.set_index("Player"))
                     else:
                         st.info("Lineups not yet available.")
+
+        render_live_cup_board()
 
     with cup_tab_standings:
         st.subheader("Combined 32 Team Group Standings (GW 6 to GW 20)")
@@ -2539,8 +2557,8 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                         st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
-                    if a_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                    if h_psaved:
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
