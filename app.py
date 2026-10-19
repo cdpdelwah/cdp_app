@@ -175,36 +175,27 @@ def format_remaining_players(in_play, yet_to_play):
         return str(yet_to_play) + " yet to play"
     return "0 to play"
 
-def safe_float_convert(val):
-    try:
-        if pd.isna(val) or str(val).strip().lower() in ["nan", "none", ""]:
-            return None
-        return float(str(val).strip().replace(",", ""))
-    except (ValueError, TypeError):
-        return None
-
 def format_table_floats(df):
     if df is None or df.empty:
         return df
     formatted = df.copy()
     for col in formatted.columns:
-        converted = formatted[col].apply(safe_float_convert)
-        if converted.notna().any():
-            all_valid = converted.dropna()
-            is_all_int = (all_valid % 1 == 0).all()
-            
-            def cell_formatter(orig, num):
-                if num is None:
-                    return "" if pd.isna(orig) else str(orig)
-                if is_all_int:
-                    return f"{int(round(num))}"
-                return f"{num:.1f}"
-
-            formatted[col] = [
-                cell_formatter(orig, num) for orig, num in zip(formatted[col], converted)
-            ]
+        s_raw = formatted[col]
+        s_num = pd.to_numeric(s_raw, errors = "coerce")
+        if s_num.notna().any():
+            non_null = s_num.dropna()
+            is_int = (non_null % 1 == 0).all()
+            def fmt_val(orig):
+                if pd.isna(orig) or str(orig).strip().lower() in ["nan", "none", ""]:
+                    return ""
+                try:
+                    val = float(str(orig).strip().replace(",", ""))
+                    return f"{int(round(val))}" if is_int else f"{val:.1f}"
+                except Exception:
+                    return str(orig)
+            formatted[col] = s_raw.map(fmt_val)
         else:
-            formatted[col] = formatted[col].fillna("")
+            formatted[col] = s_raw.fillna("")
     return formatted
 
 # Sidebar Brand and Navigation
@@ -354,7 +345,6 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
-    /* Scoreboard Card Headline & Element Classes */
     .card-mgr-title {{
         font-size: {font_card_mgr} !important;
         font-weight: 800 !important;
@@ -434,7 +424,6 @@ st.markdown(f"""
         text-align: right !important;
     }}
 
-    /* Global Table Scaling */
     table {{
         color: #f1f5f9 !important;
         background-color: #090c13 !important;
@@ -472,7 +461,6 @@ st.markdown(f"""
         background-color: #121724 !important;
     }}
 
-    /* Vega Tooltip Customisation & Accessibility Scaling */
     #vg-tooltip-element {{
         font-size: {font_tooltip} !important;
         line-height: 1.45 !important;
@@ -512,7 +500,6 @@ st.markdown(f"""
         font-size: {font_body} !important;
     }}
 
-    /* Form Inputs and Selectboxes */
     div[data-baseweb="select"],
     div[data-baseweb="select"] > div {{
         background-color: #ffffff !important;
@@ -567,7 +554,6 @@ st.markdown(f"""
         -webkit-text-fill-color: #000000 !important;
     }}
 
-    /* Tabs */
     button[data-baseweb="tab"] {{
         font-size: {font_tab} !important;
         padding: 10px 18px !important;
@@ -586,7 +572,6 @@ st.markdown(f"""
         background-color: #000000 !important;
     }}
 
-    /* Buttons */
     button[kind="primary"],
     button[data-testid="baseButton-primary"] {{
         background-color: {active_theme['accent']} !important;
@@ -621,7 +606,6 @@ st.markdown(f"""
         color: {active_theme['accent']} !important;
     }}
 
-    /* Progress bar */
     div[data-testid="stProgressBar"] > div {{
         background-color: #121824 !important;
         height: {progress_bar_height} !important;
@@ -633,7 +617,6 @@ st.markdown(f"""
         border-radius: 6px !important;
     }}
 
-    /* Mobile Display Specifics without overriding card classes */
     @media (max-width: 768px) {{
         .card-mgr-title {{
             font-size: {font_card_mgr_mobile} !important;
@@ -733,7 +716,6 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     starters_processed = [prepare_player_dict(p, is_bench = False) for p in starters_records]
     bench_processed = [prepare_player_dict(p, is_bench = True) for p in bench_records]
 
-    # Group starters into standard football rows: GKP, DEF, MID, FWD
     gks = [p for p in starters_processed if p["pos"] == "GKP"]
     defs = [p for p in starters_processed if p["pos"] == "DEF"]
     mids = [p for p in starters_processed if p["pos"] == "MID"]
@@ -751,7 +733,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
 
     token_size = "44px" if is_large else "38px"
     badge_font = "0.78rem" if is_large else "0.70rem"
-    name_font = "0.85rem" if is_large else "0.74rem"
+    name_font = "0.78rem" if is_large else "0.70rem"
     pts_font = "0.88rem" if is_large else "0.76rem"
 
     pitch_html = f"""
@@ -789,7 +771,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: 8px 10px 14px 10px;
+            padding: 8px 6px 14px 6px;
         }}
 
         .pitch-svg {{
@@ -819,12 +801,13 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             cursor: pointer;
             transition: transform 0.15s ease;
             position: relative;
-            max-width: 78px;
+            min-width: 60px;
+            max-width: 95px;
             text-align: center;
         }}
 
         .player-card:hover, .player-card:active {{
-            transform: scale(1.12);
+            transform: scale(1.10);
         }}
 
         .club-token {{
@@ -879,19 +862,18 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         }}
 
         .player-name-pill {{
-            background: rgba(9, 12, 19, 0.92);
+            background: rgba(9, 12, 19, 0.95);
             border: 1px solid #1e293b;
             color: #ffffff;
             font-size: {name_font};
             font-weight: 700;
-            padding: 2px 6px;
+            padding: 2px 5px;
             border-radius: 4px;
             margin-top: 3px;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 74px;
+            line-height: 1.15;
             box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            text-align: center;
         }}
 
         .player-pts-pill {{
@@ -902,9 +884,10 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             font-weight: 800;
             padding: 1px 6px;
             border-radius: 4px;
-            margin-top: 1px;
+            margin-top: 2px;
             min-width: 28px;
             text-align: center;
+            white-space: nowrap;
         }}
 
         .dugout-container {{
@@ -1419,10 +1402,51 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
     
     return starters_df, bench_df, live_score, round(proj_score, 1), in_play, yet_to_play, bench_left_pts, optimum_score
 
-@st.cache_data(ttl = 600)
-def load_cup_matches():
+def render_pdf(filename, title):
+    folder = base_dir / "Newsletters"
+    if not folder.exists():
+        folder = base_dir / "newsletters"
+        
+    if not folder.exists():
+        st.error("Folder not found. Ensure either Newsletters or newsletters exists in your repository root.")
+        return
+
+    target = None
+    for f in folder.iterdir():
+        if f.is_file() and f.name.lower() == filename.lower():
+            target = f
+            break
+
+    if not target or not target.exists():
+        st.warning("Could not find " + filename + " inside " + folder.name + "/")
+        available = [f.name for f in folder.iterdir() if f.is_file()]
+        if available:
+            st.info("Files currently in " + folder.name + "/: " + ", ".join(available))
+        return
+
+    pdf_bytes = target.read_bytes()
+
+    st.download_button(
+        label = "📥 Download " + title + " (PDF)",
+        data = pdf_bytes,
+        file_name = target.name,
+        mime = "application/pdf",
+        use_container_width = True
+    )
+
+    try:
+        pdf = pdfium.PdfDocument(pdf_bytes)
+        for page_index in range(len(pdf)):
+            page = pdf[page_index]
+            image = page.render(scale = 2).to_pil()
+            st.image(image, use_container_width = True)
+    except Exception as e:
+        st.error("Error rendering PDF pages: " + str(e))
+
+def load_records_data():
     valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
     target_file = None
+    
     potential_folders = [
         base_dir / "Assets",
         base_dir / "assets",
@@ -1430,756 +1454,97 @@ def load_cup_matches():
         Path("assets"),
         base_dir
     ]
+    
     for folder in potential_folders:
         if folder.exists() and folder.is_dir():
             for f in folder.iterdir():
-                if f.is_file() and f.suffix.lower() in valid_extensions and "cupmatch" in f.name.lower().replace(" ", "").replace("_", ""):
+                if f.is_file() and f.suffix.lower() in valid_extensions and "records" in f.name.lower():
                     target_file = f
                     break
         if target_file:
             break
+            
+    if not target_file:
+        for folder in potential_folders:
+            if folder.exists() and folder.is_dir():
+                for f in folder.iterdir():
+                    if f.is_file() and f.suffix.lower() in valid_extensions and "power" not in f.name.lower() and "cup" not in f.name.lower():
+                        target_file = f
+                        break
+            if target_file:
+                break
 
     if not target_file or not target_file.exists():
-        return None
+        return None, None, None
 
     ext = target_file.suffix.lower()
+    raw_bytes = target_file.read_bytes()
     try:
         if ext == ".csv":
             df = pd.read_csv(target_file)
+            return target_file.name, {"All Records": df}, raw_bytes
         elif ext == ".ods":
-            df = pd.read_excel(target_file, engine = "odf")
+            sheets = pd.read_excel(target_file, engine = "odf", sheet_name = None)
+            return target_file.name, sheets, raw_bytes
         else:
-            df = pd.read_excel(target_file, engine = "openpyxl")
-        
-        df.columns = [str(c).strip() for c in df.columns]
-        return df
-    except Exception:
-        return None
+            sheets = pd.read_excel(target_file, engine = "openpyxl", sheet_name = None)
+            return target_file.name, sheets, raw_bytes
+    except Exception as err:
+        return target_file.name, err, raw_bytes
 
-@st.cache_data(ttl = 3600)
-def fetch_fpl_static():
-    url = "https://draft.premierleague.com/api/bootstrap" + chr(45) + "static"
-    response = requests.get(url)
-    if response.status_code != 200:
-        return None
-    return response.json()
-
-@st.cache_data(ttl = 120)
-def fetch_league_data(league_id):
-    if not league_id:
-        return None, None
-    details_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/details"
-    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element" + chr(45) + "status"
+def load_power_rankings_data():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
     
-    det_resp = requests.get(details_url)
-    stat_resp = requests.get(status_url)
-    
-    if det_resp.status_code != 200 or stat_resp.status_code != 200:
-        return None, None
-        
-    return det_resp.json(), stat_resp.json()
-
-@st.cache_data(ttl = 300)
-def get_all_32_teams_registry():
-    registry = {}
-    for l_key, l_id in LEAGUE_PRESETS.items():
-        details, _ = fetch_league_data(l_id)
-        if details:
-            entries = details.get("league_entries", [])
-            for e in entries:
-                alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-                info = {
-                    "entry_id": e.get("entry_id"),
-                    "league_entry_id": e.get("id"),
-                    "league_id": l_id,
-                    "league_key": l_key,
-                    "team_name": e.get("entry_name", "Team"),
-                    "manager_name": f"{e.get('player_first_name', '')} {e.get('player_last_name', '')}".strip(),
-                    "alias": alias
-                }
-                registry[alias.lower()] = info
-                registry[e.get("entry_name", "").strip().lower()] = info
-    return registry
-
-@st.cache_data(ttl = 45)
-def fetch_entry_event(entry_id, event):
-    url = "https://draft.premierleague.com/api/entry/" + str(entry_id) + "/event/" + str(event)
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        return None
-    return resp.json()
-
-@st.cache_data(ttl = 45)
-def fetch_live_event(event):
-    url = "https://draft.premierleague.com/api/event/" + str(event) + "/live"
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        return None
-    return resp.json()
-
-@st.cache_data(ttl = 60)
-def fetch_epl_fixtures(event):
-    url = "https://fantasy.premierleague.com/api/fixtures/?event=" + str(event)
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        return []
-    return resp.json()
-
-@st.cache_data(ttl = 60)
-def fetch_all_epl_fixtures():
-    url = "https://fantasy.premierleague.com/api/fixtures/"
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        return []
-    return resp.json()
-
-def get_availability_multiplier(row):
-    status = row.get("status", "a")
-    chance = row.get("chance_of_playing_next_round")
-    
-    if status in ["i", "s", "u"]:
-        return 0.0
-    if pd.notna(chance):
-        val = float(chance)
-        if val >= 75:
-            return 0.9
-        if val >= 50:
-            return 0.6
-        if val >= 25:
-            return 0.3
-        return 0.0
-    if status == "d":
-        return 0.6
-    return 1.0
-
-def get_health_label(row):
-    status = row.get("status", "a")
-    chance = row.get("chance_of_playing_next_round")
-    
-    if status == "i":
-        return "Injured (0%)"
-    if status == "s":
-        return "Suspended (0%)"
-    if status == "u":
-        return "Unavailable (0%)"
-    if status == "d":
-        if pd.notna(chance):
-            return "Doubtful (" + str(int(chance)) + "%)"
-        return "Doubtful (50%)"
-    return "Fit (100%)"
-
-def calculate_win_probability(live1, proj1, to_play1, live2, proj2, to_play2, is_finished):
-    if is_finished:
-        if live1 > live2:
-            return 100, 0
-        if live2 > live1:
-            return 0, 100
-        return 50, 50
-
-    total_left = to_play1 + to_play2
-    if total_left == 0:
-        if live1 > live2:
-            return 100, 0
-        if live2 > live1:
-            return 0, 100
-        return 50, 50
-
-    margin = proj1 - proj2
-    spread = max(6.0, total_left * 2.8)
-    prob1 = 1.0 / (1.0 + math.exp(-margin / (spread / 1.7)))
-    pct1 = int(round(prob1 * 100))
-    pct1 = max(1, min(99, pct1))
-    return pct1, 100 - pct1
-
-def calculate_optimum_score(all_players_df):
-    if all_players_df is None or all_players_df.empty:
-        return 0
-    gkps = all_players_df[all_players_df["Pos"] == "GKP"]
-    defs = all_players_df[all_players_df["Pos"] == "DEF"]
-    mids = all_players_df[all_players_df["Pos"] == "MID"]
-    fwds = all_players_df[all_players_df["Pos"] == "FWD"]
-    
-    if gkps.empty:
-        return 0
-    best_gk = int(gkps["Pts"].max())
-    
-    best_score = -1
-    for d in range(3, len(defs) + 1):
-        for m in range(2, len(mids) + 1):
-            f = 10 - d - m
-            if f >= 1 and f <= len(fwds):
-                score = (
-                    best_gk
-                    + int(defs.nlargest(d, "Pts")["Pts"].sum())
-                    + int(mids.nlargest(m, "Pts")["Pts"].sum())
-                    + int(fwds.nlargest(f, "Pts")["Pts"].sum())
-                )
-                if score > best_score:
-                    best_score = score
-    if best_score != -1:
-        return best_score
-    return best_gk + int(defs["Pts"].sum()) + int(mids["Pts"].sum()) + int(fwds["Pts"].sum())
-
-def get_fdr_multiplier(team_id, current_gw, all_fixtures_list):
-    if not all_fixtures_list or not team_id:
-        return 1.0
-    gw_has_fixtures = any(f.get("event") == current_gw for f in all_fixtures_list)
-    if not gw_has_fixtures:
-        return 1.0
-
-    team_fixtures = [
-        f for f in all_fixtures_list
-        if f.get("event") == current_gw and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+    potential_folders = [
+        base_dir / "Assets",
+        base_dir / "assets",
+        Path("Assets"),
+        Path("assets"),
+        base_dir
     ]
-    if not team_fixtures:
-        return 0.0
     
-    total_mult = 0.0
-    for fix in team_fixtures:
-        if fix.get("team_h") == team_id:
-            diff = fix.get("team_h_difficulty", 3)
-        else:
-            diff = fix.get("team_a_difficulty", 3)
-            
-        if diff <= 2:
-            total_mult += 1.10
-        elif diff == 3:
-            total_mult += 1.00
-        elif diff == 4:
-            total_mult += 0.92
-        else:
-            total_mult += 0.85
-            
-    return total_mult
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions:
+                    name_clean = f.name.lower().replace(" ", "").replace("_", "")
+                    if "power" in name_clean or "ranking" in name_clean:
+                        target_file = f
+                        break
+        if target_file:
+            break
 
-def get_active_players_from_dfs(starters_df, bench_df):
-    active_list = []
-    if starters_df is not None and not starters_df.empty:
-        for _, r in starters_df.iterrows():
-            if r.get("sub_action") != "Subbed Off":
-                active_list.append(r)
-    if bench_df is not None and not bench_df.empty:
-        for _, r in bench_df.iterrows():
-            if r.get("sub_action") == "Subbed On":
-                active_list.append(r)
-    return active_list
-
-def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, starters2_df, bench2_df, all_fixtures_list, team_short_map, accent_color):
-    gw_fixtures = []
-    if all_fixtures_list:
-        gw_fixtures = [f for f in all_fixtures_list if f.get("event") == gw_num]
-    if not gw_fixtures:
-        epl_fix = fetch_epl_fixtures(gw_num)
-        if epl_fix:
-            gw_fixtures = [f for f in epl_fix if f.get("event") == gw_num] or epl_fix
-
-    if not gw_fixtures:
-        return
-
-    t1_active = get_active_players_from_dfs(starters1_df, bench1_df)
-    t2_active = get_active_players_from_dfs(starters2_df, bench2_df)
-
-    labels = []
-    records = []
-    curr1 = 0
-    curr2 = 0
-
-    def get_fixture_contributors(active_players, h_id, a_id):
-        entries_list = []
-        for p in active_players:
-            if p.get("club_id") in (h_id, a_id):
-                p_name = p.get("Player", "Unknown")
-                cats = []
-                g = int(p.get("G", 0))
-                a = int(p.get("A", 0))
-                cs = int(p.get("CS", 0))
-                bonus = int(p.get("Bonus", 0))
-                pos = p.get("Pos", "")
-
-                if g > 0:
-                    cats.append(f"{g}⚽" if g > 1 else "⚽")
-                if a > 0:
-                    cats.append(f"{a}🎯" if a > 1 else "🎯")
-                if cs > 0 and pos in ["GKP", "DEF"]:
-                    cats.append("🛡️")
-                if bonus > 0:
-                    cats.append(f"{bonus}⭐")
-
-                if cats:
-                    entries_list.append(f"{p_name} ({' '.join(cats)})")
-        return ", ".join(entries_list) if entries_list else "None"
-
-    for f_item in gw_fixtures:
-        h_team_id = f_item.get("team_h")
-        a_team_id = f_item.get("team_a")
-        h_code = team_short_map.get(h_team_id, "H")
-        a_code = team_short_map.get(a_team_id, "A")
-        m_label = f"{h_code} v {a_code}"
-
-        p1_pts = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_team_id, a_team_id))
-        p2_pts = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_team_id, a_team_id))
-
-        curr1 += p1_pts
-        curr2 += p2_pts
-
-        contrib1 = get_fixture_contributors(t1_active, h_team_id, a_team_id)
-        contrib2 = get_fixture_contributors(t2_active, h_team_id, a_team_id)
-
-        labels.append(m_label)
-        records.append({
-            "Match": m_label,
-            "Manager": alias1,
-            "Points": curr1,
-            "Added": f"+{p1_pts}",
-            "Key Events": contrib1
-        })
-        records.append({
-            "Match": m_label,
-            "Manager": alias2,
-            "Points": curr2,
-            "Added": f"+{p2_pts}",
-            "Key Events": contrib2
-        })
-
-    chart_df = pd.DataFrame(records)
-
-    st.markdown(f"#### Gameweek {gw_num} Points Progression")
-    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
-
-    base_chart = alt.Chart(chart_df).encode(
-        x = alt.X(
-            "Match:N",
-            sort = labels,
-            title = None,
-            axis = alt.Axis(
-                labelAngle = -90,
-                labelOverlap = False,
-                labelColor = "#94a3b8",
-                labelFontSize = font_chart_label,
-                grid = False
-            )
-        ),
-        y = alt.Y(
-            "Points:Q",
-            title = "Cumulative Points",
-            axis = alt.Axis(
-                labelColor = "#94a3b8",
-                gridColor = "#182030",
-                domainColor = "#182030"
-            )
-        ),
-        color = alt.Color(
-            "Manager:N",
-            scale = alt.Scale(domain = [alias1, alias2], range = [accent_color, "#38bdf8"]),
-            legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-        )
-    )
-
-    line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 85))
-
-    touch_layer = base_chart.mark_circle(size = 700, opacity = 0).encode(
-        tooltip = [
-            alt.Tooltip("Manager:N", title = "Manager"),
-            alt.Tooltip("Match:N", title = "Match"),
-            alt.Tooltip("Points:Q", title = "Total Pts"),
-            alt.Tooltip("Added:N", title = "Match Pts"),
-            alt.Tooltip("Key Events:N", title = "Key Events")
-        ]
-    )
-
-    chart = (line_layer + touch_layer).properties(
-        height = 360,
-        background = "#000000"
-    ).configure_view(
-        strokeWidth = 0,
-        fill = "#000000"
-    ).configure_axis(
-        domainColor = "#182030"
-    )
-
-    st.altair_chart(chart, use_container_width = True)
-
-@st.cache_data(ttl = 45)
-def resolve_cup_match_score(manager_alias, gw_num):
-    teams_registry = get_all_32_teams_registry()
-    static_data = fetch_fpl_static()
-    all_fixtures = fetch_all_epl_fixtures()
-    if not static_data:
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
-
-    t_info = teams_registry.get(str(manager_alias).strip().lower())
-    if not t_info or not t_info.get("entry_id"):
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
-    picks = fetch_entry_event(t_info["entry_id"], gw_num)
-    live_data = fetch_live_event(gw_num)
-    live_elements = live_data.get("elements", {}) if live_data else {}
-
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
+    if target_file and target_file.exists():
+        ext = target_file.suffix.lower()
+        raw_bytes = target_file.read_bytes()
         try:
-            elem_int_id = int(elem_str_id)
-        except (ValueError, TypeError):
-            continue
-        elem_obj = element_lookup.get(elem_int_id, {})
-        c_id = elem_obj.get("team")
-        if c_id:
-            m_val = e_info.get("stats", {}).get("minutes", 0)
-            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
-
-    starters, bench, live_score, proj_score, in_play, ytp, bench_pts, opt_score = evaluate_lineup(
-        picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
-    )
-    active_players = get_active_players_from_dfs(starters, bench)
-    active_p = []
-    if active_players:
-        for p in active_players:
-            active_p.append(int(p.get("Pts", 0)))
-    max_player_pts = max(active_p) if active_p else 0
-    return live_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
-
-@st.cache_data(ttl = 60)
-def calculate_group_standings():
-    cup_df = load_cup_matches()
-    teams_registry = get_all_32_teams_registry()
-    if cup_df is None or cup_df.empty:
-        return []
-
-    group_matches = cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].str.lower().str.contains("group"))].copy()
-
-    unique_aliases = set()
-    for _, r in group_matches.iterrows():
-        m1 = str(r.get("Team 1", "")).strip()
-        m2 = str(r.get("Team 2", "")).strip()
-        if m1 and m1.lower() != "nan":
-            unique_aliases.add(m1)
-        if m2 and m2.lower() != "nan":
-            unique_aliases.add(m2)
-
-    standings_dict = {
-        m: {
-            "Manager": m,
-            "Team": teams_registry.get(m.lower(), {}).get("team_name", m),
-            "Division": teams_registry.get(m.lower(), {}).get("league_key", "").split(" ")[0],
-            "W": 0, "D": 0, "L": 0, "PF": 0, "Pts": 0, "High_Score": 0, "H2H": {}
-        }
-        for m in unique_aliases
-    }
-
-    for _, r in group_matches.iterrows():
-        m1 = str(r.get("Team 1", "")).strip()
-        m2 = str(r.get("Team 2", "")).strip()
-        gw = int(r["Week"])
-        if m1 not in standings_dict or m2 not in standings_dict:
-            continue
-
-        s1, high1, _, _, _, _, _, _ = resolve_cup_match_score(m1, gw)
-        s2, high2, _, _, _, _, _, _ = resolve_cup_match_score(m2, gw)
-
-        standings_dict[m1]["PF"] += s1
-        standings_dict[m2]["PF"] += s2
-        standings_dict[m1]["High_Score"] = max(standings_dict[m1]["High_Score"], high1)
-        standings_dict[m2]["High_Score"] = max(standings_dict[m2]["High_Score"], high2)
-
-        if s1 > s2:
-            standings_dict[m1]["W"] += 1
-            standings_dict[m1]["Pts"] += 3
-            standings_dict[m2]["L"] += 1
-            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 3
-        elif s2 > s1:
-            standings_dict[m2]["W"] += 1
-            standings_dict[m2]["Pts"] += 3
-            standings_dict[m1]["L"] += 1
-            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 3
-        elif s1 > 0 or s2 > 0:
-            standings_dict[m1]["D"] += 1
-            standings_dict[m1]["Pts"] += 1
-            standings_dict[m2]["D"] += 1
-            standings_dict[m2]["Pts"] += 1
-            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
-            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
-
-    rows = list(standings_dict.values())
-
-    def sort_tiebreakers(a, b):
-        if a["Pts"] != b["Pts"]:
-            return b["Pts"] - a["Pts"]
-        if a["PF"] != b["PF"]:
-            return b["PF"] - a["PF"]
-        h2h_a = a["H2H"].get(b["Manager"], 0)
-        h2h_b = b["H2H"].get(a["Manager"], 0)
-        if h2h_a != h2h_b:
-            return h2h_b - h2h_a
-        return b["High_Score"] - a["High_Score"]
-
-    sorted_rows = sorted(rows, key = functools.cmp_to_key(sort_tiebreakers))
-
-    display_table = []
-    for rank, item in enumerate(sorted_rows, 1):
-        if rank <= 8:
-            zone = "🏆 Cup (Top 8)"
-        elif rank <= 24:
-            zone = "⚔️ Playoff (9 to 24)"
-        else:
-            zone = "🪣 Bucket (25 to 32)"
-
-        display_table.append({
-            "Pos": rank,
-            "Zone": zone,
-            "Manager": item["Manager"],
-            "Team": item["Team"],
-            "Div": item["Division"],
-            "W": item["W"],
-            "D": item["D"],
-            "L": item["L"],
-            "PF": item["PF"],
-            "Pts": item["Pts"],
-            "Best XI Pt": item["High_Score"]
-        })
-
-    return display_table
-
-def calculate_league_tables(entries, matches, current_gw, live_elements, element_lookup, club_minutes, pos_map, team_map, all_fixtures_list):
-    lentry_map = {e["id"]: e for e in entries}
-    
-    official_stats = {
-        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0}
-        for e in entries
-    }
-    live_stats = {
-        e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0}
-        for e in entries
-    }
-    
-    for m in matches:
-        ev = m["event"]
-        t1_id = m["league_entry_1"]
-        t2_id = m["league_entry_2"]
-        if t1_id not in official_stats or t2_id not in official_stats:
-            continue
-            
-        if ev < current_gw and m.get("finished", False):
-            s1 = m.get("league_entry_1_points", 0)
-            s2 = m.get("league_entry_2_points", 0)
-            
-            official_stats[t1_id]["pf"] += s1
-            official_stats[t2_id]["pf"] += s2
-            live_stats[t1_id]["pf"] += s1
-            live_stats[t2_id]["pf"] += s2
-            
-            if s1 > s2:
-                official_stats[t1_id]["wins"] += 1
-                official_stats[t1_id]["pts"] += 3
-                official_stats[t2_id]["losses"] += 1
-                live_stats[t1_id]["wins"] += 1
-                live_stats[t1_id]["pts"] += 3
-                live_stats[t2_id]["losses"] += 1
-            elif s2 > s1:
-                official_stats[t2_id]["wins"] += 1
-                official_stats[t2_id]["pts"] += 3
-                official_stats[t1_id]["losses"] += 1
-                live_stats[t2_id]["wins"] += 1
-                live_stats[t2_id]["pts"] += 3
-                live_stats[t1_id]["losses"] += 1
+            if ext == ".csv":
+                df = pd.read_csv(target_file)
+                return target_file.name, {"Power Rankings": df}, raw_bytes
+            elif ext == ".ods":
+                sheets = pd.read_excel(target_file, engine = "odf", sheet_name = None)
+                return target_file.name, sheets, raw_bytes
             else:
-                official_stats[t1_id]["draws"] += 1
-                official_stats[t1_id]["pts"] += 1
-                official_stats[t2_id]["draws"] += 1
-                official_stats[t2_id]["pts"] += 1
-                live_stats[t1_id]["draws"] += 1
-                live_stats[t1_id]["pts"] += 1
-                live_stats[t2_id]["draws"] += 1
-                live_stats[t2_id]["pts"] += 1
-                
-        elif ev == current_gw:
-            is_fin = m.get("finished", False)
-            if is_fin:
-                s1 = m.get("league_entry_1_points", 0)
-                s2 = m.get("league_entry_2_points", 0)
-            else:
-                p1 = fetch_entry_event(lentry_map[t1_id].get("entry_id"), current_gw)
-                p2 = fetch_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
-                _, _, s1, _, _, _, _, _ = evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list)
-                _, _, s2, _, _, _, _, _ = evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures_list)
-                
-            live_stats[t1_id]["pf"] += s1
-            live_stats[t2_id]["pf"] += s2
-            
-            if s1 > s2:
-                live_stats[t1_id]["wins"] += 1
-                live_stats[t1_id]["pts"] += 3
-                live_stats[t2_id]["losses"] += 1
-            elif s2 > s1:
-                live_stats[t2_id]["wins"] += 1
-                live_stats[t2_id]["pts"] += 3
-                live_stats[t1_id]["losses"] += 1
-            else:
-                live_stats[t1_id]["draws"] += 1
-                live_stats[t1_id]["pts"] += 1
-                live_stats[t2_id]["draws"] += 1
-                live_stats[t2_id]["pts"] += 1
+                sheets = pd.read_excel(target_file, engine = "openpyxl", sheet_name = None)
+                return target_file.name, sheets, raw_bytes
+        except Exception as err:
+            return target_file.name, err, raw_bytes
 
-    official_rows = []
-    for e in entries:
-        t_id = e["id"]
-        stat = official_stats[t_id]
-        alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        official_rows.append({
-            "team_id": t_id,
-            "Team": e.get("entry_name", "Team"),
-            "Manager": alias,
-            "W": stat["wins"],
-            "D": stat["draws"],
-            "L": stat["losses"],
-            "PF": stat["pf"],
-            "Pts": stat["pts"]
-        })
-        
-    official_rows = sorted(official_rows, key = lambda x: (x["Pts"], x["PF"]), reverse = True)
-    official_rank_map = {}
-    for idx, r in enumerate(official_rows, 1):
-        r["Pos"] = idx
-        official_rank_map[r["team_id"]] = idx
+    for folder in potential_folders:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in [".ods", ".xlsx", ".xls"]:
+                    try:
+                        eng = "odf" if f.suffix.lower() == ".ods" else "openpyxl"
+                        sheets = pd.read_excel(f, engine = eng, sheet_name = None)
+                        for s_name, s_df in sheets.items():
+                            if "power" in s_name.lower():
+                                return f.name, {s_name: s_df}, f.read_bytes()
+                    except Exception:
+                        pass
 
-    live_rows = []
-    for e in entries:
-        t_id = e["id"]
-        stat = live_stats[t_id]
-        alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        live_rows.append({
-            "team_id": t_id,
-            "Team": e.get("entry_name", "Team"),
-            "Manager": alias,
-            "W": stat["wins"],
-            "D": stat["draws"],
-            "L": stat["losses"],
-            "PF": stat["pf"],
-            "Pts": stat["pts"]
-        })
-        
-    live_rows = sorted(live_rows, key = lambda x: (x["Pts"], x["PF"]), reverse = True)
-    for idx, r in enumerate(live_rows, 1):
-        r["Pos"] = idx
-        off_pos = official_rank_map.get(r["team_id"], idx)
-        diff = off_pos - idx
-        if diff > 0:
-            r["Move"] = "▲ " + str(diff)
-        elif diff < 0:
-            r["Move"] = "▼ " + str(abs(diff))
-        else:
-            r["Move"] = "▬"
-
-    official_df = pd.DataFrame(official_rows)[["Pos", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
-    live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
-    
-    return official_df, live_df
-
-@st.cache_data(ttl = 300)
-def calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map, all_fixtures_list):
-    live_data_gw = fetch_live_event(gw)
-    live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
-
-    club_minutes_gw = {}
-    for elem_str_id, e_info in live_elements_gw.items():
-        try:
-            elem_int_id = int(elem_str_id)
-        except (ValueError, TypeError):
-            continue
-        elem_obj = element_lookup.get(elem_int_id, {})
-        c_id = elem_obj.get("team")
-        if c_id:
-            m_val = e_info.get("stats", {}).get("minutes", 0)
-            club_minutes_gw[c_id] = club_minutes_gw.get(c_id, 0) + m_val
-
-    rows = []
-    for e in entries:
-        alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        picks = fetch_entry_event(e.get("entry_id"), gw)
-        if not picks:
-            rows.append({
-                "Manager": alias,
-                "Goals": 0,
-                "Assists": 0,
-                "Clean Sheets": 0
-            })
-            continue
-
-        starters_df, bench_df, _, _, _, _, _, _ = evaluate_lineup(
-            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map, gw, all_fixtures_list
-        )
-
-        active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
-        active_bench = bench_df[bench_df["sub_action"] == "Subbed On"] if not bench_df.empty else pd.DataFrame()
-        final_xi = pd.concat([active_starters, active_bench], ignore_index = True)
-
-        if not final_xi.empty:
-            g = int(final_xi["G"].sum())
-            a = int(final_xi["A"].sum())
-            def_gk = final_xi["Pos"].isin(["GKP", "DEF"])
-            cs = int(final_xi[def_gk]["CS"].sum())
-        else:
-            g, a, cs = 0, 0, 0
-
-        rows.append({
-            "Manager": alias,
-            "Goals": g,
-            "Assists": a,
-            "Clean Sheets": cs
-        })
-
-    df = pd.DataFrame(rows).sort_values(
-        by = "Manager",
-        key = lambda col: col.str.lower(),
-        ascending = True
-    ).reset_index(drop = True)
-    return df
-
-@st.cache_data(ttl = 300)
-def calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list):
-    total_stats = {
-        e["id"]: {
-            "Manager": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")),
-            "Goals": 0,
-            "Assists": 0,
-            "Clean Sheets": 0
-        }
-        for e in entries
-    }
-
-    for gw in range(1, current_gw + 1):
-        gw_df = calculate_xi_stats_for_gw(entries, gw, element_lookup, pos_map, team_map, all_fixtures_list)
-        for _, row in gw_df.iterrows():
-            for e in entries:
-                if get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")) == row["Manager"]:
-                    total_stats[e["id"]]["Goals"] += row["Goals"]
-                    total_stats[e["id"]]["Assists"] += row["Assists"]
-                    total_stats[e["id"]]["Clean Sheets"] += row["Clean Sheets"]
-                    break
-
-    df = pd.DataFrame(list(total_stats.values())).sort_values(
-        by = "Manager",
-        key = lambda col: col.str.lower(),
-        ascending = True
-    ).reset_index(drop = True)
-    return df
-
-def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list):
-    st.subheader("GACS - Goals, Assists and Clean Sheets")
-    st.caption("Goals (all players), Assists (all players) and Clean Sheets (GKP and DEF only) registered by players in each manager's final starting lineup.")
-
-    gw_options = [f"Gameweek {gw}" for gw in range(current_gw, 0, -1)] + ["All Season (Total)"]
-    selected_option = st.selectbox("Select Gameweek to Inspect", gw_options, index = 0, key = f"xi_gw_sel_{current_gw}")
-
-    with st.spinner("Compiling starting XI performance data..."):
-        if "All Season" in selected_option:
-            df = calculate_xi_stats_all(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures_list)
-        else:
-            chosen_gw_num = int(selected_option.split(" ")[1])
-            df = calculate_xi_stats_for_gw(entries, chosen_gw_num, element_lookup, pos_map, team_map, all_fixtures_list)
-
-    st.table(df.set_index("Manager"))
+    return None, None, None
 
 # ----------------- 1. HOME PAGE -----------------
 if st.session_state.page == "Home":
@@ -2982,14 +2347,14 @@ elif st.session_state.page == "Cup & Bucket":
             st.divider()
             r1, r2, r3 = st.columns([4, 2, 4])
             with r1:
-                st.markdown(f"### {c_m1}")
+                st.markdown("### " + c_m1)
                 st.caption(f"{info1.get('team_name', '')} • {info1.get('league_key', '')}")
             with r2:
                 st.markdown(f"<div class='card-score-center'>{c_s1} {dash} {c_s2}</div>", unsafe_allow_html = True)
                 stage_desc = f"{selected_cup_match.get('Comp', 'Cup')} {selected_cup_match.get('Stage', '')} {selected_cup_match.get('Leg', '')}".strip()
                 st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
             with r3:
-                st.markdown(f"<h3 style='text-align: right;'>{c_m2}</h3>", unsafe_allow_html = True)
+                st.markdown("<h3 style='text-align: right;'>" + c_m2 + "</h3>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
             st.divider()
 
@@ -3184,11 +2549,11 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                                 achieved.append((p_name, val))
 
                     if live_elements:
-                        for elem_str_id, e_data in live_elements.items():
+                        for elem_id_str, e_data in live_elements.items():
                             if not isinstance(e_data, dict):
                                 continue
                             try:
-                                elem_id_int = int(elem_str_id)
+                                elem_id_int = int(elem_id_str)
                             except (ValueError, TypeError):
                                 continue
                             elem_obj = element_lookup.get(elem_id_int, {})
@@ -3245,8 +2610,8 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                         st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
                     if a_pmiss:
                         st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
-                    if a_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                    if h_psaved:
+                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
                     if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                         st.caption("No registered match events yet.")
 
@@ -3368,8 +2733,8 @@ elif st.session_state.page == "Results Analyser":
             st.markdown(f"<div class='card-score-center'>{score1} {dash} {score2}</div>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown(f"<h3 style='text-align: right;'>{alias2}</h3>", unsafe_allow_html = True)
-            st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>Manager: {alias2}</p>", unsafe_allow_html = True)
+            st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
+            st.markdown("<p style='text-align: right; color: #94a3b8; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
 
