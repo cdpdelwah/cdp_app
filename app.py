@@ -203,6 +203,16 @@ selected_league_key = st.sidebar.selectbox(
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
 
+# Accessibility Text Size Toggle
+st.sidebar.divider()
+large_mode = st.sidebar.toggle("🔍 Large Text Mode", value = False, key = "large_text")
+
+# Dynamic Font Scalers for Accessibility
+font_table = "1.05rem" if large_mode else "0.85rem"
+font_body = "1.12rem" if large_mode else "0.95rem"
+font_tooltip = "17px" if large_mode else "13px"
+font_chart_label = 11 if large_mode else 9
+
 # Dynamic Pure Black CSS Engine
 st.markdown(f"""
 <style>
@@ -224,6 +234,7 @@ st.markdown(f"""
 
     p, span, label, div {{
         color: #e2e8f0;
+        font-size: {font_body};
     }}
 
     .stCaption, small {{
@@ -256,7 +267,7 @@ st.markdown(f"""
         border-bottom: 2px solid #182030 !important;
         font-weight: 700 !important;
         padding: 6px 10px !important;
-        font-size: 0.85rem !important;
+        font-size: {font_table} !important;
         text-align: left !important;
     }}
     
@@ -265,7 +276,7 @@ st.markdown(f"""
         border-bottom: 1px solid #141a26 !important;
         color: #cbd5e1 !important;
         padding: 6px 10px !important;
-        font-size: 0.85rem !important;
+        font-size: {font_table} !important;
     }}
 
     tbody tr th {{
@@ -275,6 +286,33 @@ st.markdown(f"""
 
     tbody tr:hover td, tbody tr:hover th {{
         background-color: #121724 !important;
+    }}
+
+    /* Vega Tooltip Customisation & Accessibility Scaling */
+    #vg-tooltip-element {{
+        font-size: {font_tooltip} !important;
+        line-height: 1.4 !important;
+        padding: 10px 14px !important;
+        border-radius: 8px !important;
+        border: 2px solid #ffffff !important;
+        background-color: #090c13 !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.8) !important;
+    }}
+
+    #vg-tooltip-element table tr td {{
+        font-size: {font_tooltip} !important;
+        padding: 4px 8px !important;
+        background-color: #090c13 !important;
+    }}
+
+    #vg-tooltip-element table tr td.key {{
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+    }}
+
+    #vg-tooltip-element table tr td.value {{
+        color: #f8fafc !important;
+        font-weight: 700 !important;
     }}
 
     div[data-testid="stExpander"] {{
@@ -990,7 +1028,8 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     st.markdown(f"#### Gameweek {gw_num} Points Progression")
     st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
-    chart = alt.Chart(chart_df).mark_line(point = True).encode(
+    # Base chart encoding
+    base_chart = alt.Chart(chart_df).encode(
         x = alt.X(
             "Match:N",
             sort = labels,
@@ -999,7 +1038,7 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
                 labelAngle = -90,
                 labelOverlap = False,
                 labelColor = "#94a3b8",
-                labelFontSize = 9,
+                labelFontSize = font_chart_label,
                 grid = False
             )
         ),
@@ -1016,7 +1055,14 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
             "Manager:N",
             scale = alt.Scale(domain = [alias1, alias2], range = [accent_color, "#38bdf8"]),
             legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-        ),
+        )
+    )
+
+    # Visible progression line with crisp points
+    line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 75))
+
+    # Generous invisible mobile touch target layer (550px² hit area per point)
+    touch_layer = base_chart.mark_circle(size = 550, opacity = 0).encode(
         tooltip = [
             alt.Tooltip("Manager:N", title = "Manager"),
             alt.Tooltip("Match:N", title = "Match"),
@@ -1024,7 +1070,9 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
             alt.Tooltip("Added:N", title = "Match Pts"),
             alt.Tooltip("Key Events:N", title = "Key Events")
         ]
-    ).properties(
+    )
+
+    chart = (line_layer + touch_layer).properties(
         height = 360,
         background = "#000000"
     ).configure_view(
@@ -1730,7 +1778,7 @@ elif st.session_state.page == "LIVE SCORES":
     def render_live_scores_board():
         top_c1, top_c2, top_c3 = st.columns([3, 2, 1])
         with top_c1:
-            st.caption("Auto-refreshes every 45s • Real-time scorelines, live projections and win probability")
+            st.caption("Auto - refreshes every 45s • Real time scorelines, live projections and win probability")
         with top_c2:
             current_gw = st.selectbox(
                 "Active Gameweek",
@@ -1984,7 +2032,7 @@ elif st.session_state.page == "Cup & Bucket":
         def render_live_cup_board():
             top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
             with top_m1:
-                st.caption("Auto-refreshes every 45s • Around the Grounds live inter-league cup matches with live auto subs")
+                st.caption("Auto - refreshes every 45s • Around the Grounds live inter league cup matches with live auto subs")
             with top_m2:
                 active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
             with top_m3:
