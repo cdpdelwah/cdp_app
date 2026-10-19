@@ -179,7 +179,10 @@ def safe_float_convert(val):
     try:
         if pd.isna(val) or str(val).strip().lower() in ["nan", "none", ""]:
             return None
-        return float(str(val).strip().replace(",", ""))
+        f_val = float(str(val).strip().replace(",", ""))
+        if math.isnan(f_val) or math.isinf(f_val):
+            return None
+        return f_val
     except (ValueError, TypeError):
         return None
 
@@ -194,11 +197,14 @@ def format_table_floats(df):
             is_all_int = (all_valid % 1 == 0).all()
             
             def cell_formatter(orig, num):
-                if num is None:
+                if num is None or pd.isna(num):
                     return "" if pd.isna(orig) else str(orig)
-                if is_all_int:
-                    return f"{int(round(num))}"
-                return f"{num:.1f}"
+                try:
+                    if is_all_int:
+                        return f"{int(round(num))}"
+                    return f"{num:.1f}"
+                except (ValueError, OverflowError, TypeError):
+                    return "" if pd.isna(orig) else str(orig)
 
             formatted[col] = [
                 cell_formatter(orig, num) for orig, num in zip(formatted[col], converted)
@@ -3972,29 +3978,37 @@ elif st.session_state.page == "Power Rankings":
         )
         st.write("")
 
-        sheet_names = list(sheets_dict.keys())
-        if len(sheet_names) > 1:
+        valid_sheets = {name: df for name, df in sheets_dict.items() if df is not None and not df.empty}
+        sheet_names = list(valid_sheets.keys())
+
+        def render_sheet_content(df_raw):
+            df_formatted = format_table_floats(df_raw.fillna(""))
+            cleaned_cols = []
+            counts = {}
+            for c in df_formatted.columns:
+                col_name = str(c).strip()
+                if col_name in counts:
+                    counts[col_name] += 1
+                    cleaned_cols.append(f"{col_name}_{counts[col_name]}")
+                else:
+                    counts[col_name] = 0
+                    cleaned_cols.append(col_name)
+            df_formatted.columns = cleaned_cols
+            if len(df_formatted.columns) > 1:
+                first_col = df_formatted.columns[0]
+                st.table(df_formatted.set_index(first_col))
+            else:
+                st.table(df_formatted)
+
+        if not sheet_names:
+            st.info("No data in this sheet.")
+        elif len(sheet_names) == 1:
+            render_sheet_content(valid_sheets[sheet_names[0]])
+        else:
             p_tabs = st.tabs(sheet_names)
             for idx, s_name in enumerate(sheet_names):
                 with p_tabs[idx]:
-                    df_sheet = sheets_dict[s_name].fillna("")
-                    if not df_sheet.empty:
-                        df_sheet = format_table_floats(df_sheet)
-                        df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
-                        first_col = df_sheet.columns[0]
-                        st.table(df_sheet.set_index(first_col))
-                    else:
-                        st.info("No data in this sheet.")
-        else:
-            s_name = sheet_names[0]
-            df_sheet = sheets_dict[s_name].fillna("")
-            if not df_sheet.empty:
-                df_sheet = format_table_floats(df_sheet)
-                df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
-                first_col = df_sheet.columns[0]
-                st.table(df_sheet.set_index(first_col))
-            else:
-                st.info("No data in this sheet.")
+                    render_sheet_content(valid_sheets[s_name])
 
 # ----------------- 11. RECORDS SECTION -----------------
 elif st.session_state.page == "Records":
@@ -4024,16 +4038,34 @@ elif st.session_state.page == "Records":
         )
         st.write("")
 
-        sheet_names = list(sheets_dict.keys())
-        record_tabs = st.tabs(sheet_names)
+        valid_sheets = {name: df for name, df in sheets_dict.items() if df is not None and not df.empty}
+        sheet_names = list(valid_sheets.keys())
 
-        for idx, s_name in enumerate(sheet_names):
-            with record_tabs[idx]:
-                df_sheet = sheets_dict[s_name].fillna("")
-                if not df_sheet.empty:
-                    df_sheet = format_table_floats(df_sheet)
-                    df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
-                    first_col = df_sheet.columns[0]
-                    st.table(df_sheet.set_index(first_col))
+        def render_record_content(df_raw):
+            df_formatted = format_table_floats(df_raw.fillna(""))
+            cleaned_cols = []
+            counts = {}
+            for c in df_formatted.columns:
+                col_name = str(c).strip()
+                if col_name in counts:
+                    counts[col_name] += 1
+                    cleaned_cols.append(f"{col_name}_{counts[col_name]}")
                 else:
-                    st.info("No records recorded in this sheet.")
+                    counts[col_name] = 0
+                    cleaned_cols.append(col_name)
+            df_formatted.columns = cleaned_cols
+            if len(df_formatted.columns) > 1:
+                first_col = df_formatted.columns[0]
+                st.table(df_formatted.set_index(first_col))
+            else:
+                st.table(df_formatted)
+
+        if not sheet_names:
+            st.info("No records recorded in this sheet.")
+        elif len(sheet_names) == 1:
+            render_record_content(valid_sheets[sheet_names[0]])
+        else:
+            record_tabs = st.tabs(sheet_names)
+            for idx, s_name in enumerate(sheet_names):
+                with record_tabs[idx]:
+                    render_record_content(valid_sheets[s_name])
