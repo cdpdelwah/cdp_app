@@ -207,26 +207,43 @@ active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème
 st.sidebar.divider()
 large_mode = st.sidebar.toggle("🔍 Large Text Mode", value = False, key = "large_text")
 
-# Boosted Font Scalers for Legibility (Especially on Mobile)
-font_table = "1.12rem" if large_mode else "0.98rem"
-font_body = "1.2rem" if large_mode else "1.05rem"
-font_tooltip = "18px" if large_mode else "15px"
-font_chart_label = 12 if large_mode else 10
+# Comprehensive Global Font Scalers
+root_font_size = "19px" if large_mode else "16px"
+font_body = "1.25rem" if large_mode else "1.02rem"
+font_sub = "1.1rem" if large_mode else "0.92rem"
+font_caption = "1.02rem" if large_mode else "0.86rem"
+font_table = "1.2rem" if large_mode else "0.98rem"
+font_tab = "1.22rem" if large_mode else "1.0rem"
+font_select = "1.2rem" if large_mode else "1.02rem"
+font_sidebar = "1.18rem" if large_mode else "0.98rem"
+font_tooltip = "20px" if large_mode else "15px"
+font_chart_label = 13 if large_mode else 10
 
-# Card Font Scalers
-font_card_mgr = "1.35rem" if large_mode else "1.15rem"
-font_card_score = "2.5rem" if large_mode else "2.2rem"
-font_card_sub = "1.08rem" if large_mode else "0.95rem"
-font_card_bench = "1.0rem" if large_mode else "0.88rem"
-font_card_win = "1.18rem" if large_mode else "1.02rem"
-font_card_status = "1.0rem" if large_mode else "0.88rem"
+font_h1 = "2.85rem" if large_mode else "2.3rem"
+font_h2 = "2.35rem" if large_mode else "1.85rem"
+font_h3 = "1.9rem" if large_mode else "1.45rem"
+font_h4 = "1.55rem" if large_mode else "1.2rem"
 
-# Dynamic Pure Black CSS Engine with Mobile Optimisations
+# High Impact Scoreboard Scalers
+font_card_score = "3.8rem" if large_mode else "2.9rem"
+font_card_mgr = "1.55rem" if large_mode else "1.25rem"
+font_card_sub = "1.18rem" if large_mode else "0.96rem"
+font_card_bench = "1.08rem" if large_mode else "0.88rem"
+font_card_win = "1.32rem" if large_mode else "1.05rem"
+font_card_status = "1.15rem" if large_mode else "0.92rem"
+progress_bar_height = "14px" if large_mode else "10px"
+
+# Dynamic Pure Black CSS Engine with Universal Accessibility Scaling
 st.markdown(f"""
 <style>
+    html, body {{
+        font-size: {root_font_size} !important;
+    }}
+
     .stApp {{
         background-color: #000000 !important;
         color: #f1f5f9 !important;
+        font-size: {font_body} !important;
     }}
 
     section[data-testid="stSidebar"] {{
@@ -234,20 +251,47 @@ st.markdown(f"""
         border-right: 1px solid #141824 !important;
     }}
 
-    h1, h2, h3, h4, h5, h6 {{
+    section[data-testid="stSidebar"] * {{
+        font-size: {font_sidebar} !important;
+    }}
+
+    h1 {{
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: {font_h1} !important;
+        letter-spacing: -0.5px !important;
+    }}
+
+    h2 {{
         color: #ffffff !important;
         font-weight: 700 !important;
+        font-size: {font_h2} !important;
+        letter-spacing: -0.4px !important;
+    }}
+
+    h3 {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: {font_h3} !important;
         letter-spacing: -0.3px !important;
     }}
 
-    p, span, label, div {{
+    h4, h5, h6 {{
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: {font_h4} !important;
+        letter-spacing: -0.2px !important;
+    }}
+
+    .stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown div, p, span, label, div {{
         color: #e2e8f0;
         font-size: {font_body};
     }}
 
-    .stCaption, small {{
+    .stCaption, small, [data-testid="stCaptionContainer"] {{
         color: #94a3b8 !important;
-        font-size: {font_card_bench} !important;
+        font-size: {font_caption} !important;
+        line-height: 1.45 !important;
     }}
 
     div[data-testid="stVerticalBlockBorderWrapper"] {{
@@ -261,6 +305,7 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
+    /* Global Table Scaling */
     table {{
         color: #f1f5f9 !important;
         background-color: #090c13 !important;
@@ -268,6 +313,7 @@ st.markdown(f"""
         width: 100% !important;
         border-radius: 6px !important;
         overflow: hidden !important;
+        font-size: {font_table} !important;
     }}
     
     thead tr th {{
@@ -275,7 +321,7 @@ st.markdown(f"""
         color: {active_theme['accent']} !important;
         border-bottom: 2px solid #182030 !important;
         font-weight: 700 !important;
-        padding: 8px 12px !important;
+        padding: 9px 12px !important;
         font-size: {font_table} !important;
         text-align: left !important;
     }}
@@ -284,7 +330,7 @@ st.markdown(f"""
         background-color: #090c13 !important;
         border-bottom: 1px solid #141a26 !important;
         color: #cbd5e1 !important;
-        padding: 8px 12px !important;
+        padding: 9px 12px !important;
         font-size: {font_table} !important;
     }}
 
@@ -297,11 +343,11 @@ st.markdown(f"""
         background-color: #121724 !important;
     }}
 
-    /* Tooltip Customisation & Accessibility Scaling */
+    /* Vega Tooltip Customisation & Accessibility Scaling */
     #vg-tooltip-element {{
         font-size: {font_tooltip} !important;
         line-height: 1.45 !important;
-        padding: 12px 16px !important;
+        padding: 12px 18px !important;
         border-radius: 8px !important;
         border: 2px solid #ffffff !important;
         background-color: #090c13 !important;
@@ -310,7 +356,7 @@ st.markdown(f"""
 
     #vg-tooltip-element table tr td {{
         font-size: {font_tooltip} !important;
-        padding: 5px 10px !important;
+        padding: 6px 10px !important;
         background-color: #090c13 !important;
     }}
 
@@ -337,6 +383,7 @@ st.markdown(f"""
         font-size: {font_body} !important;
     }}
 
+    /* Form Inputs and Selectboxes */
     div[data-baseweb="select"],
     div[data-baseweb="select"] > div {{
         background-color: #ffffff !important;
@@ -350,6 +397,7 @@ st.markdown(f"""
         color: #000000 !important;
         -webkit-text-fill-color: #000000 !important;
         font-weight: 700 !important;
+        font-size: {font_select} !important;
     }}
 
     div[data-baseweb="popover"],
@@ -378,7 +426,7 @@ st.markdown(f"""
         color: #000000 !important;
         -webkit-text-fill-color: #000000 !important;
         font-weight: 700 !important;
-        font-size: 1.05rem !important;
+        font-size: {font_select} !important;
     }}
 
     li[role="option"]:hover,
@@ -390,6 +438,17 @@ st.markdown(f"""
         -webkit-text-fill-color: #000000 !important;
     }}
 
+    /* Tabs */
+    button[data-baseweb="tab"] {{
+        font-size: {font_tab} !important;
+        padding: 10px 18px !important;
+    }}
+    button[data-baseweb="tab"] div,
+    button[data-baseweb="tab"] p {{
+        font-size: {font_tab} !important;
+        font-weight: 700 !important;
+    }}
+
     div[data-testid="stVegaLiteChart"],
     div[data-testid="stVegaLiteChart"] > div,
     .vega-embed,
@@ -398,7 +457,9 @@ st.markdown(f"""
         background-color: #000000 !important;
     }}
 
-    button[kind="primary"] {{
+    /* Buttons */
+    button[kind="primary"],
+    button[data-testid="baseButton-primary"] {{
         background-color: {active_theme['accent']} !important;
         color: #000000 !important;
         font-weight: 800 !important;
@@ -406,45 +467,54 @@ st.markdown(f"""
         border-radius: 6px !important;
         box-shadow: 0 0 12px {active_theme['accent_glow']} !important;
         font-size: {font_body} !important;
+        padding: 8px 16px !important;
     }}
 
-    button[kind="primary"]:hover {{
+    button[kind="primary"]:hover,
+    button[data-testid="baseButton-primary"]:hover {{
         filter: brightness(1.15);
         color: #000000 !important;
     }}
 
-    button[kind="secondary"] {{
+    button[kind="secondary"],
+    button[data-testid="baseButton-secondary"] {{
         background-color: #0e121a !important;
         color: #ffffff !important;
         border: 1px solid #20293d !important;
         border-radius: 6px !important;
         font-size: {font_body} !important;
+        padding: 8px 16px !important;
     }}
 
-    button[kind="secondary"]:hover {{
+    button[kind="secondary"]:hover,
+    button[data-testid="baseButton-secondary"]:hover {{
         border-color: {active_theme['accent']} !important;
         color: {active_theme['accent']} !important;
     }}
 
+    /* Progress bar */
     div[data-testid="stProgressBar"] > div {{
         background-color: #121824 !important;
-        height: 10px !important;
-        border-radius: 5px !important;
+        height: {progress_bar_height} !important;
+        border-radius: 6px !important;
     }}
     div[data-testid="stProgressBar"] > div > div {{
         background-color: {active_theme['accent']} !important;
-        height: 10px !important;
-        border-radius: 5px !important;
+        height: {progress_bar_height} !important;
+        border-radius: 6px !important;
     }}
 
-    /* Specific Mobile Overrides */
+    /* Specific Mobile Display Enhancements */
     @media (max-width: 768px) {{
-        p, span, label, div {{
+        .stMarkdown, p, span, label, div {{
             font-size: {font_body} !important;
         }}
         thead tr th, tbody tr td, tbody tr th {{
             font-size: {font_table} !important;
-            padding: 7px 8px !important;
+            padding: 8px 10px !important;
+        }}
+        div[data-testid="stVerticalBlockBorderWrapper"] {{
+            padding: 12px !important;
         }}
     }}
 </style>
@@ -1055,7 +1125,6 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     st.markdown(f"#### Gameweek {gw_num} Points Progression")
     st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
-    # Base chart encoding with scaled fonts
     base_chart = alt.Chart(chart_df).encode(
         x = alt.X(
             "Match:N",
@@ -1085,11 +1154,9 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
         )
     )
 
-    # Visible progression line with clear points
-    line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 80))
+    line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 85))
 
-    # Generous invisible mobile touch target layer (650px² hit area per marker)
-    touch_layer = base_chart.mark_circle(size = 650, opacity = 0).encode(
+    touch_layer = base_chart.mark_circle(size = 700, opacity = 0).encode(
         tooltip = [
             alt.Tooltip("Manager:N", title = "Manager"),
             alt.Tooltip("Match:N", title = "Match"),
@@ -1540,7 +1607,7 @@ if st.session_state.page == "Home":
     with col_intro:
         st.markdown(f"""
         <div style="margin-top: 5px;">
-            <h1 style="margin: 0.1rem 0 0.1rem 0; font-size: 2.4rem;">CDP App {dash} Season X</h1>
+            <h1 style="margin: 0.1rem 0 0.1rem 0;">CDP App {dash} Season X</h1>
             <p style="color: #94a3b8; margin: 0; font-size: {font_body};">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
         """, unsafe_allow_html = True)
@@ -1569,7 +1636,7 @@ if st.session_state.page == "Home":
             background-color: #090c13;
             border: 1px solid #182030;
             border-radius: 8px;
-            padding: 10px 14px;
+            padding: 12px 16px;
             transition: border 0.2s ease;
         }}
         .card:hover {{
@@ -1579,50 +1646,50 @@ if st.session_state.page == "Home":
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 3px;
+            margin-bottom: 4px;
         }}
         .title {{
-            font-size: 0.82rem;
+            font-size: 0.88rem;
             font-weight: 700;
             color: #94a3b8;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }}
         .gw-tag {{
-            font-size: 0.74rem;
+            font-size: 0.8rem;
             font-weight: 800;
             color: {active_theme['accent']};
             background-color: {active_theme['badge_bg']};
             border: 1px solid {active_theme['accent']};
-            padding: 2px 7px;
+            padding: 2px 8px;
             border-radius: 4px;
         }}
         .clock-row {{
             display: flex;
             gap: 8px;
             align-items: baseline;
-            margin: 2px 0 3px 0;
+            margin: 3px 0 4px 0;
         }}
         .num {{
             font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.55rem;
+            font-size: 1.7rem;
             font-weight: 800;
             color: #ffffff;
         }}
         .sec-num {{
             font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.55rem;
+            font-size: 1.7rem;
             font-weight: 800;
             color: {active_theme['accent']};
         }}
         .unit {{
-            font-size: 0.76rem;
+            font-size: 0.82rem;
             font-weight: 600;
             color: #64748b;
             margin-left: 1px;
         }}
         .sub {{
-            font-size: 0.8rem;
+            font-size: 0.86rem;
             color: #94a3b8;
             white-space: nowrap;
             overflow: hidden;
@@ -1634,10 +1701,10 @@ if st.session_state.page == "Home":
                 gap: 8px;
             }}
             .card {{
-                padding: 10px 12px;
+                padding: 10px 14px;
             }}
             .num, .sec-num {{
-                font-size: 1.35rem;
+                font-size: 1.45rem;
             }}
         }}
     </style>
@@ -1696,7 +1763,7 @@ if st.session_state.page == "Home":
 
                 const diff = target - now;
                 if (isNaN(target) || diff <= 0) {{
-                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.15rem; font-family: monospace;">DEADLINE PASSED</span>';
+                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.25rem; font-family: monospace;">DEADLINE PASSED</span>';
                     if (subEl) subEl.textContent = passedText;
                     return;
                 }}
@@ -1726,7 +1793,7 @@ if st.session_state.page == "Home":
     </body>
     </html>
     """
-    components.html(countdown_html, height = 155)
+    components.html(countdown_html, height = 165)
 
     st.markdown("#### Quick Launchpad")
     
@@ -1756,16 +1823,16 @@ if st.session_state.page == "Home":
     st.divider()
 
     st.subheader("Core Capabilities")
-    st.markdown("* **LIVE SCORES**: Around the grounds matchday scoreboard, manager aliases, live win probabilities, real time auto subs and live points progression graphs.")
-    st.markdown("* **Cup & Bucket**: Cross league tournament portal featuring 32 team group standings, live cup scoreboards and cup results analyser.")
-    st.markdown("* **EPL Scores**: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.")
-    st.markdown("* **Results Analyser**: Historical head to head match breakdowns and chronological matchday points progression graphs.")
-    st.markdown("* **Squad Analyser**: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.")
-    st.markdown("* **GACS**: Weekly starting lineup goals, assists and clean sheets with gameweek selection.")
-    st.markdown("* **Standings**: Real time in play standings with movement indicators and official frozen tables.")
-    st.markdown("* **Newsletters**: Embedded full page previews for both League and Cup gazettes.")
-    st.markdown("* **Power Rankings**: Comprehensive form rankings and team trajectories.")
-    st.markdown("* **Records**: Historical hall of fame, individual records and statistical milestones.")
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>LIVE SCORES</b>: Around the grounds matchday scoreboard, manager aliases, live win probabilities, real time auto subs and live points progression graphs.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Cup & Bucket</b>: Cross league tournament portal featuring 32 team group standings, live cup scoreboards and cup results analyser.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>EPL Scores</b>: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Results Analyser</b>: Historical head to head match breakdowns and chronological matchday points progression graphs.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Squad Analyser</b>: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>GACS</b>: Weekly starting lineup goals, assists and clean sheets with gameweek selection.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Standings</b>: Real time in play standings with movement indicators and official frozen tables.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Newsletters</b>: Embedded full page previews for both League and Cup gazettes.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Power Rankings</b>: Comprehensive form rankings and team trajectories.</p>", unsafe_allow_html = True)
+    st.markdown(f"<p style='font-size: {font_body};'>• <b>Records</b>: Historical hall of fame, individual records and statistical milestones.</p>", unsafe_allow_html = True)
 
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
@@ -1915,15 +1982,15 @@ elif st.session_state.page == "LIVE SCORES":
 
                         sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
                         with sc_col1:
-                            st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; color: #ffffff;'>{item['t1_score']}</h2>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='margin: 2px 0 0 0; font-size: {font_card_sub}; color: #94a3b8; white-space: nowrap;'>Proj: {item['t1_proj']:.1f} ({t1_rem_text})</p>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='margin: 2px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
+                            st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{item['t1_score']}</h2>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t1_proj']:.1f} ({t1_rem_text})</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
                         with sc_col2:
-                            st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: center; margin: 18px 0; color: #64748b; font-weight: bold; font-size: {font_card_sub};'>vs</p>", unsafe_allow_html = True)
                         with sc_col3:
-                            st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{item['t2_score']}</h2>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='text-align: right; margin: 2px 0 0 0; font-size: {font_card_sub}; color: #94a3b8; white-space: nowrap;'>Proj: {item['t2_proj']:.1f} ({t2_rem_text})</p>", unsafe_allow_html = True)
-                            st.markdown(f"<p style='text-align: right; margin: 2px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
+                            st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{item['t2_score']}</h2>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: right; margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>Proj: {item['t2_proj']:.1f} ({t2_rem_text})</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: right; margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
                         
                         st.progress(item["prob1"] / 100.0)
                         
@@ -1939,9 +2006,9 @@ elif st.session_state.page == "LIVE SCORES":
 
                         p_l, p_r = st.columns(2)
                         with p_l:
-                            st.markdown(f"<span style='color: {col1_style}; font-size: {font_card_win}; font-weight: bold;'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
+                            st.markdown(f"<span style='color: {col1_style}; font-size: {font_card_win}; font-weight: 800;'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
                         with p_r:
-                            st.markdown(f"<p style='text-align: right; margin: 0; font-size: {font_card_win}; color: {col2_style}; font-weight: bold;'>Win: {item['prob2']}%</p>", unsafe_allow_html = True)
+                            st.markdown(f"<p style='text-align: right; margin: 0; font-size: {font_card_win}; color: {col2_style}; font-weight: 800;'>Win: {item['prob2']}%</p>", unsafe_allow_html = True)
 
         st.divider()
 
@@ -2140,15 +2207,15 @@ elif st.session_state.page == "Cup & Bucket":
 
                             sc1, sc2, sc3 = st.columns([5, 1, 5])
                             with sc1:
-                                st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; color: #ffffff;'>{card['s1']}</h2>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='margin: 2px 0 0 0; font-size: {font_card_sub}; color: #94a3b8;'>{rem1}</p>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='margin: 2px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
+                                st.markdown(f"<h2 style='margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{card['s1']}</h2>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; font-weight: 600;'>{rem1}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
                             with sc2:
-                                st.markdown("<p style='text-align: center; margin: 12px 0; color: #64748b; font-weight: bold;'>vs</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: center; margin: 18px 0; color: #64748b; font-weight: bold; font-size: {font_card_sub};'>vs</p>", unsafe_allow_html = True)
                             with sc3:
-                                st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{card['s2']}</h2>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='text-align: right; margin: 2px 0 0 0; font-size: {font_card_sub}; color: #94a3b8; white-space: nowrap;'>{rem2}</p>", unsafe_allow_html = True)
-                                st.markdown(f"<p style='text-align: right; margin: 2px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
+                                st.markdown(f"<h2 style='text-align: right; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{card['s2']}</h2>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 4px 0 0 0; font-size: {font_card_sub}; color: #cbd5e1; white-space: nowrap; font-weight: 600;'>{rem2}</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p style='text-align: right; margin: 3px 0 0 0; font-size: {font_card_bench}; color: #94a3b8;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
 
                             st.progress(card["prob1"] / 100.0)
 
@@ -2181,7 +2248,7 @@ elif st.session_state.page == "Cup & Bucket":
                     st.markdown(f"### {spot_m1}")
                     st.caption(f"{s_info1.get('team_name', '')} • {s_info1.get('league_key', '')}")
                 with sr2:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{spot_s1} {dash} {spot_s2}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{spot_s1} {dash} {spot_s2}</h2>", unsafe_allow_html = True)
                     st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>{active_c_spot['stage']} {active_c_spot['leg']} (GW {active_cup_gw})</p>", unsafe_allow_html = True)
                 with sr3:
                     st.markdown(f"<h3 style='text-align: right;'>{spot_m2}</h3>", unsafe_allow_html = True)
@@ -2327,7 +2394,7 @@ elif st.session_state.page == "Cup & Bucket":
                 st.markdown(f"### {c_m1}")
                 st.caption(f"{info1.get('team_name', '')} • {info1.get('league_key', '')}")
             with r2:
-                st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>{c_s1} {dash} {c_s2}</h2>", unsafe_allow_html = True)
+                st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{c_s1} {dash} {c_s2}</h2>", unsafe_allow_html = True)
                 stage_desc = f"{selected_cup_match.get('Comp', 'Cup')} {selected_cup_match.get('Stage', '')} {selected_cup_match.get('Leg', '')}".strip()
                 st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
             with r3:
@@ -2474,7 +2541,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                 
             with f_col2:
                 if is_started or is_finished:
-                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; color: #ffffff;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
+                    st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff; font-weight: 900;'>{h_score} {dash} {a_score}</h2>", unsafe_allow_html = True)
                 else:
                     st.markdown(f"<p style='text-align: center; margin: 0; font-size: {font_card_mgr}; color: #94a3b8;'>vs</p>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: center; margin: 0; font-size: {font_card_status}; font-weight: bold; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
@@ -2543,7 +2610,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
                             if not isinstance(e_data, dict):
                                 continue
                             try:
-                                elem_id_int = int(elem_str_id)
+                                elem_id_int = int(elem_id_str)
                             except (ValueError, TypeError):
                                 continue
                             elem_obj = element_lookup.get(elem_id_int, {})
@@ -2752,7 +2819,7 @@ elif st.session_state.page == "Results Analyser":
             st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
-            st.markdown("<h2 style='text-align: center; margin: 0; font-size: 2.2rem; color: #ffffff;'>" + str(score1) + dash + str(score2) + "</h2>", unsafe_allow_html = True)
+            st.markdown(f"<h2 style='text-align: center; margin: 0; font-size: {font_card_score}; line-height: 1.05; color: #ffffff;'>{score1} {dash} {score2}</h2>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #94a3b8; margin: 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
             st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
