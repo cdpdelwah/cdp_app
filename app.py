@@ -736,14 +736,27 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             "is_bench": is_bench
         }
 
-    starters_processed = [prepare_player_dict(p, is_bench = False) for p in starters_records]
-    bench_processed = [prepare_player_dict(p, is_bench = True) for p in bench_records]
+    # Dynamic swap: Subbed On bench players move to pitch; Subbed Off starters move to dugout
+    pitch_players = []
+    dugout_players = []
 
-    # Group starters into standard football rows: GKP, DEF, MID, FWD
-    gks = [p for p in starters_processed if p["pos"] == "GKP"]
-    defs = [p for p in starters_processed if p["pos"] == "DEF"]
-    mids = [p for p in starters_processed if p["pos"] == "MID"]
-    fwds = [p for p in starters_processed if p["pos"] == "FWD"]
+    for p in starters_records:
+        if str(p.get("sub_action", "")).strip() == "Subbed Off":
+            dugout_players.append(prepare_player_dict(p, is_bench = True))
+        else:
+            pitch_players.append(prepare_player_dict(p, is_bench = False))
+
+    for p in bench_records:
+        if str(p.get("sub_action", "")).strip() == "Subbed On":
+            pitch_players.append(prepare_player_dict(p, is_bench = False))
+        else:
+            dugout_players.append(prepare_player_dict(p, is_bench = True))
+
+    # Group active pitch players into standard positional lines: GKP, DEF, MID and FWD
+    gks = [p for p in pitch_players if p["pos"] == "GKP"]
+    defs = [p for p in pitch_players if p["pos"] == "DEF"]
+    mids = [p for p in pitch_players if p["pos"] == "MID"]
+    fwds = [p for p in pitch_players if p["pos"] == "FWD"]
 
     formation_rows = [
         {"role": "GKP", "players": gks},
@@ -752,7 +765,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         {"role": "FWD", "players": fwds}
     ]
 
-    all_players_payload = starters_processed + bench_processed
+    all_players_payload = pitch_players + dugout_players
     players_json = json.dumps(all_players_payload).replace("'", "&#39;")
 
     token_size = "44px" if is_large else "38px"
@@ -1064,7 +1077,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             <circle cx="180" cy="455" r="2.5" fill="#ffffff"/>
         </svg>
 
-        <!-- Formation Lines -->
+        <!-- Active Lineup Formation Lines -->
     """
 
     for row_info in formation_rows:
@@ -1072,10 +1085,10 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         for p in row_info["players"]:
             pulse_html = '<div class="state-pulse"></div>' if p["state"] == "LIVE" else ''
             sub_tag = ''
-            if p["sub_action"] == "Subbed Off":
-                sub_tag = '<span class="sub-tag-off">OFF</span>'
-            elif p["sub_action"] == "Subbed On":
+            if p["sub_action"] == "Subbed On":
                 sub_tag = '<span class="sub-tag-on">ON</span>'
+            elif p["sub_action"] == "Subbed Off":
+                sub_tag = '<span class="sub-tag-off">OFF</span>'
 
             event_icon = f'<span style="margin-left:2px;">{p["events_str"]}</span>' if p["events_str"] else ''
 
@@ -1125,7 +1138,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         <div class="dugout-row">
     """
 
-    for bp in bench_processed:
+    for bp in dugout_players:
         pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
         sub_tag = ''
         if bp["sub_action"] == "Subbed On":
@@ -2571,7 +2584,7 @@ elif st.session_state.page == "LIVE SCORES":
     def render_live_scores_board():
         top_c1, top_c2, top_c3 = st.columns([3, 2, 1])
         with top_c1:
-            st.caption("Auto - refreshes every 45s • Real time scorelines, live projections and win probability")
+            st.caption("Auto refreshes every 45s • Real time scorelines, live projections and win probability")
         with top_c2:
             current_gw = st.selectbox(
                 "Active Gameweek",
@@ -2810,7 +2823,7 @@ elif st.session_state.page == "Cup & Bucket":
         def render_live_cup_board():
             top_m1, top_m2, top_m3 = st.columns([3, 2, 1])
             with top_m1:
-                st.caption("Auto - refreshes every 45s • Around the Grounds live inter league cup matches with live auto subs")
+                st.caption("Auto refreshes every 45s • Around the Grounds live inter league cup matches with live auto subs")
             with top_m2:
                 active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
             with top_m3:
