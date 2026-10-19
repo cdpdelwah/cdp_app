@@ -819,7 +819,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             cursor: pointer;
             transition: transform 0.15s ease;
             position: relative;
-            max-width: 78px;
+            max-width: 98px;
             text-align: center;
         }}
 
@@ -884,14 +884,15 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             color: #ffffff;
             font-size: {name_font};
             font-weight: 700;
-            padding: 2px 6px;
+            padding: 2px 5px;
             border-radius: 4px;
             margin-top: 3px;
             white-space: nowrap;
+            letter-spacing: -0.2px;
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 74px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            max-width: 96px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
         }}
 
         .player-pts-pill {{
@@ -954,7 +955,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             width: 90%;
             max-width: 330px;
             padding: 16px 18px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9);
             position: relative;
             animation: popIn 0.2s ease-out;
         }}
@@ -1455,6 +1456,77 @@ def load_cup_matches():
         return df
     except Exception:
         return None
+
+def render_pdf(filename, title):
+    pdf_path = assets_folder / filename
+    if not pdf_path.exists():
+        st.warning(f"File '{filename}' not found in Assets folder.")
+        return
+    try:
+        doc = pdfium.PdfDocument(pdf_path)
+        for i, page in enumerate(doc):
+            image = page.render(scale = 2).to_pil()
+            st.image(image, use_container_width = True)
+    except Exception as e:
+        st.error(f"Error rendering {title}: {str(e)}")
+
+@st.cache_data(ttl = 600)
+def load_power_rankings_data():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    for folder in [assets_folder, base_dir]:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions and "power" in f.name.lower():
+                    target_file = f
+                    break
+        if target_file:
+            break
+    if not target_file:
+        return None, None, None
+    try:
+        raw_bytes = target_file.read_bytes()
+        ext = target_file.suffix.lower()
+        if ext == ".csv":
+            df = pd.read_csv(target_file)
+            return target_file.name, {target_file.stem: df}, raw_bytes
+        elif ext == ".ods":
+            sheets = pd.read_excel(target_file, sheet_name = None, engine = "odf")
+            return target_file.name, sheets, raw_bytes
+        else:
+            sheets = pd.read_excel(target_file, sheet_name = None, engine = "openpyxl")
+            return target_file.name, sheets, raw_bytes
+    except Exception as e:
+        return target_file.name, e, None
+
+@st.cache_data(ttl = 600)
+def load_records_data():
+    valid_extensions = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    for folder in [assets_folder, base_dir]:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_extensions and "record" in f.name.lower():
+                    target_file = f
+                    break
+        if target_file:
+            break
+    if not target_file:
+        return None, None, None
+    try:
+        raw_bytes = target_file.read_bytes()
+        ext = target_file.suffix.lower()
+        if ext == ".csv":
+            df = pd.read_csv(target_file)
+            return target_file.name, {target_file.stem: df}, raw_bytes
+        elif ext == ".ods":
+            sheets = pd.read_excel(target_file, sheet_name = None, engine = "odf")
+            return target_file.name, sheets, raw_bytes
+        else:
+            sheets = pd.read_excel(target_file, sheet_name = None, engine = "openpyxl")
+            return target_file.name, sheets, raw_bytes
+    except Exception as e:
+        return target_file.name, e, None
 
 @st.cache_data(ttl = 3600)
 def fetch_fpl_static():
