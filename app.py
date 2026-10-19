@@ -4,6 +4,8 @@ import requests
 import pandas as pd
 import math
 import functools
+import json
+import html
 import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
@@ -59,6 +61,33 @@ LEAGUE_THEMES = {
         "badge_bg": "#052210",
         "tag": "DIVISION FOUR"
     }
+}
+
+# Official Premier League Club Primary Color Palette for Safe Badges
+CLUB_PALETTE = {
+    "ARS": {"bg": "#EF0107", "text": "#ffffff", "border": "#9C824A"},
+    "AVL": {"bg": "#670E36", "text": "#95BFE5", "border": "#95BFE5"},
+    "BHA": {"bg": "#0057B8", "text": "#ffffff", "border": "#FFCD00"},
+    "BOU": {"bg": "#DA291C", "text": "#ffffff", "border": "#000000"},
+    "BRE": {"bg": "#D20000", "text": "#ffffff", "border": "#000000"},
+    "CHE": {"bg": "#034694", "text": "#ffffff", "border": "#EE242C"},
+    "CRY": {"bg": "#1B458F", "text": "#ffffff", "border": "#C4122E"},
+    "EVE": {"bg": "#003399", "text": "#ffffff", "border": "#ffffff"},
+    "FUL": {"bg": "#ffffff", "text": "#000000", "border": "#CC0000"},
+    "HUL": {"bg": "#F5971D", "text": "#000000", "border": "#000000"},
+    "IPS": {"bg": "#003399", "text": "#ffffff", "border": "#D20000"},
+    "LEE": {"bg": "#1D428A", "text": "#FFCD00", "border": "#FFCD00"},
+    "LEI": {"bg": "#003090", "text": "#ffffff", "border": "#FDBE11"},
+    "LIV": {"bg": "#C8102E", "text": "#ffffff", "border": "#00B2A9"},
+    "MCI": {"bg": "#6CABDD", "text": "#001838", "border": "#ffffff"},
+    "MUN": {"bg": "#DA291C", "text": "#ffffff", "border": "#FBE122"},
+    "NEW": {"bg": "#241F20", "text": "#ffffff", "border": "#41B6E6"},
+    "NFO": {"bg": "#DD0000", "text": "#ffffff", "border": "#ffffff"},
+    "SOU": {"bg": "#D71920", "text": "#ffffff", "border": "#132257"},
+    "SUN": {"bg": "#EB172B", "text": "#ffffff", "border": "#000000"},
+    "TOT": {"bg": "#132257", "text": "#ffffff", "border": "#ffffff"},
+    "WHU": {"bg": "#7A263A", "text": "#1BB1E7", "border": "#1BB1E7"},
+    "WOL": {"bg": "#FDB913", "text": "#231F20", "border": "#231F20"}
 }
 
 # Official Manager Aliases dictionary
@@ -223,7 +252,7 @@ font_h2 = "2.3rem" if large_mode else "1.85rem"
 font_h3 = "1.9rem" if large_mode else "1.45rem"
 font_h4 = "1.55rem" if large_mode else "1.2rem"
 
-# Desktop Card Scalers (Sharp, well - proportioned headline style)
+# Desktop Card Scalers
 font_card_mgr = "1.65rem" if large_mode else "1.38rem"
 font_card_score = "2.95rem" if large_mode else "2.35rem"
 font_card_sub = "1.12rem" if large_mode else "0.94rem"
@@ -231,7 +260,7 @@ font_card_bench = "1.02rem" if large_mode else "0.85rem"
 font_card_win = "1.25rem" if large_mode else "1.05rem"
 font_card_status = "1.12rem" if large_mode else "0.92rem"
 
-# Mobile Card Scalers (Tuned specifically for hand-held viewports)
+# Mobile Card Scalers
 font_card_mgr_mobile = "1.52rem" if large_mode else "1.30rem"
 font_card_score_mobile = "2.65rem" if large_mode else "2.18rem"
 font_card_sub_mobile = "1.05rem" if large_mode else "0.88rem"
@@ -617,6 +646,555 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html = True)
+
+# ----------------- EMBEDDED GREEN PITCH RENDERING ENGINE -----------------
+def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, is_large = False):
+    if starters_df is None or starters_df.empty:
+        st.info("Lineup selections not yet available.")
+        return
+
+    starters_records = starters_df.to_dict(orient = "records")
+    bench_records = bench_df.to_dict(orient = "records") if bench_df is not None and not bench_df.empty else []
+
+    all_players_payload = []
+
+    def prepare_player_dict(p, is_bench = False):
+        club_code = str(p.get("Club", "PL")).strip().upper()
+        c_palette = CLUB_PALETTE.get(club_code, {"bg": "#1e293b", "text": "#f8fafc", "border": accent_color})
+        
+        g = int(p.get("G", 0))
+        a = int(p.get("A", 0))
+        cs = int(p.get("CS", 0))
+        gc = int(p.get("GC", 0))
+        bonus = int(p.get("Bonus", 0))
+        mins = int(p.get("Mins", 0))
+        pts = int(p.get("Pts", 0))
+        proj = float(p.get("Proj", 0.0))
+        state = str(p.get("State", "FT")).strip().upper()
+        sub_act = str(p.get("sub_action", "")).strip()
+
+        badges = []
+        if g > 0:
+            badges.append(f"{g}⚽" if g > 1 else "⚽")
+        if a > 0:
+            badges.append(f"{a}🎯" if a > 1 else "🎯")
+        if cs > 0 and p.get("Pos") in ["GKP", "DEF"]:
+            badges.append("🛡️")
+        if bonus > 0:
+            badges.append(f"{bonus}⭐")
+
+        return {
+            "name": str(p.get("Player", "Unknown")),
+            "pos": str(p.get("Pos", "")),
+            "club": club_code,
+            "club_bg": c_palette["bg"],
+            "club_text": c_palette["text"],
+            "club_border": c_palette["border"],
+            "state": state,
+            "mins": mins,
+            "pts": pts,
+            "proj": f"{proj:.1f}",
+            "g": g,
+            "a": a,
+            "cs": cs,
+            "gc": gc,
+            "bonus": bonus,
+            "sub_action": sub_act,
+            "events_str": " ".join(badges),
+            "is_bench": is_bench
+        }
+
+    starters_processed = [prepare_player_dict(p, is_bench = False) for p in starters_records]
+    bench_processed = [prepare_player_dict(p, is_bench = True) for p in bench_records]
+
+    # Group starters into standard football rows: GKP, DEF, MID, FWD
+    gks = [p for p in starters_processed if p["pos"] == "GKP"]
+    defs = [p for p in starters_processed if p["pos"] == "DEF"]
+    mids = [p for p in starters_processed if p["pos"] == "MID"]
+    fwds = [p for p in starters_processed if p["pos"] == "FWD"]
+
+    formation_rows = [
+        {"role": "GKP", "players": gks},
+        {"role": "DEF", "players": defs},
+        {"role": "MID", "players": mids},
+        {"role": "FWD", "players": fwds}
+    ]
+
+    all_players_payload = starters_processed + bench_processed
+    players_json = json.dumps(all_players_payload).replace("'", "&#39;")
+
+    # Dynamic CSS dimension scalers based on text toggle
+    token_size = "44px" if is_large else "38px"
+    badge_font = "0.78rem" if is_large else "0.70rem"
+    name_font = "0.85rem" if is_large else "0.74rem"
+    pts_font = "0.88rem" if is_large else "0.76rem"
+
+    pitch_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background-color: #090c13;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }}
+
+        .pitch-container {{
+            position: relative;
+            width: 100%;
+            height: 520px;
+            background: repeating-linear-gradient(
+                180deg,
+                #0f351e,
+                #0f351e 65px,
+                #0d2e1a 65px,
+                #0d2e1a 130px
+            );
+            border-radius: 10px;
+            border: 2px solid #1a4d2e;
+            overflow: hidden;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 8px 10px 14px 10px;
+        }}
+
+        /* Pitch markings */
+        .pitch-svg {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.35;
+        }}
+
+        .pitch-row {{
+            position: relative;
+            z-index: 2;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            width: 100%;
+            margin: 4px 0;
+        }}
+
+        .player-card {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+            position: relative;
+            max-width: 78px;
+            text-align: center;
+        }}
+
+        .player-card:hover, .player-card:active {{
+            transform: scale(1.12);
+        }}
+
+        .club-token {{
+            width: {token_size};
+            height: {token_size};
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: {badge_font};
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+            border-width: 2px;
+            border-style: solid;
+            position: relative;
+        }}
+
+        .state-pulse {{
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }}
+
+        .sub-tag-off {{
+            position: absolute;
+            top: -3px;
+            left: -3px;
+            background: #ef4444;
+            color: #ffffff;
+            font-size: 0.62rem;
+            font-weight: 800;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }}
+
+        .sub-tag-on {{
+            position: absolute;
+            top: -3px;
+            left: -3px;
+            background: #22c55e;
+            color: #000000;
+            font-size: 0.62rem;
+            font-weight: 800;
+            padding: 1px 3px;
+            border-radius: 3px;
+        }}
+
+        .player-name-pill {{
+            background: rgba(9, 12, 19, 0.92);
+            border: 1px solid #1e293b;
+            color: #ffffff;
+            font-size: {name_font};
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 74px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        }}
+
+        .player-pts-pill {{
+            background: #000000;
+            border: 1px solid {accent_color};
+            color: {accent_color};
+            font-size: {pts_font};
+            font-weight: 800;
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-top: 1px;
+            min-width: 28px;
+            text-align: center;
+        }}
+
+        /* Dugout / Bench Section */
+        .dugout-container {{
+            margin-top: 8px;
+            background: #060911;
+            border: 1px solid #182030;
+            border-radius: 8px;
+            padding: 8px 12px;
+        }}
+
+        .dugout-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.74rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #94a3b8;
+            margin-bottom: 6px;
+            border-bottom: 1px solid #141a26;
+            padding-bottom: 3px;
+        }}
+
+        .dugout-row {{
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }}
+
+        /* Match Stat Modal Overlay */
+        .modal-overlay {{
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.78);
+            backdrop-filter: blur(6px);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }}
+
+        .modal-card {{
+            background: #090c13;
+            border: 2px solid {accent_color};
+            border-radius: 12px;
+            width: 90%;
+            max-width: 330px;
+            padding: 16px 18px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+            position: relative;
+            animation: popIn 0.2s ease-out;
+        }}
+
+        @keyframes popIn {{
+            from {{ opacity: 0; transform: scale(0.92); }}
+            to {{ opacity: 1; transform: scale(1); }}
+        }}
+
+        .modal-close {{
+            position: absolute;
+            top: 10px;
+            right: 14px;
+            color: #94a3b8;
+            font-size: 1.4rem;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }}
+        .modal-close:hover {{ color: #ffffff; }}
+
+        .modal-title {{
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #ffffff;
+            margin-right: 24px;
+        }}
+
+        .modal-meta {{
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }}
+
+        .modal-score-banner {{
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            background: #0f1523;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            border-left: 4px solid {accent_color};
+        }}
+
+        .modal-pts-big {{
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: {accent_color};
+        }}
+
+        .stat-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }}
+
+        .stat-item {{
+            background: #0c101a;
+            border: 1px solid #182030;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.82rem;
+            display: flex;
+            justify-content: space-between;
+        }}
+
+        .stat-label {{ color: #94a3b8; font-weight: 600; }}
+        .stat-val {{ color: #ffffff; font-weight: 800; }}
+    </style>
+    </head>
+    <body>
+
+    <div class="pitch-container" id="pitch-container">
+        <!-- Regulation Pitch Vector Lines -->
+        <svg class="pitch-svg" viewBox="0 0 360 520" preserveAspectRatio="none">
+            <rect x="15" y="15" width="330" height="490" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <line x1="15" y1="260" x2="345" y2="260" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="180" cy="260" r="48" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="180" cy="260" r="3" fill="#ffffff"/>
+            <!-- Top Goal Box -->
+            <rect x="90" y="15" width="180" height="80" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <rect x="135" y="15" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="180" cy="65" r="2.5" fill="#ffffff"/>
+            <!-- Bottom Goal Box -->
+            <rect x="90" y="425" width="180" height="80" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <rect x="135" y="475" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="180" cy="455" r="2.5" fill="#ffffff"/>
+        </svg>
+
+        <!-- Formation Lines -->
+    """
+
+    for row_info in formation_rows:
+        pitch_html += '<div class="pitch-row">\n'
+        for p in row_info["players"]:
+            pulse_html = '<div class="state-pulse"></div>' if p["state"] == "LIVE" else ''
+            sub_tag = ''
+            if p["sub_action"] == "Subbed Off":
+                sub_tag = '<span class="sub-tag-off">OFF</span>'
+            elif p["sub_action"] == "Subbed On":
+                sub_tag = '<span class="sub-tag-on">ON</span>'
+
+            event_icon = f'<span style="margin-left:2px;">{p["events_str"]}</span>' if p["events_str"] else ''
+
+            pitch_html += f"""
+                <div class="player-card" onclick="showPlayerStats('{p['name']}')">
+                    <div class="club-token" style="background-color: {p['club_bg']}; color: {p['club_text']}; border-color: {p['club_border']};">
+                        {p['club']}
+                        {pulse_html}
+                        {sub_tag}
+                    </div>
+                    <div class="player-name-pill">{p['name']}</div>
+                    <div class="player-pts-pill">{p['pts']} pts{event_icon}</div>
+                </div>
+            """
+        pitch_html += '</div>\n'
+
+    pitch_html += f"""
+        <!-- Modal Overlay -->
+        <div class="modal-overlay" id="stat-modal" onclick="closeModalOnBg(event)">
+            <div class="modal-card" id="modal-card">
+                <span class="modal-close" onclick="closeModal()">✕</span>
+                <div class="modal-title" id="m-name">Player Name</div>
+                <div class="modal-meta" id="m-meta">Pos • Club • State</div>
+                <div class="modal-score-banner">
+                    <div>
+                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Gameweek Total</span>
+                        <div class="modal-pts-big" id="m-pts">0 PTS</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700;">PROJECTION</span>
+                        <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;" id="m-proj">0.0</div>
+                    </div>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item"><span class="stat-label">Minutes:</span><span class="stat-val" id="m-mins">0'</span></div>
+                    <div class="stat-item"><span class="stat-label">Goals ⚽:</span><span class="stat-val" id="m-g">0</span></div>
+                    <div class="stat-item"><span class="stat-label">Assists 🎯:</span><span class="stat-val" id="m-a">0</span></div>
+                    <div class="stat-item"><span class="stat-label">Clean Sheet 🛡️:</span><span class="stat-val" id="m-cs">0</span></div>
+                    <div class="stat-item"><span class="stat-label">Bonus ⭐:</span><span class="stat-val" id="m-bonus">0</span></div>
+                    <div class="stat-item"><span class="stat-label">Conceded 🛑:</span><span class="stat-val" id="m-gc">0</span></div>
+                </div>
+                <div id="m-sub-status" style="font-size:0.78rem; color:#94a3b8; text-align:center; font-weight:600; margin-top:4px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dugout Substitutes Tray -->
+    <div class="dugout-container">
+        <div class="dugout-header">
+            <span>🛡️ Dugout Substitutes</span>
+            <span style="color: {accent_color}; font-weight:800;">4 on bench</span>
+        </div>
+        <div class="dugout-row">
+    """
+
+    for bp in bench_processed:
+        pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
+        sub_tag = ''
+        if bp["sub_action"] == "Subbed On":
+            sub_tag = '<span class="sub-tag-on">ON</span>'
+        elif bp["sub_action"] == "Subbed Off":
+            sub_tag = '<span class="sub-tag-off">OFF</span>'
+
+        event_icon = f'<span style="margin-left:2px;">{bp["events_str"]}</span>' if bp["events_str"] else ''
+
+        pitch_html += f"""
+            <div class="player-card" onclick="showPlayerStats('{bp['name']}')">
+                <div class="club-token" style="background-color: {bp['club_bg']}; color: {bp['club_text']}; border-color: {bp['club_border']};">
+                    {bp['club']}
+                    {pulse_html}
+                    {sub_tag}
+                </div>
+                <div class="player-name-pill">{bp['name']}</div>
+                <div class="player-pts-pill">{bp['pts']} pts{event_icon}</div>
+            </div>
+        """
+
+    pitch_html += f"""
+        </div>
+    </div>
+
+    <script>
+        const playersData = {players_json};
+
+        function showPlayerStats(name) {{
+            const p = playersData.find(item => item.name === name);
+            if (!p) return;
+
+            document.getElementById('m-name').textContent = p.name;
+            document.getElementById('m-meta').textContent = p.pos + ' • ' + p.club + ' (' + p.state + ')';
+            document.getElementById('m-pts').textContent = p.pts + ' PTS';
+            document.getElementById('m-proj').textContent = p.proj;
+            document.getElementById('m-mins').textContent = p.mins + "'";
+            document.getElementById('m-g').textContent = p.g;
+            document.getElementById('m-a').textContent = p.a;
+            document.getElementById('m-cs').textContent = p.cs;
+            document.getElementById('m-bonus').textContent = p.bonus;
+            document.getElementById('m-gc').textContent = p.gc;
+
+            const subEl = document.getElementById('m-sub-status');
+            if (p.sub_action === 'Subbed On') {{
+                subEl.innerHTML = '<span style="color:#22c55e;">▲ Active: Auto Subbed On into XI</span>';
+            }} else if (p.sub_action === 'Subbed Off') {{
+                subEl.innerHTML = '<span style="color:#ef4444;">▼ Replaced: Subbed Off (DNP)</span>';
+            }} else if (p.is_bench) {{
+                subEl.textContent = 'Bench cover • Ready for auto sub';
+            }} else {{
+                subEl.textContent = 'Starting XI';
+            }}
+
+            document.getElementById('stat-modal').style.display = 'flex';
+        }}
+
+        function closeModal() {{
+            document.getElementById('stat-modal').style.display = 'none';
+        }}
+
+        function closeModalOnBg(e) {{
+            if (e.target.id === 'stat-modal') {{
+                closeModal();
+            }}
+        }}
+    </script>
+    </body>
+    </html>
+    """
+
+    components.html(pitch_html, height = 660)
+
+def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large):
+    st.markdown(f"### {alias}")
+    st.caption(f"Bench Left: {bp_pts} pts | Optimum Score: {opt_pts} pts")
+
+    p_tab_pitch, p_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
+
+    with p_tab_pitch:
+        render_pitch_component(alias, starters_df, bench_df, accent_color, is_large)
+
+    with p_tab_table:
+        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        if starters_df is not None and not starters_df.empty:
+            s_view = starters_df[display_cols].copy()
+            if "Proj" in s_view.columns:
+                s_view["Proj"] = s_view["Proj"].map(lambda x: f"{float(x):.1f}")
+            st.markdown("**Starting XI (GK First)**")
+            st.table(s_view.set_index("Player"))
+
+            if bench_df is not None and not bench_df.empty:
+                b_view = bench_df[display_cols].copy()
+                if "Proj" in b_view.columns:
+                    b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                st.markdown("**Bench Substitutes**")
+                st.table(b_view.set_index("Player"))
+        else:
+            st.info("Lineup selections not yet available.")
 
 def render_pdf(filename, title):
     folder = base_dir / "Newsletters"
@@ -2144,43 +2722,28 @@ elif st.session_state.page == "LIVE SCORES":
         st.divider()
         
         s_c1, s_c2 = st.columns(2)
-        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
 
         with s_c1:
-            st.markdown(f"### {alias_e1}")
-            st.caption(f"Bench Left: {active_spot['t1_bp']} pts | Optimum Score: {active_spot['t1_opt']} pts")
-            if not active_spot["t1_start"].empty:
-                t1_s_view = active_spot["t1_start"][display_cols].copy()
-                if "Proj" in t1_s_view.columns:
-                    t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Starting XI (GK First)**")
-                st.table(t1_s_view.set_index("Player"))
-
-                t1_b_view = active_spot["t1_b"][display_cols].copy()
-                if "Proj" in t1_b_view.columns:
-                    t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Bench Substitutes**")
-                st.table(t1_b_view.set_index("Player"))
-            else:
-                st.info("Lineup selections not yet available.")
+            render_lineup_container(
+                alias_e1,
+                active_spot["t1_start"],
+                active_spot["t1_b"],
+                active_spot["t1_bp"],
+                active_spot["t1_opt"],
+                active_theme["accent"],
+                large_mode
+            )
 
         with s_c2:
-            st.markdown(f"### {alias_e2}")
-            st.caption(f"Bench Left: {active_spot['t2_bp']} pts | Optimum Score: {active_spot['t2_opt']} pts")
-            if not active_spot["t2_start"].empty:
-                t2_s_view = active_spot["t2_start"][display_cols].copy()
-                if "Proj" in t2_s_view.columns:
-                    t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Starting XI (GK First)**")
-                st.table(t2_s_view.set_index("Player"))
-
-                t2_b_view = active_spot["t2_b"][display_cols].copy()
-                if "Proj" in t2_b_view.columns:
-                    t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Bench Substitutes**")
-                st.table(t2_b_view.set_index("Player"))
-            else:
-                st.info("Lineup selections not yet available.")
+            render_lineup_container(
+                alias_e2,
+                active_spot["t2_start"],
+                active_spot["t2_b"],
+                active_spot["t2_bp"],
+                active_spot["t2_opt"],
+                active_theme["accent"],
+                large_mode
+            )
 
     render_live_scores_board()
 
@@ -2367,43 +2930,28 @@ elif st.session_state.page == "Cup & Bucket":
                 )
                 st.divider()
 
-                display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
                 side1_c, side2_c = st.columns(2)
                 with side1_c:
-                    st.subheader(f"{spot_m1} Lineup")
-                    st.caption(f"Bench Left: {spot_bp1} pts | Optimum Score: {spot_opt1} pts")
-                    if not spot_st1.empty:
-                        s1_view = spot_st1[display_cols].copy()
-                        if "Proj" in s1_view.columns:
-                            s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                        st.markdown("**Starting XI (GK First)**")
-                        st.table(s1_view.set_index("Player"))
-
-                        b1_view = spot_b1[display_cols].copy()
-                        if "Proj" in b1_view.columns:
-                            b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                        st.markdown("**Bench Substitutes**")
-                        st.table(b1_view.set_index("Player"))
-                    else:
-                        st.info("Lineups not yet available.")
+                    render_lineup_container(
+                        spot_m1,
+                        spot_st1,
+                        spot_b1,
+                        spot_bp1,
+                        spot_opt1,
+                        active_theme["accent"],
+                        large_mode
+                    )
 
                 with side2_c:
-                    st.subheader(f"{spot_m2} Lineup")
-                    st.caption(f"Bench Left: {spot_bp2} pts | Optimum Score: {spot_opt2} pts")
-                    if not spot_st2.empty:
-                        s2_view = spot_st2[display_cols].copy()
-                        if "Proj" in s2_view.columns:
-                            s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                        st.markdown("**Starting XI (GK First)**")
-                        st.table(s2_view.set_index("Player"))
-
-                        b2_view = spot_b2[display_cols].copy()
-                        if "Proj" in b2_view.columns:
-                            b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                        st.markdown("**Bench Substitutes**")
-                        st.table(b2_view.set_index("Player"))
-                    else:
-                        st.info("Lineups not yet available.")
+                    render_lineup_container(
+                        spot_m2,
+                        spot_st2,
+                        spot_b2,
+                        spot_bp2,
+                        spot_opt2,
+                        active_theme["accent"],
+                        large_mode
+                    )
 
         render_live_cup_board()
 
@@ -2516,41 +3064,28 @@ elif st.session_state.page == "Cup & Bucket":
             )
             st.divider()
 
-            display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
             side1, side2 = st.columns(2)
             with side1:
-                st.subheader(f"{c_m1} Lineup")
-                if not c_st1.empty:
-                    s1_view = c_st1[display_cols].copy()
-                    if "Proj" in s1_view.columns:
-                        s1_view["Proj"] = s1_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                    st.markdown("**Starting XI (GK First)**")
-                    st.table(s1_view.set_index("Player"))
-
-                    b1_view = c_b1[display_cols].copy()
-                    if "Proj" in b1_view.columns:
-                        b1_view["Proj"] = b1_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                    st.markdown("**Bench Substitutes**")
-                    st.table(b1_view.set_index("Player"))
-                else:
-                    st.info("Lineups not yet available.")
+                render_lineup_container(
+                    c_m1,
+                    c_st1,
+                    c_b1,
+                    c_bp1,
+                    c_opt1,
+                    active_theme["accent"],
+                    large_mode
+                )
 
             with side2:
-                st.subheader(f"{c_m2} Lineup")
-                if not c_st2.empty:
-                    s2_view = c_st2[display_cols].copy()
-                    if "Proj" in s2_view.columns:
-                        s2_view["Proj"] = s2_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                    st.markdown("**Starting XI (GK First)**")
-                    st.table(s2_view.set_index("Player"))
-
-                    b2_view = c_b2[display_cols].copy()
-                    if "Proj" in b2_view.columns:
-                        b2_view["Proj"] = b2_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                    st.markdown("**Bench Substitutes**")
-                    st.table(b2_view.set_index("Player"))
-                else:
-                    st.info("Lineups not yet available.")
+                render_lineup_container(
+                    c_m2,
+                    c_st2,
+                    c_b2,
+                    c_bp2,
+                    c_opt2,
+                    active_theme["accent"],
+                    large_mode
+                )
 
 # ----------------- 4. EPL SCORES SECTION -----------------
 elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
@@ -2920,7 +3455,7 @@ elif st.session_state.page == "Results Analyser":
             st.markdown(f"<div class='card-score-center'>{score1} {dash} {score2}</div>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown("<h3 style='text-align: right;'>" + alias2 + "</h3>", unsafe_allow_html = True)
+            st.markdown("<h3 style='text-align: right;'>{alias2}</h3>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: right; color: #94a3b8; margin: 0;'>Manager: " + alias2 + "</p>", unsafe_allow_html = True)
             
         st.divider()
@@ -2965,42 +3500,28 @@ elif st.session_state.page == "Results Analyser":
         )
         st.divider()
 
-        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
-
         side1, side2 = st.columns(2)
         with side1:
-            st.subheader(alias1 + " Lineup")
-            if not t1_start.empty:
-                t1_s_view = t1_start[display_cols].copy()
-                if "Proj" in t1_s_view.columns:
-                    t1_s_view["Proj"] = t1_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Starting XI (GK First)**")
-                st.table(t1_s_view.set_index("Player"))
-
-                t1_b_view = t1_b[display_cols].copy()
-                if "Proj" in t1_b_view.columns:
-                    t1_b_view["Proj"] = t1_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Bench Substitutes**")
-                st.table(t1_b_view.set_index("Player"))
-            else:
-                st.info("Lineup selections not yet available for this gameweek.")
+            render_lineup_container(
+                alias1,
+                t1_start,
+                t1_b,
+                t1_bp,
+                t1_opt,
+                active_theme["accent"],
+                large_mode
+            )
 
         with side2:
-            st.subheader(alias2 + " Lineup")
-            if not t2_start.empty:
-                t2_s_view = t2_start[display_cols].copy()
-                if "Proj" in t2_s_view.columns:
-                    t2_s_view["Proj"] = t2_s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Starting XI (GK First)**")
-                st.table(t2_s_view.set_index("Player"))
-
-                t2_b_view = t2_b[display_cols].copy()
-                if "Proj" in t2_b_view.columns:
-                    t2_b_view["Proj"] = t2_b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                st.markdown("**Bench Substitutes**")
-                st.table(t2_b_view.set_index("Player"))
-            else:
-                st.info("Lineup selections not yet available for this gameweek.")
+            render_lineup_container(
+                alias2,
+                t2_start,
+                t2_b,
+                t2_bp,
+                t2_opt,
+                active_theme["accent"],
+                large_mode
+            )
 
 # ----------------- 6. SQUAD ANALYSER SECTION -----------------
 elif st.session_state.page == "Squad Analyser":
