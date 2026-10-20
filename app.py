@@ -752,6 +752,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         else:
             dugout_players.append(prepare_player_dict(p, is_bench = True))
 
+    # Bench order left to right: GK then DEF then MID then FWD
+    dugout_players = sorted(dugout_players, key = lambda x: POS_ORDER.get(x["pos"], 99))
+
     # Group active pitch players into standard positional lines: GKP, DEF, MID and FWD
     gks = [p for p in pitch_players if p["pos"] == "GKP"]
     defs = [p for p in pitch_players if p["pos"] == "DEF"]
@@ -1234,8 +1237,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
 
     components.html(pitch_html, height = 660)
 
-def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large):
-    st.markdown(f"### {alias}")
+def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large, score = None):
+    score_tag = f" ({score} pts)" if score is not None else ""
+    st.markdown(f"### {alias}{score_tag}")
     st.caption(f"Bench Left: {bp_pts} pts | Optimum Score: {opt_pts} pts")
 
     p_tab_pitch, p_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
@@ -1256,6 +1260,9 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
                 b_view = bench_df[display_cols].copy()
                 if "Proj" in b_view.columns:
                     b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
+                # Order bench table GKP then DEF then MID then FWD
+                b_view["pos_order"] = b_view["Pos"].map(POS_ORDER).fillna(99)
+                b_view = b_view.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
                 st.markdown("**Bench Substitutes**")
                 st.table(b_view.set_index("Player"))
         else:
@@ -2767,7 +2774,8 @@ elif st.session_state.page == "LIVE SCORES":
                 active_spot["t1_bp"],
                 active_spot["t1_opt"],
                 active_theme["accent"],
-                large_mode
+                large_mode,
+                score = active_spot["t1_score"]
             )
 
         with s_c2:
@@ -2778,7 +2786,8 @@ elif st.session_state.page == "LIVE SCORES":
                 active_spot["t2_bp"],
                 active_spot["t2_opt"],
                 active_theme["accent"],
-                large_mode
+                large_mode,
+                score = active_spot["t2_score"]
             )
 
     render_live_scores_board()
@@ -2942,13 +2951,13 @@ elif st.session_state.page == "Cup & Bucket":
                 st.divider()
                 sr1, sr2, sr3 = st.columns([4, 2, 4])
                 with sr1:
-                    st.markdown(f"### {spot_m1}")
+                    st.markdown(f"### {spot_m1} ({spot_s1} pts)")
                     st.caption(f"{s_info1.get('team_name', '')} • {s_info1.get('league_key', '')}")
                 with sr2:
                     st.markdown(f"<div class='card-score-center'>{spot_s1} {dash} {spot_s2}</div>", unsafe_allow_html = True)
                     st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>{active_c_spot['stage']} {active_c_spot['leg']} (GW {active_cup_gw})</p>", unsafe_allow_html = True)
                 with sr3:
-                    st.markdown(f"<h3 style='text-align: right;'>{spot_m2}</h3>", unsafe_allow_html = True)
+                    st.markdown(f"<h3 style='text-align: right;'>{spot_m2} ({spot_s2} pts)</h3>", unsafe_allow_html = True)
                     st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>{s_info2.get('team_name', '')} • {s_info2.get('league_key', '')}</p>", unsafe_allow_html = True)
                 st.divider()
 
@@ -2975,7 +2984,8 @@ elif st.session_state.page == "Cup & Bucket":
                         spot_bp1,
                         spot_opt1,
                         active_theme["accent"],
-                        large_mode
+                        large_mode,
+                        score = spot_s1
                     )
 
                 with side2_c:
@@ -2986,7 +2996,8 @@ elif st.session_state.page == "Cup & Bucket":
                         spot_bp2,
                         spot_opt2,
                         active_theme["accent"],
-                        large_mode
+                        large_mode,
+                        score = spot_s2
                     )
 
         render_live_cup_board()
@@ -3073,14 +3084,14 @@ elif st.session_state.page == "Cup & Bucket":
             st.divider()
             r1, r2, r3 = st.columns([4, 2, 4])
             with r1:
-                st.markdown(f"### {c_m1}")
+                st.markdown(f"### {c_m1} ({c_s1} pts)")
                 st.caption(f"{info1.get('team_name', '')} • {info1.get('league_key', '')}")
             with r2:
                 st.markdown(f"<div class='card-score-center'>{c_s1} {dash} {c_s2}</div>", unsafe_allow_html = True)
                 stage_desc = f"{selected_cup_match.get('Comp', 'Cup')} {selected_cup_match.get('Stage', '')} {selected_cup_match.get('Leg', '')}".strip()
                 st.markdown(f"<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>{stage_desc} (GW {c_gw})</p>", unsafe_allow_html = True)
             with r3:
-                st.markdown(f"<h3 style='text-align: right;'>{c_m2}</h3>", unsafe_allow_html = True)
+                st.markdown(f"<h3 style='text-align: right;'>{c_m2} ({c_s2} pts)</h3>", unsafe_allow_html = True)
                 st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>{info2.get('team_name', '')} • {info2.get('league_key', '')}</p>", unsafe_allow_html = True)
             st.divider()
 
@@ -3109,7 +3120,8 @@ elif st.session_state.page == "Cup & Bucket":
                     c_bp1,
                     c_opt1,
                     active_theme["accent"],
-                    large_mode
+                    large_mode,
+                    score = c_s1
                 )
 
             with side2:
@@ -3120,7 +3132,8 @@ elif st.session_state.page == "Cup & Bucket":
                     c_bp2,
                     c_opt2,
                     active_theme["accent"],
-                    large_mode
+                    large_mode,
+                    score = c_s2
                 )
 
 # ----------------- 4. EPL SCORES SECTION -----------------
@@ -3452,14 +3465,14 @@ elif st.session_state.page == "Results Analyser":
         
         res_col1, res_col2, res_col3 = st.columns([4, 2, 4])
         with res_col1:
-            st.markdown("### " + alias1)
+            st.markdown(f"### {alias1} ({score1} pts)")
             st.caption(e1_info.get("entry_name", "Team 1"))
         with res_col2:
             status_text = "FINAL SCORE" if selected_match.get("finished") else "ARCHIVED SCORE"
             st.markdown(f"<div class='card-score-center'>{score1} {dash} {score2}</div>", unsafe_allow_html = True)
             st.markdown("<p style='text-align: center; color: #94a3b8; margin: 4px 0 0 0; font-weight: bold;'>" + status_text + " (GW " + str(gw_num) + ")</p>", unsafe_allow_html = True)
         with res_col3:
-            st.markdown(f"<h3 style='text-align: right;'>{alias2}</h3>", unsafe_allow_html = True)
+            st.markdown(f"<h3 style='text-align: right;'>{alias2} ({score2} pts)</h3>", unsafe_allow_html = True)
             st.markdown(f"<p style='text-align: right; color: #94a3b8; margin: 0;'>Manager: {alias2}</p>", unsafe_allow_html = True)
             
         st.divider()
@@ -3513,7 +3526,8 @@ elif st.session_state.page == "Results Analyser":
                 t1_bp,
                 t1_opt,
                 active_theme["accent"],
-                large_mode
+                large_mode,
+                score = score1
             )
 
         with side2:
@@ -3524,7 +3538,8 @@ elif st.session_state.page == "Results Analyser":
                 t2_bp,
                 t2_opt,
                 active_theme["accent"],
-                large_mode
+                large_mode,
+                score = score2
             )
 
 # ----------------- 6. SQUAD ANALYSER SECTION -----------------
@@ -3630,8 +3645,6 @@ elif st.session_state.page == "Squad Analyser":
 
     # ----------------- TAB 1: RECOMMENDED STARTING XI -----------------
     with tab_lineup:
-        st.subheader("Recommended Starting XI and Bench Hierarchy")
-        
         if my_squad.empty:
             st.warning("No players found for this team selection.")
         else:
@@ -3674,12 +3687,9 @@ elif st.session_state.page == "Squad Analyser":
                 (~sorted_squad["id"].isin(final_xi_ids)) & (sorted_squad["position"] != "GKP")
             ].copy()
             
-            def bench_priority(r):
-                fit_bonus = 100.0 if r["avail_factor"] == 1.0 else (50.0 if r["avail_factor"] > 0.0 else -500.0)
-                return fit_bonus + (r["form"] * 1.5) + (r["points_per_game"] * 1.5)
-
-            all_bench_outfield["bench_score"] = all_bench_outfield.apply(bench_priority, axis = 1)
-            ordered_bench_outfield = all_bench_outfield.sort_values(by = "bench_score", ascending = False)
+            # Sort outfield bench by position (DEF -> MID -> FWD)
+            all_bench_outfield["pos_rank"] = all_bench_outfield["position"].map(POS_ORDER).fillna(99)
+            ordered_bench_outfield = all_bench_outfield.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
 
             bench_rows = []
             for bg in bench_gk:
@@ -3691,35 +3701,60 @@ elif st.session_state.page == "Squad Analyser":
                 bo_dict["Role"] = f"Sub {idx}"
                 bench_rows.append(bo_dict)
 
-            st.markdown("### Starting XI (GK First)")
             xi_df = pd.DataFrame(starting_xi)
             xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
             xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
             
-            xi_df["PPG"] = xi_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
-            xi_df["Form"] = xi_df["form"].map(lambda x: f"{float(x):.1f}")
+            xi_proj_sum = round(sum(compute_starter_rating(p) for p in starting_xi if compute_starter_rating(p) > 0), 1)
+            sel_manager_name = entry_options.get(selected_entry_id, "Selected Squad").split(" (")[0]
+            st.subheader(f"Recommended Lineup: {sel_manager_name} ({xi_proj_sum} proj)")
+            st.caption("Pitch and list views show starting XI and bench hierarchy sorted GK then DEF then MID then FWD.")
 
-            display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
-            xi_display = xi_df[display_cols].rename(columns = {
-                "web_name": "Player",
-                "position": "Pos",
-                "club": "Club",
-                "health_status": "Status",
-                "total_points": "Total Pts",
-                "last_2_pts": "Last 2 GWs",
-                "next_3": "Next 3 Fixtures"
-            })
-            st.table(xi_display.set_index("Player"))
+            squad_tab_pitch, squad_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
 
-            if bench_rows:
-                st.markdown("### Bench Hierarchy")
-                b_df = pd.DataFrame(bench_rows)
-                b_df["PPG"] = b_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
-                b_df["Form"] = b_df["form"].map(lambda x: f"{float(x):.1f}")
+            with squad_tab_pitch:
+                s_starters_df = xi_df.rename(columns = {
+                    "web_name": "Player",
+                    "position": "Pos",
+                    "club": "Club",
+                    "starter_rating": "Proj",
+                    "total_points": "Pts"
+                })
+                s_starters_df["G"] = 0
+                s_starters_df["A"] = 0
+                s_starters_df["CS"] = 0
+                s_starters_df["GC"] = 0
+                s_starters_df["Bonus"] = 0
+                s_starters_df["Mins"] = 0
+                s_starters_df["State"] = "YTP"
+                s_starters_df["sub_action"] = ""
 
-                b_cols = ["Role", "web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
-                b_display = b_df[b_cols].rename(columns = {
-                    "Role": "Role",
+                s_bench_df = pd.DataFrame(bench_rows) if bench_rows else pd.DataFrame()
+                if not s_bench_df.empty:
+                    s_bench_df = s_bench_df.rename(columns = {
+                        "web_name": "Player",
+                        "position": "Pos",
+                        "club": "Club",
+                        "starter_rating": "Proj",
+                        "total_points": "Pts"
+                    })
+                    s_bench_df["G"] = 0
+                    s_bench_df["A"] = 0
+                    s_bench_df["CS"] = 0
+                    s_bench_df["GC"] = 0
+                    s_bench_df["Bonus"] = 0
+                    s_bench_df["Mins"] = 0
+                    s_bench_df["State"] = "YTP"
+                    s_bench_df["sub_action"] = ""
+
+                render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode)
+
+            with squad_tab_table:
+                xi_df["PPG"] = xi_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
+                xi_df["Form"] = xi_df["form"].map(lambda x: f"{float(x):.1f}")
+
+                display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+                xi_display = xi_df[display_cols].rename(columns = {
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
@@ -3728,8 +3763,27 @@ elif st.session_state.page == "Squad Analyser":
                     "last_2_pts": "Last 2 GWs",
                     "next_3": "Next 3 Fixtures"
                 })
-                st.table(b_display.set_index("Role"))
-                st.caption("Sub 1 prioritises 100% fit outfield players to ensure automatic substitution cover if a doubtful starter is rested.")
+                st.markdown("**Starting XI (GK First)**")
+                st.table(xi_display.set_index("Player"))
+
+                if bench_rows:
+                    st.markdown("**Bench Hierarchy (GK → DEF → MID → FWD)**")
+                    b_df = pd.DataFrame(bench_rows)
+                    b_df["PPG"] = b_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
+                    b_df["Form"] = b_df["form"].map(lambda x: f"{float(x):.1f}")
+
+                    b_cols = ["Role", "web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+                    b_display = b_df[b_cols].rename(columns = {
+                        "Role": "Role",
+                        "web_name": "Player",
+                        "position": "Pos",
+                        "club": "Club",
+                        "health_status": "Status",
+                        "total_points": "Total Pts",
+                        "last_2_pts": "Last 2 GWs",
+                        "next_3": "Next 3 Fixtures"
+                    })
+                    st.table(b_display.set_index("Role"))
 
     # ----------------- TAB 2: TAILORED WAIVERS & SUGGESTED DROPS -----------------
     with tab_waivers:
