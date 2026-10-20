@@ -9,6 +9,9 @@ import html
 import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
+from streamlit_cookies_controller import CookieController
+
+cookie_manager = CookieController()
 
 base_dir = Path(__file__).resolve().parent
 
@@ -241,14 +244,36 @@ st.sidebar.radio(
     key = "page"
 )
 
+# League Selection with Persistent Favouriting
 st.sidebar.divider()
 st.sidebar.subheader("League Selection")
 
+league_keys = list(LEAGUE_PRESETS.keys())
+saved_favourite = cookie_manager.get("cdp_fav_league")
+default_league_idx = 0
+
+if saved_favourite and saved_favourite in league_keys:
+    default_league_idx = league_keys.index(saved_favourite)
+
+if "active_competition" not in st.session_state:
+    st.session_state["active_competition"] = league_keys[default_league_idx]
+
 selected_league_key = st.sidebar.selectbox(
     "Active Competition",
-    list(LEAGUE_PRESETS.keys()),
+    league_keys,
+    index = default_league_idx,
     key = "active_competition"
 )
+
+is_favourite = (saved_favourite == selected_league_key)
+if is_favourite:
+    st.sidebar.caption("⭐ Current Favourite League")
+else:
+    if st.sidebar.button("⭐ Set as Favourite League", use_container_width = True):
+        cookie_manager.set("cdp_fav_league", selected_league_key, max_age = 365 * 24 * 3600)
+        st.sidebar.success(f"{selected_league_key.split(' ')[0]} saved as your favourite!")
+        st.rerun()
+
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
 
@@ -1269,7 +1294,6 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
                 b_view = bench_df[display_cols].copy()
                 if "Proj" in b_view.columns:
                     b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                # Order bench table GKP then DEF then MID then FWD
                 b_view["pos_order"] = b_view["Pos"].map(POS_ORDER).fillna(99)
                 b_view = b_view.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
                 st.markdown("**Bench Substitutes**")
@@ -3705,7 +3729,6 @@ elif st.session_state.page == "Squad Analyser":
                 (~sorted_squad["id"].isin(final_xi_ids)) & (sorted_squad["position"] != "GKP")
             ].copy()
             
-            # Sort outfield bench by position (DEF -> MID -> FWD)
             all_bench_outfield["pos_rank"] = all_bench_outfield["position"].map(POS_ORDER).fillna(99)
             ordered_bench_outfield = all_bench_outfield.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
 
