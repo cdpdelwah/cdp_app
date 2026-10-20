@@ -249,29 +249,58 @@ st.sidebar.divider()
 st.sidebar.subheader("League Selection")
 
 league_keys = list(LEAGUE_PRESETS.keys())
-saved_favourite = cookie_manager.get("cdp_fav_league")
-default_league_idx = 0
 
-if saved_favourite and saved_favourite in league_keys:
-    default_league_idx = league_keys.index(saved_favourite)
+def find_league_key(val):
+    if not val:
+        return None
+    val_clean = str(val).strip().upper()
+    for k in league_keys:
+        if k.upper().startswith(val_clean) or val_clean in k.upper():
+            return k
+    return None
 
-if "active_competition" not in st.session_state:
-    st.session_state["active_competition"] = league_keys[default_league_idx]
+fav_from_url = find_league_key(st.query_params.get("fav") or st.query_params.get("league"))
+fav_from_cookie = None
+try:
+    fav_from_cookie = find_league_key(cookie_manager.get("cdp_fav_league"))
+except Exception:
+    pass
+
+resolved_fav = fav_from_url or fav_from_cookie
+
+if "user_selected_league" not in st.session_state:
+    st.session_state["user_selected_league"] = False
+
+if not st.session_state["user_selected_league"]:
+    if resolved_fav:
+        st.session_state["active_competition"] = resolved_fav
+    elif "active_competition" not in st.session_state:
+        st.session_state["active_competition"] = league_keys[0]
+
+def on_league_change():
+    st.session_state["user_selected_league"] = True
 
 selected_league_key = st.sidebar.selectbox(
     "Active Competition",
     league_keys,
-    index = default_league_idx,
-    key = "active_competition"
+    key = "active_competition",
+    on_change = on_league_change
 )
 
-is_favourite = (saved_favourite == selected_league_key)
+current_fav = resolved_fav or league_keys[0]
+is_favourite = (current_fav == selected_league_key)
+
 if is_favourite:
-    st.sidebar.caption("⭐ Current Favourite League")
+    st.sidebar.caption(f"⭐ {selected_league_key.split(' ')[0]} is your favourite league")
 else:
     if st.sidebar.button("⭐ Set as Favourite League", use_container_width = True):
-        cookie_manager.set("cdp_fav_league", selected_league_key, max_age = 365 * 24 * 3600)
-        st.sidebar.success(f"{selected_league_key.split(' ')[0]} saved as your favourite!")
+        chosen_code = selected_league_key.split(" ")[0]
+        st.query_params["fav"] = chosen_code
+        try:
+            cookie_manager.set("cdp_fav_league", selected_league_key, max_age = 365 * 24 * 3600)
+        except Exception:
+            pass
+        st.session_state["user_selected_league"] = False
         st.rerun()
 
 active_league_id = LEAGUE_PRESETS[selected_league_key]
