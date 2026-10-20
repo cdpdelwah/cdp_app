@@ -360,6 +360,15 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
+    /* Force iOS WebKit to register tap & touch events on Altair charts */
+    div[data-testid="stVegaLiteChart"],
+    div[data-testid="stVegaLiteChart"] svg,
+    div[data-testid="stVegaLiteChart"] canvas {{
+        cursor: pointer !important;
+        -webkit-tap-highlight-color: transparent !important;
+        touch-action: manipulation !important;
+    }}
+
     /* Scoreboard Card Headline & Element Classes */
     .card-mgr-title {{
         font-size: {font_card_mgr} !important;
@@ -1844,6 +1853,13 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     st.markdown(f"#### Gameweek {gw_num} Points Progression")
     st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
 
+    nearest_hover = alt.selection_point(
+        nearest = True,
+        on = "pointerdown",
+        empty = False,
+        fields = ["Match", "Manager"]
+    )
+
     base_chart = alt.Chart(chart_df).encode(
         x = alt.X(
             "Match:N",
@@ -1875,7 +1891,9 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
 
     line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 85))
 
-    touch_layer = base_chart.mark_circle(size = 700, opacity = 0).encode(
+    touch_layer = base_chart.mark_circle(size = 800, opacity = 0).add_params(
+        nearest_hover
+    ).encode(
         tooltip = [
             alt.Tooltip("Manager:N", title = "Manager"),
             alt.Tooltip("Match:N", title = "Match"),
