@@ -9,9 +9,6 @@ import html
 import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
-from streamlit_cookies_controller import CookieController
-
-cookie_manager = CookieController()
 
 base_dir = Path(__file__).resolve().parent
 
@@ -244,64 +241,63 @@ st.sidebar.radio(
     key = "page"
 )
 
-# League Selection with Persistent Favouriting
+# ----------------- RELIABLE DEVICE-PERSISTENT FAVOURITE LEAGUE (localStorage) -----------------
 st.sidebar.divider()
 st.sidebar.subheader("League Selection")
 
 league_keys = list(LEAGUE_PRESETS.keys())
 
-def find_league_key(val):
-    if not val:
-        return None
-    val_clean = str(val).strip().upper()
+# Intercept temporary internal state if restored from localStorage
+if "_internal_fav" in st.query_params:
+    restored_code = st.query_params.pop("_internal_fav")
     for k in league_keys:
-        if k.upper().startswith(val_clean) or val_clean in k.upper():
-            return k
-    return None
+        if k.upper().startswith(str(restored_code).upper()):
+            st.session_state["active_competition"] = k
+            break
 
-fav_from_url = find_league_key(st.query_params.get("fav") or st.query_params.get("league"))
-fav_from_cookie = None
-try:
-    fav_from_cookie = find_league_key(cookie_manager.get("cdp_fav_league"))
-except Exception:
-    pass
-
-resolved_fav = fav_from_url or fav_from_cookie
-
-if "user_selected_league" not in st.session_state:
-    st.session_state["user_selected_league"] = False
-
-if not st.session_state["user_selected_league"]:
-    if resolved_fav:
-        st.session_state["active_competition"] = resolved_fav
-    elif "active_competition" not in st.session_state:
-        st.session_state["active_competition"] = league_keys[0]
-
-def on_league_change():
-    st.session_state["user_selected_league"] = True
+# Ensure initial competition state is set
+if "active_competition" not in st.session_state:
+    st.session_state["active_competition"] = league_keys[0]
 
 selected_league_key = st.sidebar.selectbox(
     "Active Competition",
     league_keys,
-    key = "active_competition",
-    on_change = on_league_change
+    key = "active_competition"
 )
 
-current_fav = resolved_fav or league_keys[0]
-is_favourite = (current_fav == selected_league_key)
+# Hidden JavaScript engine that handles reading and writing to client's device localStorage
+# Does NOT modify the URL bar when visiting the site
+fav_storage_js = f"""
+<script>
+    const STORAGE_KEY = "cdp_fav_league_code";
+    
+    // Read favourite from localStorage on initial load
+    const savedCode = window.localStorage.getItem(STORAGE_KEY);
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // If a saved favourite exists and is not currently selected, update session seamlessly
+    if (savedCode && !sessionStorage.getItem("cdp_loaded_once")) {{
+        sessionStorage.setItem("cdp_loaded_once", "true");
+        const currentCode = "{selected_league_key.split(' ')[0]}";
+        if (savedCode !== currentCode) {{
+            urlParams.set("_internal_fav", savedCode);
+            window.location.search = urlParams.toString();
+        }}
+    }}
+</script>
+"""
+components.html(fav_storage_js, height = 0, width = 0)
 
-if is_favourite:
-    st.sidebar.caption(f"⭐ {selected_league_key.split(' ')[0]} is your favourite league")
-else:
-    if st.sidebar.button("⭐ Set as Favourite League", use_container_width = True):
-        chosen_code = selected_league_key.split(" ")[0]
-        st.query_params["fav"] = chosen_code
-        try:
-            cookie_manager.set("cdp_fav_league", selected_league_key, max_age = 365 * 24 * 3600)
-        except Exception:
-            pass
-        st.session_state["user_selected_league"] = False
-        st.rerun()
+# Save or update favourite button
+selected_code = selected_league_key.split(" ")[0]
+if st.sidebar.button("⭐ Set as Favourite League", use_container_width = True):
+    save_js = f"""
+    <script>
+        window.localStorage.setItem("cdp_fav_league_code", "{selected_code}");
+    </script>
+    """
+    components.html(save_js, height = 0, width = 0)
+    st.sidebar.success(f"{selected_code} saved on this device!")
 
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
