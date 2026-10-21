@@ -243,7 +243,7 @@ NAV_ITEMS = [
     "Results Analyser",
     "Cup & Bucket",
     "Squad Analyser",
-    "Trade Hub"
+    "Trade Hub",
     "GACS",
     "Disciplinary",
     "Standings",
