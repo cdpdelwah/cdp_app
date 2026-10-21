@@ -715,7 +715,7 @@ st.markdown(f"""
 """, unsafe_allow_html = True)
 
 # ----------------- EMBEDDED GREEN PITCH RENDERING ENGINE -----------------
-def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, is_large = False):
+def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, is_large = False, show_proj_pill = False):
     if starters_df is None or starters_df.empty:
         st.info("Lineup selections not yet available.")
         return
@@ -758,6 +758,8 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         if p_missed > 0:
             badges.append(f"{p_missed}❌" if p_missed > 1 else "❌")
 
+        pill_score_str = f"{proj:.1f} pts" if show_proj_pill else f"{pts} pts"
+
         return {
             "name": str(p.get("Player", "Unknown")),
             "pos": str(p.get("Pos", "")),
@@ -769,6 +771,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             "mins": mins,
             "pts": pts,
             "proj": f"{proj:.1f}",
+            "pill_text": pill_score_str,
             "g": g,
             "a": a,
             "cs": cs,
@@ -822,6 +825,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     badge_font = "0.78rem" if is_large else "0.70rem"
     name_font = "0.85rem" if is_large else "0.74rem"
     pts_font = "0.88rem" if is_large else "0.76rem"
+    left_banner_label = "Season Total" if show_proj_pill else "Match Total"
 
     pitch_html = f"""
     <!DOCTYPE html>
@@ -1150,7 +1154,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                         {sub_tag}
                     </div>
                     <div class="player-name-pill">{p['name']}</div>
-                    <div class="player-pts-pill">{p['pts']} pts{event_icon}</div>
+                    <div class="player-pts-pill">{p['pill_text']}{event_icon}</div>
                 </div>
             """
         pitch_html += '</div>\n'
@@ -1164,11 +1168,11 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                 <div class="modal-meta" id="m-meta">Pos • Club • State</div>
                 <div class="modal-score-banner">
                     <div>
-                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Match Total</span>
+                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">{left_banner_label}</span>
                         <div class="modal-pts-big" id="m-pts">0 PTS</div>
                     </div>
                     <div style="text-align:right;">
-                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700;">PROJECTION</span>
+                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:700;">GW PROJECTION</span>
                         <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;" id="m-proj">0.0</div>
                     </div>
                 </div>
@@ -1206,7 +1210,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                     {sub_tag}
                 </div>
                 <div class="player-name-pill">{bp['name']}</div>
-                <div class="player-pts-pill">{bp['pts']} pts{event_icon}</div>
+                <div class="player-pts-pill">{bp['pill_text']}{event_icon}</div>
             </div>
         """
 
@@ -1224,7 +1228,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             document.getElementById('m-name').textContent = p.name;
             document.getElementById('m-meta').textContent = p.pos + ' • ' + p.club + ' (' + p.state + ')';
             document.getElementById('m-pts').textContent = p.pts + ' PTS';
-            document.getElementById('m-proj').textContent = p.proj;
+            document.getElementById('m-proj').textContent = p.proj + ' pts';
 
             let gridHtml = '';
             gridHtml += '<div class="stat-item"><span class="stat-label">Minutes:</span><span class="stat-val">' + p.mins + "'" + '</span></div>';
@@ -1292,7 +1296,7 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
     p_tab_pitch, p_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
 
     with p_tab_pitch:
-        render_pitch_component(alias, starters_df, bench_df, accent_color, is_large)
+        render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
         display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
@@ -1924,7 +1928,7 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
 
     line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 85))
 
-    # Opacity 0.01 + SVG renderer ensures iOS Safari registers tap-to-hover on individual points
+    # Opacity 0.01 + SVG renderer inside properties() ensures iOS Safari registers tap-to-hover cleanly
     touch_layer = base_chart.mark_circle(size = 900, opacity = 0.01).encode(
         tooltip = [
             alt.Tooltip("Manager:N", title = "Manager"),
@@ -1937,14 +1941,13 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
 
     chart = (line_layer + touch_layer).properties(
         height = 360,
-        background = "#000000"
+        background = "#000000",
+        usermeta = {"embedOptions": {"renderer": "svg", "actions": False}}
     ).configure_view(
         strokeWidth = 0,
         fill = "#000000"
     ).configure_axis(
         domainColor = "#182030"
-    ).usermeta(
-        embedOptions = {"renderer": "svg", "actions": False}
     )
 
     st.altair_chart(chart, use_container_width = True)
@@ -3875,6 +3878,7 @@ elif st.session_state.page == "Squad Analyser":
     elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0.0).round(1)
     elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0.0).round(1)
     elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
+    elements_df["minutes"] = pd.to_numeric(elements_df["minutes"], errors = "coerce").fillna(0)
     elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors = "coerce")
 
     def calc_last_2_pts(elem_id):
@@ -3925,14 +3929,35 @@ elif st.session_state.page == "Squad Analyser":
         if my_squad.empty:
             st.warning("No players found for this team selection.")
         else:
+            def compute_gw_projection(r):
+                avail = float(r["avail_factor"])
+                if avail <= 0.0:
+                    return 0.0
+                form_val = float(r["form"] or 0.0)
+                ppg_val = float(r["points_per_game"] or 2.0)
+                base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+
+                season_mins = float(r["minutes"] or 0.0)
+                if current_gw > 3:
+                    expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
+                    if expected_min_ratio < 0.6:
+                        base_exp = base_exp * 0.8
+
+                if base_exp <= 0 and avail > 0:
+                    base_exp = 2.0
+
+                fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
+                return round(base_exp * fdr_mult, 1)
+
             def compute_starter_rating(r):
                 if r["avail_factor"] == 0.0:
                     return -9999.0
                 base_score = (r["form"] * 1.8) + (r["points_per_game"] * 2.0) + (r["ict_index"] * 0.05)
                 return round(base_score * r["avail_factor"], 1)
 
+            my_squad["proj_gw"] = my_squad.apply(compute_gw_projection, axis = 1)
             my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis = 1)
-            sorted_squad = my_squad.sort_values(by = "starter_rating", ascending = False)
+            sorted_squad = my_squad.sort_values(by = ["proj_gw", "starter_rating"], ascending = [False, False])
             
             gks = sorted_squad[sorted_squad["position"] == "GKP"]
             defs = sorted_squad[sorted_squad["position"] == "DEF"]
@@ -3965,7 +3990,7 @@ elif st.session_state.page == "Squad Analyser":
             ].copy()
             
             all_bench_outfield["pos_rank"] = all_bench_outfield["position"].map(POS_ORDER).fillna(99)
-            ordered_bench_outfield = all_bench_outfield.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
+            ordered_bench_outfield = all_bench_outfield.sort_values(by = ["pos_rank", "proj_gw"], ascending = [True, False])
 
             bench_rows = []
             for bg in bench_gk:
@@ -3979,12 +4004,12 @@ elif st.session_state.page == "Squad Analyser":
 
             xi_df = pd.DataFrame(starting_xi)
             xi_df["pos_rank"] = xi_df["position"].map(POS_ORDER)
-            xi_df = xi_df.sort_values(by = ["pos_rank", "starter_rating"], ascending = [True, False])
+            xi_df = xi_df.sort_values(by = ["pos_rank", "proj_gw"], ascending = [True, False])
             
-            xi_proj_sum = round(sum(compute_starter_rating(p) for p in starting_xi if compute_starter_rating(p) > 0), 1)
+            xi_proj_sum = round(float(xi_df["proj_gw"].sum()), 1)
             sel_manager_name = entry_options.get(selected_entry_id, "Selected Squad").split(" (")[0]
-            st.subheader(f"Recommended Lineup: {sel_manager_name} ({xi_proj_sum} proj)")
-            st.caption("Pitch and list views show starting XI and bench hierarchy sorted GK then DEF then MID then FWD.")
+            st.subheader(f"Recommended Lineup: {sel_manager_name} ({xi_proj_sum:.1f} proj pts)")
+            st.caption(f"Gameweek {current_gw} projected points shown on pitch tokens • Bench ordered GK then DEF then MID then FWD.")
 
             squad_tab_pitch, squad_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
 
@@ -3993,7 +4018,7 @@ elif st.session_state.page == "Squad Analyser":
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
-                    "starter_rating": "Proj",
+                    "proj_gw": "Proj",
                     "total_points": "Pts"
                 })
                 s_starters_df["G"] = 0
@@ -4011,7 +4036,7 @@ elif st.session_state.page == "Squad Analyser":
                         "web_name": "Player",
                         "position": "Pos",
                         "club": "Club",
-                        "starter_rating": "Proj",
+                        "proj_gw": "Proj",
                         "total_points": "Pts"
                     })
                     s_bench_df["G"] = 0
@@ -4023,19 +4048,20 @@ elif st.session_state.page == "Squad Analyser":
                     s_bench_df["State"] = "YTP"
                     s_bench_df["sub_action"] = ""
 
-                render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode)
+                render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode, show_proj_pill = True)
 
             with squad_tab_table:
+                xi_df["GW Proj"] = xi_df["proj_gw"].map(lambda x: f"{float(x):.1f}")
                 xi_df["PPG"] = xi_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
                 xi_df["Form"] = xi_df["form"].map(lambda x: f"{float(x):.1f}")
 
-                display_cols = ["web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+                display_cols = ["web_name", "position", "club", "health_status", "GW Proj", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
                 xi_display = xi_df[display_cols].rename(columns = {
                     "web_name": "Player",
                     "position": "Pos",
                     "club": "Club",
                     "health_status": "Status",
-                    "total_points": "Total Pts",
+                    "total_points": "Season Pts",
                     "last_2_pts": "Last 2 GWs",
                     "next_3": "Next 3 Fixtures"
                 })
@@ -4045,17 +4071,18 @@ elif st.session_state.page == "Squad Analyser":
                 if bench_rows:
                     st.markdown("**Bench Hierarchy (GK → DEF → MID → FWD)**")
                     b_df = pd.DataFrame(bench_rows)
+                    b_df["GW Proj"] = b_df["proj_gw"].map(lambda x: f"{float(x):.1f}")
                     b_df["PPG"] = b_df["points_per_game"].map(lambda x: f"{float(x):.1f}")
                     b_df["Form"] = b_df["form"].map(lambda x: f"{float(x):.1f}")
 
-                    b_cols = ["Role", "web_name", "position", "club", "health_status", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
+                    b_cols = ["Role", "web_name", "position", "club", "health_status", "GW Proj", "total_points", "last_2_pts", "next_3", "PPG", "Form"]
                     b_display = b_df[b_cols].rename(columns = {
                         "Role": "Role",
                         "web_name": "Player",
                         "position": "Pos",
                         "club": "Club",
                         "health_status": "Status",
-                        "total_points": "Total Pts",
+                        "total_points": "Season Pts",
                         "last_2_pts": "Last 2 GWs",
                         "next_3": "Next 3 Fixtures"
                     })
