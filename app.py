@@ -20,6 +20,11 @@ assets_folder = base_dir / "Assets"
 if not assets_folder.exists():
     assets_folder = base_dir / "assets"
 
+# Check for Newsletters directory
+newsletters_folder = base_dir / "Newsletters"
+if not newsletters_folder.exists():
+    newsletters_folder = base_dir / "newsletters"
+
 logo_path = assets_folder / "SeasonX_Logo_Master.jpg"
 
 dash = " - "
@@ -847,6 +852,8 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         .pitch-container {{
             position: relative;
             width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
             height: 520px;
             background: repeating-linear-gradient(
                 180deg,
@@ -982,7 +989,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         }}
 
         .dugout-container {{
-            margin-top: 8px;
+            width: 100%;
+            max-width: 600px;
+            margin: 8px auto 0 auto;
             background: #060911;
             border: 1px solid #182030;
             border-radius: 8px;
@@ -1536,9 +1545,20 @@ def load_cup_matches():
         return None
 
 def render_pdf(filename, title):
-    pdf_path = assets_folder / filename
-    if not pdf_path.exists():
-        st.warning(f"File '{filename}' not found in Assets folder.")
+    potential_paths = [
+        newsletters_folder / filename,
+        base_dir / "Newsletters" / filename,
+        base_dir / "newsletters" / filename,
+        Path("Newsletters") / filename,
+        Path("newsletters") / filename,
+        assets_folder / "Newsletters" / filename,
+        assets_folder / filename,
+        base_dir / filename
+    ]
+    pdf_path = next((p for p in potential_paths if p.exists() and p.is_file()), None)
+
+    if not pdf_path:
+        st.warning(f"File '{filename}' not found in Newsletters or Assets folder.")
         return
     try:
         doc = pdfium.PdfDocument(pdf_path)
@@ -2334,8 +2354,18 @@ def render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map,
 
     st.table(df.set_index("Manager"))
 
-@st.cache_data(ttl = 300)
-def calculate_disciplinary_for_gw(entries, matches, gw, element_lookup, pos_map, team_map, all_fixtures_list):
+def _compute_disciplinary_gw_internal(league_id, gw):
+    static_data = fetch_fpl_static()
+    league_details, _ = fetch_league_data(league_id)
+    if not static_data or not league_details:
+        return pd.DataFrame()
+
+    entries = league_details.get("league_entries", [])
+    matches = league_details.get("matches", [])
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+
     live_data_gw = fetch_live_event(gw)
     live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
 
@@ -2361,7 +2391,7 @@ def calculate_disciplinary_for_gw(entries, matches, gw, element_lookup, pos_map,
             continue
 
         starters_df, bench_df, live_score, _, _, _, _, _ = evaluate_lineup(
-            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map, gw, all_fixtures_list
+            picks, live_elements_gw, element_lookup, club_minutes_gw, pos_map, team_map, gw, None
         )
         active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
         active_bench = bench_df[bench_df["sub_action"] == "Subbed On"] if not bench_df.empty else pd.DataFrame()
@@ -2454,88 +2484,117 @@ def calculate_disciplinary_for_gw(entries, matches, gw, element_lookup, pos_map,
     ).reset_index(drop = True)
     return df
 
-def render_disciplinary_view(entries, matches, current_gw, element_lookup, pos_map, team_map, all_fixtures_list, key_suffix = "main"):
+@st.cache_data(ttl = 86400)
+def get_disciplinary_gw_finished(league_id, gw):
+    return _compute_disciplinary_gw_internal(league_id, gw)
+
+@st.cache_data(ttl = 120)
+def get_disciplinary_gw_live(league_id, gw):
+    return _compute_disciplinary_gw_internal(league_id, gw)
+
+@st.cache_data(ttl = 600)
+def get_disciplinary_season_summary(league_id, current_gw):
+    league_details, _ = fetch_league_data(league_id)
+    entries = league_details.get("league_entries", []) if league_details else []
+    totals = {
+        get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")): {
+            "Manager": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")),
+            "Yellow Cards": 0,
+            "Red Cards": 0,
+            "Total Card Pts": 0,
+            "Results Changed": 0,
+            "League Pts Cost": 0
+        }
+        for e in entries
+    }
+    weekly_swings = []
+    per_week_rows = []
+
+    for gw in range(1, current_gw + 1):
+        if gw < current_gw:
+            gw_df = get_disciplinary_gw_finished(league_id, gw)
+        else:
+            gw_df = get_disciplinary_gw_live(league_id, gw)
+
+        for _, r in gw_df.iterrows():
+            mgr = r["Manager"]
+            if mgr in totals:
+                totals[mgr]["Yellow Cards"] += int(r["Yellow Cards"])
+                totals[mgr]["Red Cards"] += int(r["Red Cards"])
+                totals[mgr]["Total Card Pts"] += int(r["Card Pts"])
+                totals[mgr]["Results Changed"] += int(r["_changed_count"])
+                totals[mgr]["League Pts Cost"] += int(r["_league_pts_cost"])
+
+            per_week_rows.append({
+                "GW": f"GW {gw}",
+                "Manager": mgr,
+                "YC": int(r["Yellow Cards"]),
+                "RC": int(r["Red Cards"]),
+                "Card Pts": int(r["Card Pts"]),
+                "Matchup": r["Matchup"],
+                "Result Changed?": r["Result Changed?"]
+            })
+
+            if r["_changed_count"] > 0:
+                weekly_swings.append({
+                    "GW": f"GW {gw}",
+                    "Manager": mgr,
+                    "Matchup": r["Matchup"],
+                    "Yellow Cards": int(r["Yellow Cards"]),
+                    "Red Cards": int(r["Red Cards"]),
+                    "Card Pts": int(r["Card Pts"]),
+                    "Impact": r["Result Changed?"]
+                })
+
+    season_df = pd.DataFrame(list(totals.values())).sort_values(
+        by = ["Total Card Pts", "Yellow Cards"],
+        ascending = [True, False]
+    ).reset_index(drop = True)
+
+    swings_df = pd.DataFrame(weekly_swings) if weekly_swings else pd.DataFrame()
+    pw_df = pd.DataFrame(per_week_rows) if per_week_rows else pd.DataFrame()
+    return season_df, swings_df, pw_df, sorted(list(totals.keys()))
+
+def render_disciplinary_view(league_id, current_gw, key_suffix = "main"):
     st.subheader("🟨🟥 Disciplinary Record - Starting XI Cards & Result Impact")
     st.caption("Tracks Yellow Cards (-1 pt) and Red Cards (-3 pts) in each manager's active starting XI and whether those deductions changed their match result that week.")
 
-    gw_options = ["All Season (Total)"] + [f"Gameweek {gw}" for gw in range(current_gw, 0, -1)]
-    selected_option = st.selectbox("Select View", gw_options, index = 0, key = f"disc_gw_sel_{current_gw}_{key_suffix}")
+    # Default to current Gameweek so opening the tab is instantaneous
+    gw_options = [f"Gameweek {gw}" for gw in range(current_gw, 0, -1)] + ["All Season (Total)"]
+    selected_option = st.selectbox("Select Gameweek to Inspect", gw_options, index = 0, key = f"disc_gw_sel_{current_gw}_{key_suffix}")
 
     if "All Season" in selected_option:
-        with st.spinner("Compiling season disciplinary records across all gameweeks..."):
-            totals = {
-                get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")): {
-                    "Manager": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", "")),
-                    "Yellow Cards": 0,
-                    "Red Cards": 0,
-                    "Total Card Pts": 0,
-                    "Results Changed": 0,
-                    "League Pts Cost": 0
-                }
-                for e in entries
-            }
-            weekly_swings = []
-            per_week_rows = []
+        with st.spinner("Compiling season disciplinary records..."):
+            season_df, swings_df, pw_df, mgr_list = get_disciplinary_season_summary(league_id, current_gw)
 
-            for gw in range(1, current_gw + 1):
-                gw_df = calculate_disciplinary_for_gw(entries, matches, gw, element_lookup, pos_map, team_map, all_fixtures_list)
-                for _, r in gw_df.iterrows():
-                    mgr = r["Manager"]
-                    if mgr in totals:
-                        totals[mgr]["Yellow Cards"] += int(r["Yellow Cards"])
-                        totals[mgr]["Red Cards"] += int(r["Red Cards"])
-                        totals[mgr]["Total Card Pts"] += int(r["Card Pts"])
-                        totals[mgr]["Results Changed"] += int(r["_changed_count"])
-                        totals[mgr]["League Pts Cost"] += int(r["_league_pts_cost"])
-
-                    per_week_rows.append({
-                        "GW": f"GW {gw}",
-                        "Manager": mgr,
-                        "YC": int(r["Yellow Cards"]),
-                        "RC": int(r["Red Cards"]),
-                        "Card Pts": int(r["Card Pts"]),
-                        "Matchup": r["Matchup"],
-                        "Result Changed?": r["Result Changed?"]
-                    })
-
-                    if r["_changed_count"] > 0:
-                        weekly_swings.append({
-                            "GW": f"GW {gw}",
-                            "Manager": mgr,
-                            "Matchup": r["Matchup"],
-                            "Yellow Cards": int(r["Yellow Cards"]),
-                            "Red Cards": int(r["Red Cards"]),
-                            "Card Pts": int(r["Card Pts"]),
-                            "Impact": r["Result Changed?"]
-                        })
-
-            season_df = pd.DataFrame(list(totals.values())).sort_values(
-                by = ["Total Card Pts", "Yellow Cards"],
-                ascending = [True, False]
-            ).reset_index(drop = True)
-
-            st.markdown("#### Season Totals")
+        st.markdown("#### Season Totals")
+        if not season_df.empty:
             st.table(season_df.set_index("Manager"))
 
-            st.markdown("#### Matches Where Cards Changed the Result")
-            if weekly_swings:
-                swings_df = pd.DataFrame(weekly_swings)
-                st.table(swings_df.set_index("GW"))
-            else:
-                st.info("No match results have been altered by starting XI card deductions this season.")
+        st.markdown("#### Matches Where Cards Changed the Result")
+        if not swings_df.empty:
+            st.table(swings_df.set_index("GW"))
+        else:
+            st.info("No match results have been altered by starting XI card deductions this season.")
 
+        if not pw_df.empty:
             with st.expander("📅 View Full Per - Week Breakdown"):
-                pw_df = pd.DataFrame(per_week_rows)
-                mgr_filter = st.selectbox("Filter by Manager", ["All Managers"] + sorted(list(totals.keys())), key = f"disc_pw_mgr_{key_suffix}")
-                if mgr_filter != "All Managers":
-                    pw_df = pw_df[pw_df["Manager"] == mgr_filter]
-                st.table(pw_df.set_index("GW"))
+                mgr_filter = st.selectbox("Filter by Manager", ["All Managers"] + mgr_list, key = f"disc_pw_mgr_{key_suffix}")
+                filtered_pw = pw_df[pw_df["Manager"] == mgr_filter] if mgr_filter != "All Managers" else pw_df
+                st.table(filtered_pw.set_index("GW"))
     else:
         chosen_gw_num = int(selected_option.split(" ")[1])
-        with st.spinner(f"Compiling Gameweek {chosen_gw_num} disciplinary data..."):
-            gw_df = calculate_disciplinary_for_gw(entries, matches, chosen_gw_num, element_lookup, pos_map, team_map, all_fixtures_list)
+        with st.spinner(f"Loading Gameweek {chosen_gw_num} disciplinary data..."):
+            if chosen_gw_num < current_gw:
+                gw_df = get_disciplinary_gw_finished(league_id, chosen_gw_num)
+            else:
+                gw_df = get_disciplinary_gw_live(league_id, chosen_gw_num)
+
+        if not gw_df.empty:
             display_df = gw_df[["Manager", "Yellow Cards", "Red Cards", "Card Pts", "Matchup", "Result Changed?"]].copy()
             st.table(display_df.set_index("Manager"))
+        else:
+            st.info("No disciplinary data available for this gameweek.")
 
 # ----------------- 1. HOME PAGE -----------------
 if st.session_state.page == "Home":
@@ -4048,7 +4107,10 @@ elif st.session_state.page == "Squad Analyser":
                     s_bench_df["State"] = "YTP"
                     s_bench_df["sub_action"] = ""
 
-                render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode, show_proj_pill = True)
+                # Render inside a 2-column layout so desktop width matches Live Scores
+                pitch_col, _ = st.columns(2)
+                with pitch_col:
+                    render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode, show_proj_pill = True)
 
             with squad_tab_table:
                 xi_df["GW Proj"] = xi_df["proj_gw"].map(lambda x: f"{float(x):.1f}")
@@ -4241,30 +4303,21 @@ elif st.session_state.page in ["GACS", "XI Stats"]:
 elif st.session_state.page == "Disciplinary":
     st.title("🟨🟥 Disciplinary" + dash + selected_league_key)
 
-    static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
-    all_fixtures = fetch_all_epl_fixtures()
-
-    if not static_data or not league_details:
+    if not league_details:
         st.error("Failed to load league data. Verify connection.")
         st.stop()
 
-    entries = league_details.get("league_entries", [])
     matches = league_details.get("matches", [])
-
-    if not entries or not matches:
+    if not matches:
         st.warning("No league data available for this competition.")
         st.stop()
-
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
 
     all_events = sorted(list({m["event"] for m in matches}))
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
     current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
 
-    render_disciplinary_view(entries, matches, current_gw, element_lookup, pos_map, team_map, all_fixtures, key_suffix = "page")
+    render_disciplinary_view(active_league_id, current_gw, key_suffix = "page")
 
 # ----------------- 9. STANDINGS SECTION -----------------
 elif st.session_state.page == "Standings":
@@ -4336,7 +4389,7 @@ elif st.session_state.page == "Standings":
         render_xi_stats_view(entries, current_gw, element_lookup, pos_map, team_map, all_fixtures)
 
     with standings_tab4:
-        render_disciplinary_view(entries, matches, current_gw, element_lookup, pos_map, team_map, all_fixtures, key_suffix = "standings")
+        render_disciplinary_view(active_league_id, current_gw, key_suffix = "standings")
 
 # ----------------- 10. NEWSLETTERS SECTION -----------------
 elif st.session_state.page == "Newsletters":
