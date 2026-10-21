@@ -401,16 +401,6 @@ st.markdown(f"""
         border-color: {active_theme['accent']} !important;
     }}
 
-    /* Force iOS WebKit to register tap & touch events on SVG Altair charts */
-    div[data-testid="stVegaLiteChart"],
-    div[data-testid="stVegaLiteChart"] svg,
-    div[data-testid="stVegaLiteChart"] svg * {{
-        cursor: pointer !important;
-        -webkit-tap-highlight-color: transparent !important;
-        touch-action: manipulation !important;
-        pointer-events: all !important;
-    }}
-
     /* Scoreboard Card Headline & Element Classes */
     .card-mgr-title {{
         font-size: {font_card_mgr} !important;
@@ -529,34 +519,6 @@ st.markdown(f"""
         background-color: #121724 !important;
     }}
 
-    /* Vega Tooltip Customisation & Accessibility Scaling */
-    #vg-tooltip-element {{
-        font-size: {font_tooltip} !important;
-        line-height: 1.45 !important;
-        padding: 12px 18px !important;
-        border-radius: 8px !important;
-        border: 2px solid #ffffff !important;
-        background-color: #090c13 !important;
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.9) !important;
-        z-index: 999999 !important;
-    }}
-
-    #vg-tooltip-element table tr td {{
-        font-size: {font_tooltip} !important;
-        padding: 6px 10px !important;
-        background-color: #090c13 !important;
-    }}
-
-    #vg-tooltip-element table tr td.key {{
-        color: #94a3b8 !important;
-        font-weight: 600 !important;
-    }}
-
-    #vg-tooltip-element table tr td.value {{
-        color: #f8fafc !important;
-        font-weight: 700 !important;
-    }}
-
     div[data-testid="stExpander"] {{
         background-color: #090c13 !important;
         border: 1px solid #182030 !important;
@@ -634,14 +596,6 @@ st.markdown(f"""
     button[data-baseweb="tab"] p {{
         font-size: {font_tab} !important;
         font-weight: 700 !important;
-    }}
-
-    div[data-testid="stVegaLiteChart"],
-    div[data-testid="stVegaLiteChart"] > div,
-    .vega-embed,
-    .vega-embed canvas,
-    .vega-embed svg {{
-        background-color: #000000 !important;
     }}
 
     /* Buttons */
@@ -1835,6 +1789,7 @@ def get_active_players_from_dfs(starters_df, bench_df):
                 active_list.append(r)
     return active_list
 
+# ----------------- EMBEDDED SVG/HTML PROGRESSION CHART ENGINE -----------------
 def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, starters2_df, bench2_df, all_fixtures_list, team_short_map, accent_color):
     gw_fixtures = []
     if all_fixtures_list:
@@ -1850,10 +1805,9 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     t1_active = get_active_players_from_dfs(starters1_df, bench1_df)
     t2_active = get_active_players_from_dfs(starters2_df, bench2_df)
 
-    labels = []
-    records = []
     curr1 = 0
     curr2 = 0
+    fixtures_payload = []
 
     def get_fixture_contributors(active_players, h_id, a_id):
         entries_list = []
@@ -1896,81 +1850,378 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
         contrib1 = get_fixture_contributors(t1_active, h_team_id, a_team_id)
         contrib2 = get_fixture_contributors(t2_active, h_team_id, a_team_id)
 
-        labels.append(m_label)
-        records.append({
-            "Match": m_label,
-            "Manager": alias1,
-            "Points": curr1,
-            "Added": f"+{p1_pts}",
-            "Key Events": contrib1
+        fixtures_payload.append({
+            "match": m_label,
+            "m1": {
+                "manager": str(alias1),
+                "pts": curr1,
+                "added": f"+{p1_pts}",
+                "events": contrib1,
+                "color": accent_color
+            },
+            "m2": {
+                "manager": str(alias2),
+                "pts": curr2,
+                "added": f"+{p2_pts}",
+                "events": contrib2,
+                "color": "#38bdf8"
+            }
         })
-        records.append({
-            "Match": m_label,
-            "Manager": alias2,
-            "Points": curr2,
-            "Added": f"+{p2_pts}",
-            "Key Events": contrib2
-        })
-
-    chart_df = pd.DataFrame(records)
 
     st.markdown(f"#### Gameweek {gw_num} Points Progression")
-    st.caption("Cumulative matchday points tracking each EPL fixture in the order played")
+    st.caption("Cumulative matchday points tracking each EPL fixture in the order played • Tap or hover any dot to inspect")
 
-    base_chart = alt.Chart(chart_df).encode(
-        x = alt.X(
-            "Match:N",
-            sort = labels,
-            title = None,
-            axis = alt.Axis(
-                labelAngle = -90,
-                labelOverlap = False,
-                labelColor = "#94a3b8",
-                labelFontSize = font_chart_label,
-                grid = False
-            )
-        ),
-        y = alt.Y(
-            "Points:Q",
-            title = "Cumulative Points",
-            axis = alt.Axis(
-                labelColor = "#94a3b8",
-                gridColor = "#182030",
-                domainColor = "#182030"
-            )
-        ),
-        color = alt.Color(
-            "Manager:N",
-            scale = alt.Scale(domain = [alias1, alias2], range = [accent_color, "#38bdf8"]),
-            legend = alt.Legend(title = None, orient = "bottom", labelColor = "#ffffff")
-        )
-    )
+    payload_json = json.dumps(fixtures_payload).replace("'", "&#39;")
+    safe_alias1 = html.escape(str(alias1))
+    safe_alias2 = html.escape(str(alias2))
+    axis_font_px = 13 if large_mode else 11
+    tooltip_font_px = 16 if large_mode else 14
 
-    line_layer = base_chart.mark_line(point = alt.OverlayMarkDef(size = 85))
+    chart_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background-color: #000000;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }}
+        .chart-wrapper {{
+            position: relative;
+            width: 100%;
+            height: 390px;
+            background-color: #000000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }}
+        .svg-box {{
+            position: relative;
+            width: 100%;
+            height: 350px;
+        }}
+        svg {{
+            width: 100%;
+            height: 100%;
+            display: block;
+            overflow: visible;
+        }}
+        .hit-dot {{
+            cursor: pointer;
+            pointer-events: all;
+        }}
+        .vis-dot {{
+            transition: r 0.15s ease, stroke-width 0.15s ease;
+            pointer-events: none;
+        }}
+        .vis-dot.active {{
+            r: 8px;
+            stroke: #ffffff;
+            stroke-width: 2.5px;
+        }}
+        .legend-row {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+            height: 36px;
+            padding-bottom: 4px;
+        }}
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: {axis_font_px + 2}px;
+            font-weight: 700;
+            color: #ffffff;
+        }}
+        .legend-swatch {{
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }}
+        .tooltip-box {{
+            display: none;
+            position: absolute;
+            background-color: #090c13;
+            border: 2px solid #ffffff;
+            border-radius: 8px;
+            padding: 10px 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.95);
+            z-index: 50;
+            min-width: 230px;
+            max-width: 310px;
+            pointer-events: none;
+        }}
+        .tooltip-box table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        .tooltip-box td {{
+            padding: 4px 8px;
+            font-size: {tooltip_font_px}px;
+            line-height: 1.35;
+            border-bottom: 1px solid #141a26;
+        }}
+        .tooltip-box tr:last-child td {{
+            border-bottom: none;
+        }}
+        .tooltip-box td.key {{
+            color: #94a3b8;
+            font-weight: 600;
+            text-align: right;
+            white-space: nowrap;
+            width: 42%;
+        }}
+        .tooltip-box td.val {{
+            color: #f8fafc;
+            font-weight: 700;
+            text-align: left;
+        }}
+        .tooltip-divider {{
+            height: 1px;
+            background-color: #334155;
+            margin: 6px 0;
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="chart-wrapper" id="chart-wrapper">
+        <div class="svg-box" id="svg-box">
+            <svg id="prog-svg"></svg>
+            <div class="tooltip-box" id="prog-tooltip"></div>
+        </div>
+        <div class="legend-row">
+            <div class="legend-item">
+                <span class="legend-swatch" style="background-color: {accent_color};"></span>
+                <span>{safe_alias1}</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-swatch" style="background-color: #38bdf8;"></span>
+                <span>{safe_alias2}</span>
+            </div>
+        </div>
+    </div>
 
-    # Opacity 0.01 + SVG renderer inside properties() ensures iOS Safari registers tap-to-hover cleanly
-    touch_layer = base_chart.mark_circle(size = 900, opacity = 0.01).encode(
-        tooltip = [
-            alt.Tooltip("Manager:N", title = "Manager"),
-            alt.Tooltip("Match:N", title = "Match"),
-            alt.Tooltip("Points:Q", title = "Total Pts"),
-            alt.Tooltip("Added:N", title = "Match Pts"),
-            alt.Tooltip("Key Events:N", title = "Key Events")
-        ]
-    )
+    <script>
+        const fixtures = {payload_json};
+        const accentColor = "{accent_color}";
+        const secondColor = "#38bdf8";
+        const axisFontPx = {axis_font_px};
 
-    chart = (line_layer + touch_layer).properties(
-        height = 360,
-        background = "#000000",
-        usermeta = {"embedOptions": {"renderer": "svg", "actions": False}}
-    ).configure_view(
-        strokeWidth = 0,
-        fill = "#000000"
-    ).configure_axis(
-        domainColor = "#182030"
-    )
+        const svgEl = document.getElementById("prog-svg");
+        const boxEl = document.getElementById("svg-box");
+        const tooltipEl = document.getElementById("prog-tooltip");
 
-    st.altair_chart(chart, use_container_width = True)
+        let pinnedKey = null;
+
+        function buildTableHtml(item, matchName) {{
+            return `
+                <table>
+                    <tr><td class="key">Manager</td><td class="val">${{item.manager}}</td></tr>
+                    <tr><td class="key">Match</td><td class="val">${{matchName}}</td></tr>
+                    <tr><td class="key">Total Pts</td><td class="val">${{item.pts}}</td></tr>
+                    <tr><td class="key">Match Pts</td><td class="val">${{item.added}}</td></tr>
+                    <tr><td class="key">Key Events</td><td class="val">${{item.events}}</td></tr>
+                </table>
+            `;
+        }}
+
+        function showTooltip(idx, side, px, py, W, H) {{
+            const f = fixtures[idx];
+            if (!f) return;
+
+            let inner = "";
+            if (f.m1.pts === f.m2.pts) {{
+                // Both dots sit on the exact same coordinate; show requested manager first and tied manager below
+                const primary = side === "m1" ? f.m1 : f.m2;
+                const secondary = side === "m1" ? f.m2 : f.m1;
+                inner = buildTableHtml(primary, f.match) + '<div class="tooltip-divider"></div>' + buildTableHtml(secondary, f.match);
+            }} else {{
+                const target = side === "m1" ? f.m1 : f.m2;
+                inner = buildTableHtml(target, f.match);
+            }}
+
+            tooltipEl.innerHTML = inner;
+            tooltipEl.style.display = "block";
+
+            // Highlight active dot
+            document.querySelectorAll(".vis-dot").forEach(el => el.classList.remove("active"));
+            const activeDot = document.getElementById(`vdot-${{idx}}-${{side}}`);
+            if (activeDot) activeDot.classList.add("active");
+
+            // Measure and clamp tooltip position within container bounds
+            const rect = tooltipEl.getBoundingClientRect();
+            const tw = rect.width || 250;
+            const th = rect.height || 160;
+
+            let left = px + 14;
+            if (px + tw + 24 > W) {{
+                left = px - tw - 14;
+            }}
+            if (left < 8) left = 8;
+            if (left + tw > W - 8) left = Math.max(8, W - tw - 8);
+
+            let top = py - (th / 2);
+            if (top < 6) top = 6;
+            if (top + th > H - 6) top = Math.max(6, H - th - 6);
+
+            tooltipEl.style.left = left + "px";
+            tooltipEl.style.top = top + "px";
+        }}
+
+        function hideTooltip() {{
+            tooltipEl.style.display = "none";
+            document.querySelectorAll(".vis-dot").forEach(el => el.classList.remove("active"));
+        }}
+
+        function drawChart() {{
+            const W = boxEl.clientWidth || 600;
+            const H = boxEl.clientHeight || 350;
+            svgEl.setAttribute("viewBox", `0 0 ${{W}} ${{H}}`);
+
+            const padL = 48;
+            const padR = 20;
+            const padT = 18;
+            const padB = 78;
+
+            const plotW = Math.max(100, W - padL - padR);
+            const plotH = Math.max(100, H - padT - padB);
+
+            let maxVal = 0;
+            fixtures.forEach(f => {{
+                if (f.m1.pts > maxVal) maxVal = f.m1.pts;
+                if (f.m2.pts > maxVal) maxVal = f.m2.pts;
+            }});
+
+            // Calculate clean Y axis step and ceiling
+            let step = 5;
+            if (maxVal > 60) step = 20;
+            else if (maxVal > 30) step = 10;
+            else if (maxVal <= 10) step = 2;
+
+            const yMax = Math.max(step * 2, Math.ceil((maxVal + 1) / step) * step);
+
+            const n = fixtures.length;
+            const getX = (i) => n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW;
+            const getY = (val) => padT + plotH - (val / yMax) * plotH;
+
+            let svgContent = "";
+
+            // Background click catcher to dismiss pinned tooltip
+            svgContent += `<rect x="0" y="0" width="${{W}}" height="${{H}}" fill="transparent" id="bg-catcher" />`;
+
+            // Horizontal gridlines & Y-axis labels
+            for (let v = 0; v <= yMax; v += step) {{
+                const y = getY(v);
+                svgContent += `<line x1="${{padL}}" y1="${{y}}" x2="${{W - padR}}" y2="${{y}}" stroke="#182030" stroke-width="1" />`;
+                svgContent += `<text x="${{padL - 8}}" y="${{y + 4}}" fill="#94a3b8" font-size="${{axisFontPx}}" font-weight="600" text-anchor="end">${{v}}</text>`;
+            }}
+
+            // Y-axis vertical line & title
+            svgContent += `<line x1="${{padL}}" y1="${{padT}}" x2="${{padL}}" y2="${{padT + plotH}}" stroke="#182030" stroke-width="1" />`;
+            const titleY = padT + plotH / 2;
+            svgContent += `<text x="14" y="${{titleY}}" fill="#94a3b8" font-size="${{axisFontPx + 1}}" font-weight="700" text-anchor="middle" transform="rotate(-90, 14, ${{titleY}})">Cumulative Points</text>`;
+
+            // X-axis vertical rotated fixture labels
+            fixtures.forEach((f, i) => {{
+                const x = getX(i);
+                const labelY = padT + plotH + 10;
+                svgContent += `<line x1="${{x}}" y1="${{padT + plotH}}" x2="${{x}}" y2="${{padT + plotH + 5}}" stroke="#182030" stroke-width="1" />`;
+                svgContent += `<text x="${{x}}" y="${{labelY}}" fill="#94a3b8" font-size="${{axisFontPx}}" font-weight="600" text-anchor="end" dominant-baseline="central" transform="rotate(-90, ${{x}}, ${{labelY}})">${{f.match}}</text>`;
+            }});
+
+            // Line paths
+            const pts1 = fixtures.map((f, i) => `${{getX(i)}},${{getY(f.m1.pts)}}`).join(" ");
+            const pts2 = fixtures.map((f, i) => `${{getX(i)}},${{getY(f.m2.pts)}}`).join(" ");
+
+            svgContent += `<polyline fill="none" stroke="${{accentColor}}" stroke-width="2.5" points="${{pts1}}" />`;
+            svgContent += `<polyline fill="none" stroke="${{secondColor}}" stroke-width="2.5" points="${{pts2}}" />`;
+
+            // Visible dots
+            fixtures.forEach((f, i) => {{
+                const x = getX(i);
+                const y1 = getY(f.m1.pts);
+                const y2 = getY(f.m2.pts);
+
+                svgContent += `<circle id="vdot-${{i}}-m2" class="vis-dot" cx="${{x}}" cy="${{y2}}" r="5.5" fill="${{secondColor}}" />`;
+                svgContent += `<circle id="vdot-${{i}}-m1" class="vis-dot" cx="${{x}}" cy="${{y1}}" r="5.5" fill="${{accentColor}}" />`;
+            }});
+
+            // Large transparent hit targets (r=18) for effortless mobile tapping and desktop hover
+            fixtures.forEach((f, i) => {{
+                const x = getX(i);
+                const y1 = getY(f.m1.pts);
+                const y2 = getY(f.m2.pts);
+
+                svgContent += `<circle class="hit-dot" data-idx="${{i}}" data-side="m2" data-px="${{x}}" data-py="${{y2}}" cx="${{x}}" cy="${{y2}}" r="18" fill="transparent" />`;
+                svgContent += `<circle class="hit-dot" data-idx="${{i}}" data-side="m1" data-px="${{x}}" data-py="${{y1}}" cx="${{x}}" cy="${{y1}}" r="18" fill="transparent" />`;
+            }});
+
+            svgEl.innerHTML = svgContent;
+
+            // Wire up listeners
+            const bgCatcher = document.getElementById("bg-catcher");
+            if (bgCatcher) {{
+                bgCatcher.addEventListener("click", () => {{
+                    pinnedKey = null;
+                    hideTooltip();
+                }});
+            }}
+
+            document.querySelectorAll(".hit-dot").forEach(dot => {{
+                const idx = parseInt(dot.getAttribute("data-idx"));
+                const side = dot.getAttribute("data-side");
+                const px = parseFloat(dot.getAttribute("data-px"));
+                const py = parseFloat(dot.getAttribute("data-py"));
+                const key = `${{idx}}-${{side}}`;
+
+                dot.addEventListener("mouseenter", () => {{
+                    if (!pinnedKey) {{
+                        showTooltip(idx, side, px, py, W, H);
+                    }}
+                }});
+
+                dot.addEventListener("mouseleave", () => {{
+                    if (!pinnedKey) {{
+                        hideTooltip();
+                    }}
+                }});
+
+                dot.addEventListener("click", (e) => {{
+                    e.stopPropagation();
+                    if (pinnedKey === key) {{
+                        pinnedKey = null;
+                        hideTooltip();
+                    }} else {{
+                        pinnedKey = key;
+                        showTooltip(idx, side, px, py, W, H);
+                    }}
+                }});
+            }});
+        }}
+
+        drawChart();
+        window.addEventListener("resize", () => {{
+            pinnedKey = null;
+            hideTooltip();
+            drawChart();
+        }});
+    </script>
+    </body>
+    </html>
+    """
+
+    components.html(chart_html, height = 400)
 
 @st.cache_data(ttl = 45)
 def resolve_cup_match_score(manager_alias, gw_num):
