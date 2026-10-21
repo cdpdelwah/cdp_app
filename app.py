@@ -229,6 +229,13 @@ else:
 
 st.sidebar.caption("Stats, not facts | Season X Command Center")
 
+st.sidebar.link_button(
+    "🚀 Open FPL Draft Site",
+    "https://draft.premierleague.com/",
+    use_container_width = True,
+    type = "primary"
+)
+
 NAV_ITEMS = [
     "Home",
     "LIVE SCORES",
@@ -4232,7 +4239,11 @@ elif st.session_state.page == "Squad Analyser":
     my_squad = merged[merged["owner"] == selected_entry_id].copy()
     waiver_pool = merged[merged["owner"].isna() | (merged["owner"] == 0)].copy()
 
-    tab_lineup, tab_waivers = st.tabs(["Recommended Lineup", "Tailored Waivers & Suggested Drops"])
+    tab_lineup, tab_waivers, tab_trade = st.tabs([
+        "Recommended Lineup",
+        "Tailored Waivers & Suggested Drops",
+        "🤝 Trade Hub"
+    ])
 
     # ----------------- TAB 1: RECOMMENDED STARTING XI -----------------
     with tab_lineup:
@@ -4520,6 +4531,244 @@ elif st.session_state.page == "Squad Analyser":
             st.table(trade_df.set_index("Waiver Target"))
         else:
             st.info("No matching waiver options found with sufficient points and playing chance.")
+
+	# ----------------- TAB 3: TRADE HUB & FLEECE METER -----------------
+    with tab_trade:
+        st.subheader("🤝 Trade Hub & Package Evaluator")
+        st.caption("Compare multi player trade packages, check positional validity and measure the net impact on both managers' Starting XIs.")
+
+        def calc_trade_gw_proj(r):
+            avail = float(r["avail_factor"])
+            if avail <= 0.0:
+                return 0.0
+            form_val = float(r["form"] or 0.0)
+            ppg_val = float(r["points_per_game"] or 2.0)
+            base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+            season_mins = float(r["minutes"] or 0.0)
+            if current_gw > 3:
+                expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
+                if expected_min_ratio < 0.6:
+                    base_exp = base_exp * 0.8
+            if base_exp <= 0 and avail > 0:
+                base_exp = 2.0
+            fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
+            return round(base_exp * fdr_mult, 1)
+
+        def calc_trade_val(r):
+            # Composite trade value weighting season PPG baseline, current form, ICT and health
+            avail_weight = max(0.35, float(r["avail_factor"]))
+            raw_val = (float(r["points_per_game"]) * 2.2) + (float(r["form"]) * 1.4) + (float(r["ict_index"]) * 0.04)
+            return round(raw_val * avail_weight, 1)
+
+        def get_best_xi_metrics(squad_df):
+            if squad_df is None or squad_df.empty:
+                return 0.0, 0.0
+            s_df = squad_df.copy()
+            s_df = s_df.sort_values(by = ["proj_gw", "trade_val"], ascending = [False, False])
+
+            gks = s_df[s_df["position"] == "GKP"]
+            defs = s_df[s_df["position"] == "DEF"]
+            mids = s_df[s_df["position"] == "MID"]
+            fwds = s_df[s_df["position"] == "FWD"]
+
+            xi = []
+            if not gks.empty:
+                xi.append(gks.iloc[0])
+            xi.extend([defs.iloc[i] for i in range(min(3, len(defs)))])
+            xi.extend([mids.iloc[i] for i in range(min(2, len(mids)))])
+            xi.extend([fwds.iloc[i] for i in range(min(1, len(fwds)))])
+
+            used = {p["id"] for p in xi}
+            rem = s_df[(~s_df["id"].isin(used)) & (s_df["position"] != "GKP")]
+            spots = 11 - len(xi)
+            xi.extend([rem.iloc[i] for i in range(min(spots, len(rem)))])
+
+            if not xi:
+                return 0.0, 0.0
+            xi_frame = pd.DataFrame(xi)
+            return round(float(xi_frame["proj_gw"].sum()), 1), round(float(xi_frame["points_per_game"].sum()), 1)
+
+        merged_trade = merged.copy()
+        merged_trade["proj_gw"] = merged_trade.apply(calc_trade_gw_proj, axis = 1)
+        merged_trade["trade_val"] = merged_trade.apply(calc_trade_val, axis = 1)
+
+        t_col1, t_col2 = st.columns(2)
+        with t_col1:
+            mgr_a_id = st.selectbox(
+                "Manager A",
+                options = entry_keys,
+                format_func = lambda x: entry_options.get(x, str(x)),
+                index = entry_keys.index(selected_entry_id) if selected_entry_id in entry_keys else 0,
+                key = "trade_mgr_a"
+            )
+        with t_col2:
+            other_keys = [k for k in entry_keys if k != mgr_a_id] or entry_keys
+            mgr_b_id = st.selectbox(
+                "Manager B",
+                options = other_keys,
+                format_func = lambda x: entry_options.get(x, str(x)),
+                index = 0,
+                key = "trade_mgr_b"
+            )
+
+        squad_a = merged_trade[merged_trade["owner"] == mgr_a_id].copy()
+        squad_b = merged_trade[merged_trade["owner"] == mgr_b_id].copy()
+
+        squad_a["pos_rank"] = squad_a["position"].map(POS_ORDER).fillna(99)
+        squad_b["pos_rank"] = squad_b["position"].map(POS_ORDER).fillna(99)
+        squad_a = squad_a.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
+        squad_b = squad_b.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
+
+        alias_a = entry_options.get(mgr_a_id, "Manager A").split(" (")[0]
+        alias_b = entry_options.get(mgr_b_id, "Manager B").split(" (")[0]
+
+        p_col1, p_col2 = st.columns(2)
+        with p_col1:
+            a_Map = {
+                r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
+                for _, r in squad_a.iterrows()
+            }
+            send_a_ids = st.multiselect(
+                f"📤 {alias_a} Trades Away:",
+                options = list(a_Map.keys()),
+                format_func = lambda x: a_Map.get(x, str(x)),
+                key = "trade_send_a"
+            )
+        with p_col2:
+            b_Map = {
+                r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
+                for _, r in squad_b.iterrows()
+            }
+            send_b_ids = st.multiselect(
+                f"📤 {alias_b} Trades Away:",
+                options = list(b_Map.keys()),
+                format_func = lambda x: b_Map.get(x, str(x)),
+                key = "trade_send_b"
+            )
+
+        if not send_a_ids or not send_b_ids:
+            st.info("Select at least one player from each squad above to evaluate the trade.")
+        else:
+            pkg_a = squad_a[squad_a["id"].isin(send_a_ids)].copy()
+            pkg_b = squad_b[squad_b["id"].isin(send_b_ids)].copy()
+
+            # Check official FPL Draft positional matching rules
+            pos_list_a = sorted(pkg_a["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
+            pos_list_b = sorted(pkg_b["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
+
+            if pos_list_a != pos_list_b:
+                st.warning(
+                    f"⚠️ **Makeweight Required on FPL Draft Site:** {alias_a} is sending `{' + '.join(pos_list_a)}` "
+                    f"while {alias_b} is sending `{' + '.join(pos_list_b)}`. Official FPL Draft rules require matching positions "
+                    f"to process a trade, though you can still inspect the raw value below."
+                )
+            else:
+                st.success(f"✅ **Valid FPL Draft Structure:** Matching `{' + '.join(pos_list_a)}` swap.")
+
+            # Simulate squads before and after trade
+            a_xi_proj_before, a_xi_ppg_before = get_best_xi_metrics(squad_a)
+            b_xi_proj_before, b_xi_ppg_before = get_best_xi_metrics(squad_b)
+
+            squad_a_after = pd.concat([squad_a[~squad_a["id"].isin(send_a_ids)], pkg_b], ignore_index = True)
+            squad_b_after = pd.concat([squad_b[~squad_b["id"].isin(send_b_ids)], pkg_a], ignore_index = True)
+
+            a_xi_proj_after, a_xi_ppg_after = get_best_xi_metrics(squad_a_after)
+            b_xi_proj_after, b_xi_ppg_after = get_best_xi_metrics(squad_b_after)
+
+            a_proj_delta = round(a_xi_proj_after - a_xi_proj_before, 1)
+            b_proj_delta = round(b_xi_proj_after - b_xi_proj_before, 1)
+            a_ppg_delta = round(a_xi_ppg_after - a_xi_ppg_before, 1)
+            b_ppg_delta = round(b_xi_ppg_after - b_xi_ppg_before, 1)
+
+            # Package totals (Note: Manager A receives Package B, Manager B receives Package A)
+            a_recv_ppg = round(float(pkg_b["points_per_game"].sum()), 1)
+            b_recv_ppg = round(float(pkg_a["points_per_game"].sum()), 1)
+            a_recv_form = round(float(pkg_b["form"].sum()), 1)
+            b_recv_form = round(float(pkg_a["form"].sum()), 1)
+            a_recv_val = round(float(pkg_b["trade_val"].sum()), 1)
+            b_recv_val = round(float(pkg_a["trade_val"].sum()), 1)
+
+            # Composite score for Fleece Meter
+            score_a = a_recv_val + (a_ppg_delta * 2.5)
+            score_b = b_recv_val + (b_ppg_delta * 2.5)
+            total_score = max(0.1, abs(score_a) + abs(score_b))
+            if score_a <= 0 and score_b <= 0:
+                win_pct_a = 50
+            else:
+                win_pct_a = int(round((max(0.1, score_a) / (max(0.1, score_a) + max(0.1, score_b))) * 100))
+                win_pct_a = max(5, min(95, win_pct_a))
+            win_pct_b = 100 - win_pct_a
+
+            if 45 <= win_pct_a <= 55:
+                if a_ppg_delta > 0 and b_ppg_delta > 0:
+                    verdict_badge = "🤝 WIN - WIN TACTICAL SWAP (Improves Both Starting XIs)"
+                    verdict_color = "#22c55e"
+                else:
+                    verdict_badge = "⚖️ FAIR & BALANCED TRADE"
+                    verdict_color = active_theme["accent"]
+            elif win_pct_a > 65:
+                verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_a} Fleeces {alias_b})"
+                verdict_color = "#ef4444"
+            elif win_pct_b > 65:
+                verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_b} Fleeces {alias_a})"
+                verdict_color = "#ef4444"
+            elif win_pct_a > 55:
+                verdict_badge = f"📈 EDGE TO {alias_a.upper()}"
+                verdict_color = active_theme["accent"]
+            else:
+                verdict_badge = f"📈 EDGE TO {alias_b.upper()}"
+                verdict_color = "#38bdf8"
+
+            with st.container(border = True):
+                st.markdown(f"<div style='text-align:center; font-weight:800; font-size:1.25rem; color:{verdict_color}; margin-bottom:8px;'>{verdict_badge}</div>", unsafe_allow_html = True)
+                st.progress(win_pct_a / 100.0)
+
+                v_col1, v_col2 = st.columns(2)
+                with v_col1:
+                    sign_a_ppg = f"+{a_ppg_delta:.1f}" if a_ppg_delta > 0 else f"{a_ppg_delta:.1f}"
+                    sign_a_proj = f"+{a_proj_delta:.1f}" if a_proj_delta > 0 else f"{a_proj_delta:.1f}"
+                    st.markdown(f"### {alias_a} ({win_pct_a}%)")
+                    st.markdown(f"**Best XI Season PPG Impact:** `{a_xi_ppg_before:.1f}` → `{a_xi_ppg_after:.1f}` (**{sign_a_ppg} PPG**)")
+                    st.markdown(f"**GW {current_gw} Best XI Projection:** `{a_xi_proj_before:.1f}` → `{a_xi_proj_after:.1f}` (**{sign_a_proj} pts**)")
+                    st.caption(f"Incoming Package: {a_recv_ppg:.1f} combined PPG • {a_recv_form:.1f} combined Form")
+
+                with v_col2:
+                    sign_b_ppg = f"+{b_ppg_delta:.1f}" if b_ppg_delta > 0 else f"{b_ppg_delta:.1f}"
+                    sign_b_proj = f"+{b_proj_delta:.1f}" if b_proj_delta > 0 else f"{b_proj_delta:.1f}"
+                    st.markdown(f"<h3 style='text-align:right;'>{alias_b} ({win_pct_b}%)</h3>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align:right; margin:0;'><b>Best XI Season PPG Impact:</b> <code>{b_xi_ppg_before:.1f}</code> → <code>{b_xi_ppg_after:.1f}</code> (<b>{sign_b_ppg} PPG</b>)</p>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align:right; margin:0;'><b>GW {current_gw} Best XI Projection:</b> <code>{b_xi_proj_before:.1f}</code> → <code>{b_xi_proj_after:.1f}</code> (<b>{sign_b_proj} pts</b>)</p>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align:right; color:#94a3b8; font-size:0.86rem; margin-top:4px;'>Incoming Package: {b_recv_ppg:.1f} combined PPG • {b_recv_form:.1f} combined Form</p>", unsafe_allow_html = True)
+
+            st.write("")
+            brk_col1, brk_col2 = st.columns(2)
+            t_cols = ["web_name", "position", "club", "health_status", "proj_gw", "points_per_game", "form", "next_3"]
+
+            with brk_col1:
+                st.markdown(f"**📥 {alias_a} Receives:**")
+                disp_b = pkg_b[t_cols].copy()
+                disp_b["proj_gw"] = disp_b["proj_gw"].map(lambda x: f"{float(x):.1f}")
+                disp_b["points_per_game"] = disp_b["points_per_game"].map(lambda x: f"{float(x):.1f}")
+                disp_b["form"] = disp_b["form"].map(lambda x: f"{float(x):.1f}")
+                disp_b = disp_b.rename(columns = {
+                    "web_name": "Player", "position": "Pos", "club": "Club",
+                    "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
+                    "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
+                })
+                st.table(disp_b.set_index("Player"))
+
+            with brk_col2:
+                st.markdown(f"**📥 {alias_b} Receives:**")
+                disp_a = pkg_a[t_cols].copy()
+                disp_a["proj_gw"] = disp_a["proj_gw"].map(lambda x: f"{float(x):.1f}")
+                disp_a["points_per_game"] = disp_a["points_per_game"].map(lambda x: f"{float(x):.1f}")
+                disp_a["form"] = disp_a["form"].map(lambda x: f"{float(x):.1f}")
+                disp_a = disp_a.rename(columns = {
+                    "web_name": "Player", "position": "Pos", "club": "Club",
+                    "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
+                    "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
+                })
+                st.table(disp_a.set_index("Player"))
 
 # ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
