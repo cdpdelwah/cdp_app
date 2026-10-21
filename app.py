@@ -243,6 +243,7 @@ NAV_ITEMS = [
     "Results Analyser",
     "Cup & Bucket",
     "Squad Analyser",
+    "Trade Hub"
     "GACS",
     "Disciplinary",
     "Standings",
@@ -3102,18 +3103,20 @@ if st.session_state.page == "Home":
         st.button("Cup & Bucket", on_click = set_page, args = ("Cup & Bucket",), use_container_width = True)
 
     st.write("")
-    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6 = st.columns(6)
+    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
     with r2_c1:
         st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
     with r2_c2:
-        st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
+        st.button("🤝 Trade Hub", on_click = set_page, args = ("Trade Hub",), use_container_width = True)
     with r2_c3:
-        st.button("🟨🟥 Disciplinary", on_click = set_page, args = ("Disciplinary",), use_container_width = True)
+        st.button("🎯 GACS", on_click = set_page, args = ("GACS",), use_container_width = True)
     with r2_c4:
-        st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
+        st.button("🟨🟥 Disciplinary", on_click = set_page, args = ("Disciplinary",), use_container_width = True)
     with r2_c5:
-        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
+        st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
     with r2_c6:
+        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
+    with r2_c7:
         st.button("⚡ Power Rankings", on_click = set_page, args = ("Power Rankings",), use_container_width = True)
 
     st.divider()
@@ -4769,6 +4772,312 @@ elif st.session_state.page == "Squad Analyser":
                     "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
                 })
                 st.table(disp_a.set_index("Player"))
+# ----------------- 6B. TRADE HUB SECTION -----------------
+elif st.session_state.page == "Trade Hub":
+    st.title("🤝 Trade Hub" + dash + selected_league_key)
+    st.caption("Compare trade packages, check positional validity and measure the net impact on both managers' Starting XIs.")
+
+    static_data = fetch_fpl_static()
+    league_details, element_status = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
+
+    if not static_data or not league_details or not element_status:
+        st.error("Failed to load league data. Verify connection and try again.")
+        st.stop()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+
+    matches = league_details.get("matches", [])
+    all_events = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
+    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
+
+    def get_next_3_fixtures_trade(team_id):
+        if not all_fixtures or not team_id:
+            return "TBD"
+        upcoming = [
+            f for f in all_fixtures
+            if not f.get("finished", False) and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+        ]
+        upcoming = sorted(upcoming, key = lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
+        if not upcoming:
+            return "None"
+        labels = []
+        for f in upcoming:
+            if f.get("team_h") == team_id:
+                labels.append(f"{team_map.get(f.get('team_a'), 'OPP')} (H)")
+            else:
+                labels.append(f"{team_map.get(f.get('team_h'), 'OPP')} (A)")
+        return ", ".join(labels)
+
+    elements_df = pd.DataFrame(static_data["elements"])
+    elements_df["position"] = elements_df["element_type"].map(pos_map)
+    elements_df["club"] = elements_df["team"].map(team_map)
+    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
+    elements_df["minutes"] = pd.to_numeric(elements_df["minutes"], errors = "coerce").fillna(0)
+    elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors = "coerce")
+    elements_df["next_3"] = elements_df["team"].map(get_next_3_fixtures_trade)
+    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1).round(1)
+    elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
+
+    def calc_trade_gw_proj(r):
+        avail = float(r["avail_factor"])
+        if avail <= 0.0:
+            return 0.0
+        form_val = float(r["form"] or 0.0)
+        ppg_val = float(r["points_per_game"] or 2.0)
+        base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+        season_mins = float(r["minutes"] or 0.0)
+        if current_gw > 3:
+            expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
+            if expected_min_ratio < 0.6:
+                base_exp = base_exp * 0.8
+        if base_exp <= 0 and avail > 0:
+            base_exp = 2.0
+        fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
+        return round(base_exp * fdr_mult, 1)
+
+    def calc_trade_val(r):
+        avail_weight = max(0.35, float(r["avail_factor"]))
+        raw_val = (float(r["points_per_game"]) * 2.2) + (float(r["form"]) * 1.4) + (float(r["ict_index"]) * 0.04)
+        return round(raw_val * avail_weight, 1)
+
+    def get_best_xi_metrics(squad_df):
+        if squad_df is None or squad_df.empty:
+            return 0.0, 0.0
+        s_df = squad_df.sort_values(by = ["proj_gw", "trade_val"], ascending = [False, False])
+        gks = s_df[s_df["position"] == "GKP"]
+        defs = s_df[s_df["position"] == "DEF"]
+        mids = s_df[s_df["position"] == "MID"]
+        fwds = s_df[s_df["position"] == "FWD"]
+
+        xi = []
+        if not gks.empty:
+            xi.append(gks.iloc[0])
+        xi.extend([defs.iloc[i] for i in range(min(3, len(defs)))])
+        xi.extend([mids.iloc[i] for i in range(min(2, len(mids)))])
+        xi.extend([fwds.iloc[i] for i in range(min(1, len(fwds)))])
+
+        used = {p["id"] for p in xi}
+        rem = s_df[(~s_df["id"].isin(used)) & (s_df["position"] != "GKP")]
+        spots = 11 - len(xi)
+        xi.extend([rem.iloc[i] for i in range(min(spots, len(rem)))])
+
+        if not xi:
+            return 0.0, 0.0
+        xi_frame = pd.DataFrame(xi)
+        return round(float(xi_frame["proj_gw"].sum()), 1), round(float(xi_frame["points_per_game"].sum()), 1)
+
+    status_df = pd.DataFrame(element_status["element_status"])
+    merged_trade = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
+    merged_trade["proj_gw"] = merged_trade.apply(calc_trade_gw_proj, axis = 1)
+    merged_trade["trade_val"] = merged_trade.apply(calc_trade_val, axis = 1)
+
+    entries = league_details.get("league_entries", [])
+    entry_options = {
+        e["entry_id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})"
+        for e in entries
+    }
+    entry_keys = list(entry_options.keys())
+    default_a_idx = entry_keys.index(88) if 88 in entry_keys else 0
+
+    trade_size_label = st.radio(
+        "Trade Size",
+        ["1 vs 1 Swap", "2 vs 2 Swap", "3 vs 3 Swap"],
+        horizontal = True,
+        key = "trade_size_radio"
+    )
+    num_slots = int(trade_size_label.split(" ")[0])
+
+    t_col1, t_col2 = st.columns(2)
+    with t_col1:
+        mgr_a_id = st.selectbox(
+            "Manager A",
+            options = entry_keys,
+            format_func = lambda x: entry_options.get(x, str(x)),
+            index = default_a_idx,
+            key = "trade_hub_mgr_a"
+        )
+    with t_col2:
+        other_keys = [k for k in entry_keys if k != mgr_a_id] or entry_keys
+        mgr_b_id = st.selectbox(
+            "Manager B",
+            options = other_keys,
+            format_func = lambda x: entry_options.get(x, str(x)),
+            index = 0,
+            key = "trade_hub_mgr_b"
+        )
+
+    squad_a = merged_trade[merged_trade["owner"] == mgr_a_id].copy()
+    squad_b = merged_trade[merged_trade["owner"] == mgr_b_id].copy()
+    squad_a["pos_rank"] = squad_a["position"].map(POS_ORDER).fillna(99)
+    squad_b["pos_rank"] = squad_b["position"].map(POS_ORDER).fillna(99)
+    squad_a = squad_a.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
+    squad_b = squad_b.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
+
+    alias_a = entry_options.get(mgr_a_id, "Manager A").split(" (")[0]
+    alias_b = entry_options.get(mgr_b_id, "Manager B").split(" (")[0]
+
+    a_map = {
+        r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
+        for _, r in squad_a.iterrows()
+    }
+    b_map = {
+        r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
+        for _, r in squad_b.iterrows()
+    }
+
+    send_a_ids = []
+    send_b_ids = []
+
+    p_col1, p_col2 = st.columns(2)
+    with p_col1:
+        st.markdown(f"**📤 {alias_a} Sends:**")
+        for s_idx in range(num_slots):
+            avail_a = [k for k in a_map.keys() if k not in send_a_ids]
+            if avail_a:
+                chosen_a = st.selectbox(
+                    f"{alias_a} Player {s_idx + 1}",
+                    options = avail_a,
+                    format_func = lambda x: a_map.get(x, str(x)),
+                    key = f"th_send_a_{mgr_a_id}_{s_idx}"
+                )
+                send_a_ids.append(chosen_a)
+
+    with p_col2:
+        st.markdown(f"**📤 {alias_b} Sends:**")
+        for s_idx in range(num_slots):
+            avail_b = [k for k in b_map.keys() if k not in send_b_ids]
+            if avail_b:
+                chosen_b = st.selectbox(
+                    f"{alias_b} Player {s_idx + 1}",
+                    options = avail_b,
+                    format_func = lambda x: b_map.get(x, str(x)),
+                    key = f"th_send_b_{mgr_b_id}_{s_idx}"
+                )
+                send_b_ids.append(chosen_b)
+
+    if send_a_ids and send_b_ids:
+        pkg_a = squad_a[squad_a["id"].isin(send_a_ids)].copy()
+        pkg_b = squad_b[squad_b["id"].isin(send_b_ids)].copy()
+
+        pos_list_a = sorted(pkg_a["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
+        pos_list_b = sorted(pkg_b["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
+
+        st.divider()
+        if pos_list_a != pos_list_b:
+            st.warning(
+                f"⚠️ **Position Mismatch on FPL Draft Site:** {alias_a} is sending `{' + '.join(pos_list_a)}` "
+                f"while {alias_b} is sending `{' + '.join(pos_list_b)}`. Official FPL Draft rules require matching positions "
+                f"to process a trade on the site."
+            )
+        else:
+            st.success(f"✅ **Valid FPL Draft Position Structure:** Matching `{' + '.join(pos_list_a)}` swap.")
+
+        a_xi_proj_before, a_xi_ppg_before = get_best_xi_metrics(squad_a)
+        b_xi_proj_before, b_xi_ppg_before = get_best_xi_metrics(squad_b)
+
+        squad_a_after = pd.concat([squad_a[~squad_a["id"].isin(send_a_ids)], pkg_b], ignore_index = True)
+        squad_b_after = pd.concat([squad_b[~squad_b["id"].isin(send_b_ids)], pkg_a], ignore_index = True)
+
+        a_xi_proj_after, a_xi_ppg_after = get_best_xi_metrics(squad_a_after)
+        b_xi_proj_after, b_xi_ppg_after = get_best_xi_metrics(squad_b_after)
+
+        a_proj_delta = round(a_xi_proj_after - a_xi_proj_before, 1)
+        b_proj_delta = round(b_xi_proj_after - b_xi_proj_before, 1)
+        a_ppg_delta = round(a_xi_ppg_after - a_xi_ppg_before, 1)
+        b_ppg_delta = round(b_xi_ppg_after - b_xi_ppg_before, 1)
+
+        a_recv_ppg = round(float(pkg_b["points_per_game"].sum()), 1)
+        b_recv_ppg = round(float(pkg_a["points_per_game"].sum()), 1)
+        a_recv_form = round(float(pkg_b["form"].sum()), 1)
+        b_recv_form = round(float(pkg_a["form"].sum()), 1)
+        a_recv_val = round(float(pkg_b["trade_val"].sum()), 1)
+        b_recv_val = round(float(pkg_a["trade_val"].sum()), 1)
+
+        score_a = a_recv_val + (a_ppg_delta * 2.5)
+        score_b = b_recv_val + (b_ppg_delta * 2.5)
+        if score_a <= 0 and score_b <= 0:
+            win_pct_a = 50
+        else:
+            win_pct_a = int(round((max(0.1, score_a) / (max(0.1, score_a) + max(0.1, score_b))) * 100))
+            win_pct_a = max(5, min(95, win_pct_a))
+        win_pct_b = 100 - win_pct_a
+
+        if 45 <= win_pct_a <= 55:
+            if a_ppg_delta > 0 and b_ppg_delta > 0:
+                verdict_badge = "🤝 WIN - WIN TACTICAL SWAP (Improves Both Starting XIs)"
+                verdict_color = "#22c55e"
+            else:
+                verdict_badge = "⚖️ FAIR & BALANCED TRADE"
+                verdict_color = active_theme["accent"]
+        elif win_pct_a > 65:
+            verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_a} Fleeces {alias_b})"
+            verdict_color = "#ef4444"
+        elif win_pct_b > 65:
+            verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_b} Fleeces {alias_a})"
+            verdict_color = "#ef4444"
+        elif win_pct_a > 55:
+            verdict_badge = f"📈 EDGE TO {alias_a.upper()}"
+            verdict_color = active_theme["accent"]
+        else:
+            verdict_badge = f"📈 EDGE TO {alias_b.upper()}"
+            verdict_color = "#38bdf8"
+
+        with st.container(border = True):
+            st.markdown(f"<div style='text-align:center; font-weight:800; font-size:1.25rem; color:{verdict_color}; margin-bottom:8px;'>{verdict_badge}</div>", unsafe_allow_html = True)
+            st.progress(win_pct_a / 100.0)
+
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                sign_a_ppg = f"+{a_ppg_delta:.1f}" if a_ppg_delta > 0 else f"{a_ppg_delta:.1f}"
+                sign_a_proj = f"+{a_proj_delta:.1f}" if a_proj_delta > 0 else f"{a_proj_delta:.1f}"
+                st.markdown(f"### {alias_a} ({win_pct_a}%)")
+                st.markdown(f"**Best XI Season PPG Impact:** `{a_xi_ppg_before:.1f}` → `{a_xi_ppg_after:.1f}` (**{sign_a_ppg} PPG**)")
+                st.markdown(f"**GW {current_gw} Best XI Projection:** `{a_xi_proj_before:.1f}` → `{a_xi_proj_after:.1f}` (**{sign_a_proj} pts**)")
+                st.caption(f"Incoming Package: {a_recv_ppg:.1f} combined PPG • {a_recv_form:.1f} combined Form")
+
+            with v_col2:
+                sign_b_ppg = f"+{b_ppg_delta:.1f}" if b_ppg_delta > 0 else f"{b_ppg_delta:.1f}"
+                sign_b_proj = f"+{b_proj_delta:.1f}" if b_proj_delta > 0 else f"{b_proj_delta:.1f}"
+                st.markdown(f"<h3 style='text-align:right;'>{alias_b} ({win_pct_b}%)</h3>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:right; margin:0;'><b>Best XI Season PPG Impact:</b> <code>{b_xi_ppg_before:.1f}</code> → <code>{b_xi_ppg_after:.1f}</code> (<b>{sign_b_ppg} PPG</b>)</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:right; margin:0;'><b>GW {current_gw} Best XI Projection:</b> <code>{b_xi_proj_before:.1f}</code> → <code>{b_xi_proj_after:.1f}</code> (<b>{sign_b_proj} pts</b>)</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:right; color:#94a3b8; font-size:0.86rem; margin-top:4px;'>Incoming Package: {b_recv_ppg:.1f} combined PPG • {b_recv_form:.1f} combined Form</p>", unsafe_allow_html = True)
+
+        st.write("")
+        brk_col1, brk_col2 = st.columns(2)
+        t_cols = ["web_name", "position", "club", "health_status", "proj_gw", "points_per_game", "form", "next_3"]
+
+        with brk_col1:
+            st.markdown(f"**📥 {alias_a} Receives:**")
+            disp_b = pkg_b[t_cols].copy()
+            disp_b["proj_gw"] = disp_b["proj_gw"].map(lambda x: f"{float(x):.1f}")
+            disp_b["points_per_game"] = disp_b["points_per_game"].map(lambda x: f"{float(x):.1f}")
+            disp_b["form"] = disp_b["form"].map(lambda x: f"{float(x):.1f}")
+            disp_b = disp_b.rename(columns = {
+                "web_name": "Player", "position": "Pos", "club": "Club",
+                "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
+                "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
+            })
+            st.table(disp_b.set_index("Player"))
+
+        with brk_col2:
+            st.markdown(f"**📥 {alias_b} Receives:**")
+            disp_a = pkg_a[t_cols].copy()
+            disp_a["proj_gw"] = disp_a["proj_gw"].map(lambda x: f"{float(x):.1f}")
+            disp_a["points_per_game"] = disp_a["points_per_game"].map(lambda x: f"{float(x):.1f}")
+            disp_a["form"] = disp_a["form"].map(lambda x: f"{float(x):.1f}")
+            disp_a = disp_a.rename(columns = {
+                "web_name": "Player", "position": "Pos", "club": "Club",
+                "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
+                "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
+            })
+            st.table(disp_a.set_index("Player"))
 
 # ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
