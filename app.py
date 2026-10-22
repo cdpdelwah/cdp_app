@@ -4666,32 +4666,32 @@ elif st.session_state.page == "Squad Analyser":
             st.table(trade_df.set_index("Waiver Target"))
         else:
             st.info("No matching waiver options found with sufficient points and playing chance.")
-# ----------------- 6B. TRADE HUB SECTION -----------------
-# ----------------- TRADE HUB SECTION (TRANSFER LIST / TRADING BLOCK) -----------------
+# ----------------- 6B. TRADE HUB SECTION (TRANSFER LIST & TRADE CALCULATOR) -----------------
 elif st.session_state.page == "Trade Hub":
     st.title("Trade Hub & Trading Block" + dash + selected_league_key)
-    st.markdown("🛒 **The League Transfer List:** Broadcast your trade targets, browse active listings across all 32 squads, and scout the market.")
+    st.markdown("🛒 **The League Transfer List & Calculator:** Broadcast your trade targets, browse active listings across all 32 squads and evaluate player trades.")
 
     # 1. Initialize data storage for trade listings
     trade_file = base_dir / "trade_block.json"
     def load_trade_block():
         if trade_file.exists():
             try:
-                with open(trade_file, "r", encoding="utf-8") as tf:
+                with open(trade_file, "r", encoding = "utf-8") as tf:
                     return json.load(tf)
             except Exception:
                 return []
         return []
 
     def save_trade_block(listings):
-        with open(trade_file, "w", encoding="utf-8") as tf:
-            json.dump(listings, tf, indent=2, ensure_ascii=False)
+        with open(trade_file, "w", encoding = "utf-8") as tf:
+            json.dump(listings, tf, indent = 2, ensure_ascii = False)
 
     trade_listings = load_trade_block()
 
     # Fetch required league and player data (including element_status for ownership mapping)
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
+    all_fixtures = fetch_all_epl_fixtures()
     all_teams_reg = get_all_32_teams_registry()
 
     if not static_data or not league_details or not element_status:
@@ -4704,45 +4704,79 @@ elif st.session_state.page == "Trade Hub":
     elements_df = pd.DataFrame(static_data["elements"])
     elements_df["position"] = elements_df["element_type"].map(pos_map)
     elements_df["club"] = elements_df["team"].map(team_map)
-    elements_df["form"] = pd.to_numeric(elements_df["form"], errors="coerce").fillna(0.0)
-    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors="coerce").fillna(0)
+    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0.0).round(1)
+    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
+    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1).round(1)
+    elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
+
+    def get_next_3_trade(team_id):
+        if not all_fixtures or not team_id:
+            return "TBD"
+        upcoming = [
+            f for f in all_fixtures
+            if not f.get("finished", False) and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+        ]
+        upcoming = sorted(upcoming, key = lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
+        if not upcoming:
+            return "None"
+        labels = []
+        for f in upcoming:
+            if f.get("team_h") == team_id:
+                labels.append(f"{team_map.get(f.get('team_a'), 'OPP')} (H)")
+            else:
+                labels.append(f"{team_map.get(f.get('team_h'), 'OPP')} (A)")
+        return ", ".join(labels)
+
+    elements_df["next_3"] = elements_df["team"].map(get_next_3_trade)
+    elements_df["trade_value"] = (
+        ((elements_df["points_per_game"] * 2.0) + (elements_df["form"] * 1.8) + (elements_df["ict_index"] * 0.05))
+        * elements_df["avail_factor"]
+    ).round(1)
 
     # Merge element_status so the 'owner' column is populated correctly
     status_df = pd.DataFrame(element_status["element_status"])
-    elements_df = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
+    elements_df = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
         e["entry_id"]: {
             "team_name": e.get("entry_name", "Team"),
             "manager_name": f"{e.get('player_first_name', '')} {e.get('player_last_name', '')}".strip(),
-            "alias": get_manager_alias(e.get('player_first_name', ''), e.get('player_last_name', ''))
+            "alias": get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         }
         for e in entries
     }
 
-    # Find logged-in manager's entry ID in this active league
+    owner_alias_map = {e_id: info["alias"] for e_id, info in entry_options.items()}
+    elements_df["owner_alias"] = elements_df["owner"].map(owner_alias_map).fillna("Free Agent")
+
+    # Find logged in manager's entry ID in this active league
     matched_entry_id = None
     for e_id, info in entry_options.items():
         if info["alias"].lower() == logged_alias.lower():
             matched_entry_id = e_id
             break
 
-    tab_browse, tab_manage = st.tabs(["🛒 League Trading Block (All Divisions)", "📋 Manage My Listed Players"])
+    tab_browse, tab_manage, tab_calc = st.tabs([
+        "🛒 League Trading Block (All Divisions)",
+        "📋 Manage My Listed Players",
+        "⚖️ Trade Calculator"
+    ])
 
-    # ----------------- TAB 1: BROWSE LEAGUE-WIDE TRADING BLOCK -----------------
+    # ----------------- TAB 1: BROWSE LEAGUE WIDE TRADING BLOCK -----------------
     with tab_browse:
         st.subheader("Active Transfer List")
         
         if not trade_listings:
             st.info("The trading block is currently empty. Head over to **'Manage My Listed Players'** to put someone up for trade!")
         else:
-            # Filters
             f_col1, f_col2 = st.columns(2)
             with f_col1:
-                pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key="trade_pos_filter")
+                pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key = "trade_pos_filter")
             with f_col2:
-                div_filter = st.selectbox("Filter by Division", ["All Divisions", "CDP (Crème Dellar Prem)", "SDM (Segundo Del Mundo)", "BDR (Best De La Rest)", "LDE (Liger Del Eager)"], key="trade_div_filter")
+                div_filter = st.selectbox("Filter by Division", ["All Divisions", "CDP (Crème Dellar Prem)", "SDM (Segundo Del Mundo)", "BDR (Best De La Rest)", "LDE (Liger Del Eager)"], key = "trade_div_filter")
 
             filtered_listings = trade_listings
             if pos_filter != "All":
@@ -4776,9 +4810,12 @@ elif st.session_state.page == "Trade Hub":
         if not matched_entry_id and not is_admin_account:
             st.warning(f"🔒 You do not have a registered team in **{selected_league_key}**. Switch to your home league to manage your transfer list.")
         else:
-            # If admin, let them pick which team to manage, otherwise lock to logged-in manager
             if is_admin_account:
-                admin_target_entry = st.selectbox("Select Team to Manage (Admin Override)", options=list(entry_options.keys()), format_func=lambda x: f"{entry_options[x]['manager_name']} ({entry_options[x]['team_name']})")
+                admin_target_entry = st.selectbox(
+                    "Select Team to Manage (Admin Override)",
+                    options = list(entry_options.keys()),
+                    format_func = lambda x: f"{entry_options[x]['alias']} ({entry_options[x]['team_name']})"
+                )
                 my_squad = elements_df[elements_df["owner"] == admin_target_entry].copy()
                 active_manager_alias = entry_options[admin_target_entry]["alias"]
                 active_team_name = entry_options[admin_target_entry]["team_name"]
@@ -4794,14 +4831,13 @@ elif st.session_state.page == "Trade Hub":
                 squad_player_options = {row["id"]: f"{row['web_name']} ({row['club']} - {row['position']})" for _, row in my_squad.iterrows()}
                 
                 with st.form("add_trade_form"):
-                    selected_player_id = st.selectbox("Select Player from Your Roster", options=list(squad_player_options.keys()), format_func=lambda x: squad_player_options[x])
-                    trade_notes = st.text_input("Trade Notes / Asking Requirements (e.g. 'Looking for a starting MID')", value="Open to offers")
-                    submit_listing = st.form_submit_button("📢 Add to League Trading Block", type="primary")
+                    selected_player_id = st.selectbox("Select Player from Your Roster", options = list(squad_player_options.keys()), format_func = lambda x: squad_player_options[x])
+                    trade_notes = st.text_input("Trade Notes / Asking Requirements (e.g. 'Looking for a starting MID')", value = "Open to offers")
+                    submit_listing = st.form_submit_button("📢 Add to League Trading Block", type = "primary")
 
                     if submit_listing:
                         p_info = elements_df[elements_df["id"] == selected_player_id].iloc[0]
                         
-                        # Prevent duplicate listing for the same player by the same manager
                         trade_listings = [t for t in trade_listings if not (t.get("player_id") == selected_player_id and t.get("manager_alias") == active_manager_alias)]
                         
                         new_listing = {
@@ -4832,11 +4868,120 @@ elif st.session_state.page == "Trade Hub":
                         with col_l1:
                             st.markdown(f"**{listing['player_name']}** ({listing['club']} - {listing['position']}) — *{listing['notes']}*")
                         with col_l2:
-                            if st.button(f"Remove", key=f"remove_trade_{listing['player_id']}"):
-                                trade_listings = [t for t in trade_listings if not (t.get("player_id") == listing['player_id'] and t.get("manager_alias") == active_manager_alias)]
+                            if st.button("Remove", key = f"remove_trade_{listing['player_id']}"):
+                                trade_listings = [t for t in trade_listings if not (t.get("player_id") == listing["player_id"] and t.get("manager_alias") == active_manager_alias)]
                                 save_trade_block(trade_listings)
                                 st.success(f"Removed {listing['player_name']} from block.")
-                                st.rerun()# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
+                                st.rerun()
+
+    # ----------------- TAB 3: TRADE CALCULATOR -----------------
+    with tab_calc:
+        st.subheader("⚖️ Trade Package Evaluator")
+        st.caption("Compare multi player trade packages across Season Points, Points Per Game (PPG), Form and Trade Value Score.")
+
+        team_filter_options = ["All Players"] + [f"{info['alias']} ({info['team_name']})" for _, info in entry_options.items()]
+        alias_to_entry_id = {f"{info['alias']} ({info['team_name']})": e_id for e_id, info in entry_options.items()}
+
+        col_side1, col_side2 = st.columns(2)
+
+        with col_side1:
+            st.markdown("### 📤 Side A (Players Giving Up)")
+            default_team_a_idx = 0
+            if matched_entry_id and matched_entry_id in entry_options:
+                my_label = f"{entry_options[matched_entry_id]['alias']} ({entry_options[matched_entry_id]['team_name']})"
+                if my_label in team_filter_options:
+                    default_team_a_idx = team_filter_options.index(my_label)
+
+            team_a_filter = st.selectbox("Filter Side A by Squad", team_filter_options, index = default_team_a_idx, key = "calc_team_a_filter")
+            if team_a_filter == "All Players":
+                pool_a = elements_df.sort_values(by = "total_points", ascending = False)
+            else:
+                pool_a = elements_df[elements_df["owner"] == alias_to_entry_id[team_a_filter]].sort_values(by = "total_points", ascending = False)
+
+            choices_a = {
+                row["id"]: f"{row['web_name']} ({row['club']} - {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
+                for _, row in pool_a.iterrows()
+            }
+            side_a_ids = st.multiselect("Select Player(s) for Side A", options = list(choices_a.keys()), format_func = lambda x: choices_a[x], key = "calc_side_a_players")
+
+        with col_side2:
+            st.markdown("### 📥 Side B (Players Receiving)")
+            team_b_filter = st.selectbox("Filter Side B by Squad", team_filter_options, index = 0, key = "calc_team_b_filter")
+            if team_b_filter == "All Players":
+                pool_b = elements_df.sort_values(by = "total_points", ascending = False)
+            else:
+                pool_b = elements_df[elements_df["owner"] == alias_to_entry_id[team_b_filter]].sort_values(by = "total_points", ascending = False)
+
+            choices_b = {
+                row["id"]: f"{row['web_name']} ({row['club']} - {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
+                for _, row in pool_b.iterrows()
+            }
+            side_b_ids = st.multiselect("Select Player(s) for Side B", options = list(choices_b.keys()), format_func = lambda x: choices_b[x], key = "calc_side_b_players")
+
+        if side_a_ids or side_b_ids:
+            st.divider()
+            df_a = elements_df[elements_df["id"].isin(side_a_ids)].copy()
+            df_b = elements_df[elements_df["id"].isin(side_b_ids)].copy()
+
+            pts_a, pts_b = int(df_a["total_points"].sum()), int(df_b["total_points"].sum())
+            ppg_a, ppg_b = round(float(df_a["points_per_game"].sum()), 1), round(float(df_b["points_per_game"].sum()), 1)
+            form_a, form_b = round(float(df_a["form"].sum()), 1), round(float(df_b["form"].sum()), 1)
+            val_a, val_b = round(float(df_a["trade_value"].sum()), 1), round(float(df_b["trade_value"].sum()), 1)
+
+            val_diff = round(val_b - val_a, 1)
+            pts_diff = pts_b - pts_a
+            ppg_diff = round(ppg_b - ppg_a, 1)
+            form_diff = round(form_b - form_a, 1)
+
+            if abs(val_diff) <= 2.5:
+                st.success(f"🤝 **Fair Trade Verdict:** Package values are closely balanced (Net Trade Rating Difference: {val_diff:+.1f}).")
+            elif val_diff > 2.5:
+                st.info(f"📈 **Side B Wins Trade:** Receiving package grades stronger by **{val_diff:+.1f}** rating points ({ppg_diff:+.1f} combined PPG).")
+            else:
+                st.warning(f"⚠️ **Side A Wins Trade:** Giving up package grades higher by **{abs(val_diff):.1f}** rating points ({abs(ppg_diff):.1f} combined PPG).")
+
+            m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+            with m_c1:
+                st.metric("Side B Net Trade Rating", f"{val_b:.1f}", f"{val_diff:+.1f} vs Side A")
+            with m_c2:
+                st.metric("Side B Season Points", f"{pts_b}", f"{pts_diff:+d} pts vs Side A")
+            with m_c3:
+                st.metric("Side B Combined PPG", f"{ppg_b:.1f}", f"{ppg_diff:+.1f} PPG vs Side A")
+            with m_c4:
+                st.metric("Side B Combined Form", f"{form_b:.1f}", f"{form_diff:+.1f} Form vs Side A")
+
+            b_col1, b_col2 = st.columns(2)
+            calc_cols = ["web_name", "position", "club", "owner_alias", "health_status", "total_points", "points_per_game", "form", "next_3", "trade_value"]
+            rename_map = {
+                "web_name": "Player",
+                "position": "Pos",
+                "club": "Club",
+                "owner_alias": "Owner",
+                "health_status": "Status",
+                "total_points": "Pts",
+                "points_per_game": "PPG",
+                "form": "Form",
+                "next_3": "Next 3",
+                "trade_value": "Rating"
+            }
+
+            with b_col1:
+                st.markdown("**Side A Breakdown**")
+                if not df_a.empty:
+                    view_a = format_table_floats(df_a[calc_cols].rename(columns = rename_map))
+                    st.table(view_a.set_index("Player"))
+                else:
+                    st.caption("No players selected for Side A.")
+
+            with b_col2:
+                st.markdown("**Side B Breakdown**")
+                if not df_b.empty:
+                    view_b = format_table_floats(df_b[calc_cols].rename(columns = rename_map))
+                    st.table(view_b.set_index("Player"))
+                else:
+                    st.caption("No players selected for Side B.")
+
+# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
     st.title("🎯 GACS" + dash + selected_league_key)
     
