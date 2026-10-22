@@ -1,0 +1,204 @@
+credentials:
+  usernames:
+    admin:
+      name: The Commissar
+      email: commissar@cdp.local
+      password: $2b$12$5lpOAdjbJaLqHKmoOcGHBeqzZ0ybUo5Yk9NU6PB1GbxKEa/eUTjXK
+      role: admin
+      alias: Andy
+    Adi:
+      name: Adrian Baker
+      email: adi@cdp.local
+      password: $2b$12$zIuQkaSMbG2ITFObuyciT.pGqIIvwFr15WziBQ7uath/uvpAdqA/6
+      role: manager
+      alias: Adi
+    Ali:
+      name: Ali W
+      email: ali@cdp.local
+      password: $2b$12$meMAu6DF.vi9WlprmV821Oel/ACp2eKTZWIreQx.fh7PyhQTSNn/.
+      role: manager
+      alias: Ali
+    Andy:
+      name: Andy Dellar
+      email: andy@cdp.local
+      password: $2b$12$Cv9KziISyHPdG//BVjeTsOOydaEM2H83L5QM4Jf1YiddEnvR5KGYi
+      role: admin
+      alias: Andy
+    Barney:
+      name: Barney Jones
+      email: barney@cdp.local
+      password: $2b$12$yU.Oam3X0HmV7LIcS9FY5ebMNeiASFFEiG6Y5FmjaEcj9.0Z5QwjG
+      role: manager
+      alias: Barney
+    Ben:
+      name: Ben Marsden
+      email: ben@cdp.local
+      password: $2b$12$8QIe/J2IlzDNo2rxtHeZ/.bOdjvow1CA7FcMspu74zDn/Dq/8FU7u
+      role: manager
+      alias: Ben
+    Bobby:
+      name: Bobby Cowsill
+      email: bobby@cdp.local
+      password: $2b$12$2nIwSC7pZIpAcei82qw46uZxAAGHQ4hCVJq1QKD8AzcSPQ1yzokXG
+      role: manager
+      alias: Bobby
+    Bungle:
+      name: Bungle
+      email: bungle@cdp.local
+      password: $2b$12$o.8Y1L81wypbyzgfNGInPeIjAMpAvMFk5mdiXtDc6B00x4Mw3I6fm
+      role: manager
+      alias: Bungle
+    Crouch:
+      name: Chris Smith
+      email: crouch@cdp.local
+      password: $2b$12$tLbd8RuYGDNtkost4At0B..JAbH5Q8lf6kSk5qVj/d/E.PJzd0Y/6
+      role: manager
+      alias: Crouch
+    Culley:
+      name: Will Culley
+      email: culley@cdp.local
+      password: $2b$12$s.KTgJGu52mQRNUU.ATpNe.G8fHeY4uQNO22UjgEo8ydvVDujbTJS
+      role: manager
+      alias: Culley
+    Dave:
+      name: Dave Whitcombe
+      email: dave@cdp.local
+      password: $2b$12$XMJ/Z/U6sBXPNMKb30SZHepJX1VK/caWSsXuth3LYMktfDIc4EruK
+      role: manager
+      alias: Dave
+    Duncan:
+      name: Duncan Harrison
+      email: duncan@cdp.local
+      password: $2b$12$UzbNYvMJvMeNCxJAynzwGORzdrAJtWnoZUTyFQqaWyGPNU31xK06a
+      role: manager
+      alias: Duncan
+    Foy:
+      name: Thomas Foy
+      email: foy@cdp.local
+      password: $2b$12$3TBGcay/4bQKtDkKaolIn.s4GvCUqtepgBD.r0MUQaveRlNtMjjGq
+      role: manager
+      alias: Foy
+    Garth:
+      name: Gareth Williams
+      email: garth@cdp.local
+      password: $2b$12$MDbSv6jg0HJxxl8ARS0ZJ.951EVvbhyHz4nYYMgLDvqyWLL3UOnH2
+      role: manager
+      alias: Garth
+    Greg:
+      name: Greg Probert
+      email: greg@cdp.local
+      password: $2b$12$zQrSzoFxiSha7pZ4ZIHmcOfMCrN9HdAS7XrLiBdqqVa/MCS1FtXM2
+      role: manager
+      alias: Greg
+    Hugh:
+      name: Hughben Amorim
+      email: hugh@cdp.local
+      password: $2b$12$WQP8YKQLKlZrFzwFyK9jyOWRT1FCHXdr2hA12l3ET3pWd.F.zGPbO
+      role: manager
+      alias: Hugh
+    James:
+      name: James Kennedy
+      email: james@cdp.local
+      password: $2b$12$Q6eDSDwyG5/VhpuceAvPUeL5vmxYW/2sV7vZNAEHPYPH7xt3AgCPe
+      role: manager
+      alias: James
+    Jamie:
+      name: Jamie Fielding
+      email: jamie@cdp.local
+      password: $2b$12$scySK54LFctqvXKuWW4k/eOiXbXK.nW3Uv0gD0gfeaOKgJZyGk2Aq
+      role: manager
+      alias: Jamie
+    Jimmy:
+      name: Jimmy Dean
+      email: jimmy@cdp.local
+      password: $2b$12$q1wAWKMtymHIi98jdzG4/uJrg0QfxK2qVq/t9LcGryPjM0V3DxgZG
+      role: manager
+      alias: Jimmy
+    Josh:
+      name: Joshua Stammers
+      email: josh@cdp.local
+      password: $2b$12$AKaqqe4szxwGPXzZx1PVJOUPpJYEv43Du/sdDrNPz8nbps9juJC.O
+      role: manager
+      alias: Josh
+    Lee:
+      name: Lee Colvin
+      email: lee@cdp.local
+      password: $2b$12$BI98gcBb9bBJFfKEEzf46.PY39HeLHA9ox.TysLc4d8Fw6v/U9Jpu
+      role: manager
+      alias: Lee
+    Niall:
+      name: Niall Hession
+      email: niall@cdp.local
+      password: $2b$12$YpTWHIVV5J7UncuMWKbR3.WECQLNVu7XdpHyAOJ1nE7ZQ3UYe3PpO
+      role: manager
+      alias: Niall
+    Nick:
+      name: Nick Middleton
+      email: nick@cdp.local
+      password: $2b$12$SwS6kRdNEejex10/WwqB1.o7jR49sejqjYkzWCj.mHBK6/0rOLL4q
+      role: manager
+      alias: Nick
+    Pete:
+      name: Peter Thompson
+      email: pete@cdp.local
+      password: $2b$12$TUrOheGPO8uY.Ezy08ANpOuwXUEYGr3GKO47xHGDzIsDUus4gU6Fi
+      role: manager
+      alias: Pete
+    Phil:
+      name: Phil Wass
+      email: phil@cdp.local
+      password: $2b$12$EbAG1rxqWwmqIo51GBmEyuHncUq54dliiKu9vwkBSvbKv/xSS62ZW
+      role: manager
+      alias: Phil
+    Rackett:
+      name: Rackett
+      email: rackett@cdp.local
+      password: $2b$12$cShTdvuFKGAW8jQ8CDhNfO8jpbxwFGE9S6C1uy/1fk5dpIoT0rACK
+      role: manager
+      alias: Rackett
+    Rob:
+      name: Rob Carlisle
+      email: rob@cdp.local
+      password: $2b$12$mb5T0edIiOgI2/yZ.SPceuwc/ZxnMrbaKl8ImUoxsV6fnNC89lyHa
+      role: manager
+      alias: Rob
+    Sam:
+      name: Sam Berry
+      email: sam@cdp.local
+      password: $2b$12$qIkdRnGphhd5KlAd.oz4a.syzbeKhU0LyXmrRlLrrxQaiXq34gWpq
+      role: manager
+      alias: Sam
+    Stew:
+      name: Stew Hall
+      email: stew@cdp.local
+      password: $2b$12$4/Dw10kVkSHa3uDN69cT4uB0n4d2lLPLXGGM36oqZ1PHI1f8e/Zaq
+      role: manager
+      alias: Stew
+    Tom:
+      name: Tom Probert
+      email: tom@cdp.local
+      password: $2b$12$0gBStJCgGlYDwr0Jy.7ul.3VkeMWQnaCGuKB4tkZM3yy5i2GBjT/K
+      role: manager
+      alias: Tom
+    Tudor:
+      name: Tudor
+      email: tudor@cdp.local
+      password: $2b$12$MisklTWqXu4NKPIKzprHFuQ7MQ2CgvAkuCrq.RM/zBdMtEVSk0jFy
+      role: manager
+      alias: Tudor
+    Will:
+      name: Will Graham
+      email: will@cdp.local
+      password: $2b$12$F1uhQgBdrcYzTTXss1FW3O8VZhZr/RQjLqTyxnIoBmlVbl6E5vksW
+      role: manager
+      alias: Will
+    Wilson:
+      name: Mike Wilson
+      email: wilson@cdp.local
+      password: $2b$12$AaTC83dSk3P8Metk5zVCzencQLHNSSECapS7rvTsDa/Ls3Cqq8wka
+      role: manager
+      alias: Wilson
+cookie:
+  name: cdp_season_x_auth
+  key: cdp_secret_master_signature_key_2026
+  expiry_days: 30

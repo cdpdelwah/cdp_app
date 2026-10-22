@@ -4,3 +4,5 @@ pandas
 pypdfium2
 odfpy
 openpyxl
+streamlit-authenticator
+pyyaml

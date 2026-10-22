@@ -10,8 +10,9 @@ import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
 from streamlit_cookies_controller import CookieController
-
-cookie_manager = CookieController()
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
 
 base_dir = Path(__file__).resolve().parent
 
@@ -34,6 +35,8 @@ st.set_page_config(
     page_icon = str(logo_path) if logo_path.exists() else "⚽",
     layout = "wide"
 )
+
+cookie_manager = CookieController()
 
 # Hardcoded league registry
 LEAGUE_PRESETS = {
@@ -221,13 +224,114 @@ def format_table_floats(df):
             formatted[col] = formatted[col].fillna("")
     return formatted
 
-# Sidebar Brand and Navigation
+@st.cache_data(ttl = 120)
+def fetch_league_data(league_id):
+    if not league_id:
+        return None, None
+    details_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/details"
+    status_url = "https://draft.premierleague.com/api/league/" + str(league_id) + "/element" + chr(45) + "status"
+    
+    det_resp = requests.get(details_url)
+    stat_resp = requests.get(status_url)
+    
+    if det_resp.status_code != 200 or stat_resp.status_code != 200:
+        return None, None
+        
+    return det_resp.json(), stat_resp.json()
+
+@st.cache_data(ttl = 300)
+def get_all_32_teams_registry():
+    registry = {}
+    for l_key, l_id in LEAGUE_PRESETS.items():
+        details, _ = fetch_league_data(l_id)
+        if details:
+            entries = details.get("league_entries", [])
+            for e in entries:
+                alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+                info = {
+                    "entry_id": e.get("entry_id"),
+                    "league_entry_id": e.get("id"),
+                    "league_id": l_id,
+                    "league_key": l_key,
+                    "team_name": e.get("entry_name", "Team"),
+                    "manager_name": f"{e.get('player_first_name', '')} {e.get('player_last_name', '')}".strip(),
+                    "alias": alias
+                }
+                registry[alias.lower()] = info
+                registry[e.get("entry_name", "").strip().lower()] = info
+    return registry
+
+# ----------------- CUSTOM DROPDOWN AUTHENTICATION GATE -----------------
+import bcrypt
+
+config_path = base_dir / "config.yaml"
+with open(config_path, "r", encoding = "utf-8") as file:
+    config = yaml.load(file, Loader = SafeLoader)
+
+if not st.session_state.get("authentication_status", False):
+    st.sidebar.subheader("🔐 Season X Login")
+    
+    # Build dictionary mapping clean display names to config usernames
+    usernames_dict = config["credentials"]["usernames"]
+    user_options = {}
+    for u_key, u_data in usernames_dict.items():
+        alias = u_data.get("alias", u_key)
+        if u_key.lower() == "admin":
+            display_name = "👑 Admin (The Commissar)"
+        else:
+            display_name = f"{alias}"
+        user_options[display_name] = u_key
+    
+    selected_display = st.sidebar.selectbox("Select Your Name", list(user_options.keys()))
+    chosen_username = user_options[selected_display]
+    
+    entered_password = st.sidebar.text_input("Password", type="password")
+    
+    if st.sidebar.button("Log In", type="primary", use_container_width=True):
+        stored_hash = usernames_dict[chosen_username]["password"]
+        
+        # Verify password hash (handling python bcrypt compatibility)
+        pass_matches = False
+        try:
+            if bcrypt.checkpw(entered_password.encode(), stored_hash.encode()):
+                pass_matches = True
+        except Exception:
+            try:
+                fixed_hash = stored_hash.replace("$2y$", "$2b$")
+                if bcrypt.checkpw(entered_password.encode(), fixed_hash.encode()):
+                    pass_matches = True
+            except Exception:
+                pass
+                
+        if pass_matches:
+            st.session_state["authentication_status"] = True
+            st.session_state["username"] = chosen_username
+            st.session_state["name"] = usernames_dict[chosen_username]["name"]
+            st.rerun()
+        else:
+            st.sidebar.error("Incorrect password.")
+            
+    st.stop()
+
+# Retrieve logged-in manager details once authenticated
+logged_username = st.session_state.get("username", "")
+logged_user_data = config["credentials"]["usernames"].get(logged_username, {})
+logged_alias = logged_user_data.get("alias", logged_username)
+is_admin_account = (str(logged_username).strip().lower() == "admin")
+
+# ----------------- SIDEBAR BRAND & NAVIGATION -----------------
 if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width = True)
 else:
     st.sidebar.title("CDP App")
 
 st.sidebar.caption("Stats, not facts | Season X Command Center")
+st.sidebar.markdown(f"👤 Logged in as: **{'Admin (Commissar)' if is_admin_account else logged_alias}**")
+
+if st.sidebar.button("Log Out", use_container_width = True):
+    st.session_state["authentication_status"] = False
+    st.session_state["username"] = None
+    st.rerun()
 
 st.sidebar.link_button(
     "🚀 Open FPL Draft Site",
@@ -258,11 +362,19 @@ st.sidebar.radio(
     key = "page"
 )
 
-# League Selection with Persistent Cookie Handshake (No URL modifications)
+# ----------------- LEAGUE SELECTION (AUTO - DEFAULT TO MANAGER'S LEAGUE) -----------------
 st.sidebar.divider()
 st.sidebar.subheader("League Selection")
 
 league_keys = list(LEAGUE_PRESETS.keys())
+
+# Find the logged-in manager's division (Admin account has no forced home league)
+manager_home_league = None
+if not is_admin_account:
+    teams_reg = get_all_32_teams_registry()
+    mgr_info = teams_reg.get(logged_alias.lower())
+    if mgr_info:
+        manager_home_league = mgr_info.get("league_key")
 
 raw_cookie_fav = None
 try:
@@ -270,14 +382,15 @@ try:
 except Exception:
     pass
 
-# Sync cookie on pass 2 arrival if the user has not manually switched leagues this session
-if raw_cookie_fav in league_keys and not st.session_state.get("cookie_synced", False):
-    if not st.session_state.get("user_changed_league", False):
-        st.session_state["active_competition"] = raw_cookie_fav
-    st.session_state["cookie_synced"] = True
+# Set default league when this user logs in
+if is_admin_account:
+    effective_default = raw_cookie_fav if raw_cookie_fav in league_keys else league_keys[0]
+else:
+    effective_default = manager_home_league if manager_home_league in league_keys else league_keys[0]
 
-if "active_competition" not in st.session_state:
-    st.session_state["active_competition"] = league_keys[0]
+if st.session_state.get("league_init_user") != logged_username:
+    st.session_state["active_competition"] = effective_default
+    st.session_state["league_init_user"] = logged_username
 
 def on_league_select_change():
     st.session_state["user_changed_league"] = True
@@ -289,14 +402,15 @@ selected_league_key = st.sidebar.selectbox(
     on_change = on_league_select_change
 )
 
-effective_fav = st.session_state.get("saved_fav_override") or raw_cookie_fav
-if effective_fav == selected_league_key:
-    st.sidebar.caption(f"⭐ {selected_league_key.split(' ')[0]} is your favourite league")
+if manager_home_league:
+    if selected_league_key == manager_home_league:
+        st.sidebar.caption(f"⭐ {selected_league_key.split(' ')[0]} is your home league")
+    else:
+        if st.sidebar.button(f"🏠 Jump to My League ({manager_home_league.split(' ')[0]})", use_container_width = True):
+            st.session_state["active_competition"] = manager_home_league
+            st.rerun()
 else:
-    if st.sidebar.button("⭐ Set as Favourite League", use_container_width = True):
-        cookie_manager.set("cdp_fav_league", selected_league_key, max_age = 365 * 24 * 3600)
-        st.session_state["saved_fav_override"] = selected_league_key
-        st.sidebar.success(f"⭐ {selected_league_key.split(' ')[0]} saved as favourite!")
+    st.sidebar.caption("👑 Admin View (No default league locked)")
 
 active_league_id = LEAGUE_PRESETS[selected_league_key]
 active_theme = LEAGUE_THEMES.get(selected_league_key, LEAGUE_THEMES["CDP (Crème Dellar Prem)"])
@@ -4229,23 +4343,42 @@ elif st.session_state.page == "Squad Analyser":
         st.stop()
 
     entry_keys = list(entry_options.keys())
-    default_entry_idx = entry_keys.index(88) if 88 in entry_keys else 0
 
-    selected_entry_id = st.sidebar.selectbox(
-        "Select Your Team",
-        options = entry_keys,
-        format_func = lambda x: entry_options.get(x, str(x)),
-        index = default_entry_idx,
-        key = "team_selector_" + str(active_league_id)
-    )
+    # Find if the logged-in manager owns a team in this division
+    matched_entry_id = None
+    for e in entries:
+        m_alias = get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        if m_alias.lower() == logged_alias.lower():
+            matched_entry_id = e.get("entry_id")
+            break
+
+    if is_admin_account:
+        # Admin login gets a dropdown to view all teams in any division
+        default_entry_idx = entry_keys.index(matched_entry_id) if matched_entry_id in entry_keys else 0
+        selected_entry_id = st.sidebar.selectbox(
+            "Select Team (Admin View)",
+            options = entry_keys,
+            format_func = lambda x: entry_options.get(x, str(x)),
+            index = default_entry_idx,
+            key = "admin_team_selector_" + str(active_league_id)
+        )
+    else:
+        # Regular manager login is locked strictly to their own team
+        if not matched_entry_id:
+            st.warning(
+                f"🔒 **Squad Analyser Locked:** You do not manage a team in **{selected_league_key}**. "
+                f"Click **Jump to My League** in the sidebar to analyse your squad."
+            )
+            st.stop()
+        selected_entry_id = matched_entry_id
+        st.sidebar.info(f"🔒 **Your Squad:** {entry_options.get(selected_entry_id, logged_alias)}")
 
     my_squad = merged[merged["owner"] == selected_entry_id].copy()
     waiver_pool = merged[merged["owner"].isna() | (merged["owner"] == 0)].copy()
 
-    tab_lineup, tab_waivers, tab_trade = st.tabs([
+    tab_lineup, tab_waivers = st.tabs([
         "Recommended Lineup",
-        "Tailored Waivers & Suggested Drops",
-        "🤝 Trade Hub"
+        "Tailored Waivers & Suggested Drops"
     ])
 
     # ----------------- TAB 1: RECOMMENDED STARTING XI -----------------
@@ -4372,7 +4505,6 @@ elif st.session_state.page == "Squad Analyser":
                     s_bench_df["State"] = "YTP"
                     s_bench_df["sub_action"] = ""
 
-                # Render inside a 2-column layout so desktop width matches Live Scores
                 pitch_col, _ = st.columns(2)
                 with pitch_col:
                     render_pitch_component(sel_manager_name, s_starters_df, s_bench_df, active_theme["accent"], large_mode, show_proj_pill = True)
@@ -4534,552 +4666,177 @@ elif st.session_state.page == "Squad Analyser":
             st.table(trade_df.set_index("Waiver Target"))
         else:
             st.info("No matching waiver options found with sufficient points and playing chance.")
-
-	# ----------------- TAB 3: TRADE HUB & FLEECE METER -----------------
-    with tab_trade:
-        st.subheader("🤝 Trade Hub & Package Evaluator")
-        st.caption("Compare multi player trade packages, check positional validity and measure the net impact on both managers' Starting XIs.")
-
-        def calc_trade_gw_proj(r):
-            avail = float(r["avail_factor"])
-            if avail <= 0.0:
-                return 0.0
-            form_val = float(r["form"] or 0.0)
-            ppg_val = float(r["points_per_game"] or 2.0)
-            base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
-            season_mins = float(r["minutes"] or 0.0)
-            if current_gw > 3:
-                expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
-                if expected_min_ratio < 0.6:
-                    base_exp = base_exp * 0.8
-            if base_exp <= 0 and avail > 0:
-                base_exp = 2.0
-            fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
-            return round(base_exp * fdr_mult, 1)
-
-        def calc_trade_val(r):
-            # Composite trade value weighting season PPG baseline, current form, ICT and health
-            avail_weight = max(0.35, float(r["avail_factor"]))
-            raw_val = (float(r["points_per_game"]) * 2.2) + (float(r["form"]) * 1.4) + (float(r["ict_index"]) * 0.04)
-            return round(raw_val * avail_weight, 1)
-
-        def get_best_xi_metrics(squad_df):
-            if squad_df is None or squad_df.empty:
-                return 0.0, 0.0
-            s_df = squad_df.copy()
-            s_df = s_df.sort_values(by = ["proj_gw", "trade_val"], ascending = [False, False])
-
-            gks = s_df[s_df["position"] == "GKP"]
-            defs = s_df[s_df["position"] == "DEF"]
-            mids = s_df[s_df["position"] == "MID"]
-            fwds = s_df[s_df["position"] == "FWD"]
-
-            xi = []
-            if not gks.empty:
-                xi.append(gks.iloc[0])
-            xi.extend([defs.iloc[i] for i in range(min(3, len(defs)))])
-            xi.extend([mids.iloc[i] for i in range(min(2, len(mids)))])
-            xi.extend([fwds.iloc[i] for i in range(min(1, len(fwds)))])
-
-            used = {p["id"] for p in xi}
-            rem = s_df[(~s_df["id"].isin(used)) & (s_df["position"] != "GKP")]
-            spots = 11 - len(xi)
-            xi.extend([rem.iloc[i] for i in range(min(spots, len(rem)))])
-
-            if not xi:
-                return 0.0, 0.0
-            xi_frame = pd.DataFrame(xi)
-            return round(float(xi_frame["proj_gw"].sum()), 1), round(float(xi_frame["points_per_game"].sum()), 1)
-
-        merged_trade = merged.copy()
-        merged_trade["proj_gw"] = merged_trade.apply(calc_trade_gw_proj, axis = 1)
-        merged_trade["trade_val"] = merged_trade.apply(calc_trade_val, axis = 1)
-
-        t_col1, t_col2 = st.columns(2)
-        with t_col1:
-            mgr_a_id = st.selectbox(
-                "Manager A",
-                options = entry_keys,
-                format_func = lambda x: entry_options.get(x, str(x)),
-                index = entry_keys.index(selected_entry_id) if selected_entry_id in entry_keys else 0,
-                key = "trade_mgr_a"
-            )
-        with t_col2:
-            other_keys = [k for k in entry_keys if k != mgr_a_id] or entry_keys
-            mgr_b_id = st.selectbox(
-                "Manager B",
-                options = other_keys,
-                format_func = lambda x: entry_options.get(x, str(x)),
-                index = 0,
-                key = "trade_mgr_b"
-            )
-
-        squad_a = merged_trade[merged_trade["owner"] == mgr_a_id].copy()
-        squad_b = merged_trade[merged_trade["owner"] == mgr_b_id].copy()
-
-        squad_a["pos_rank"] = squad_a["position"].map(POS_ORDER).fillna(99)
-        squad_b["pos_rank"] = squad_b["position"].map(POS_ORDER).fillna(99)
-        squad_a = squad_a.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
-        squad_b = squad_b.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
-
-        alias_a = entry_options.get(mgr_a_id, "Manager A").split(" (")[0]
-        alias_b = entry_options.get(mgr_b_id, "Manager B").split(" (")[0]
-
-        p_col1, p_col2 = st.columns(2)
-        with p_col1:
-            a_Map = {
-                r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
-                for _, r in squad_a.iterrows()
-            }
-            send_a_ids = st.multiselect(
-                f"📤 {alias_a} Trades Away:",
-                options = list(a_Map.keys()),
-                format_func = lambda x: a_Map.get(x, str(x)),
-                key = "trade_send_a"
-            )
-        with p_col2:
-            b_Map = {
-                r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
-                for _, r in squad_b.iterrows()
-            }
-            send_b_ids = st.multiselect(
-                f"📤 {alias_b} Trades Away:",
-                options = list(b_Map.keys()),
-                format_func = lambda x: b_Map.get(x, str(x)),
-                key = "trade_send_b"
-            )
-
-        if not send_a_ids or not send_b_ids:
-            st.info("Select at least one player from each squad above to evaluate the trade.")
-        else:
-            pkg_a = squad_a[squad_a["id"].isin(send_a_ids)].copy()
-            pkg_b = squad_b[squad_b["id"].isin(send_b_ids)].copy()
-
-            # Check official FPL Draft positional matching rules
-            pos_list_a = sorted(pkg_a["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
-            pos_list_b = sorted(pkg_b["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
-
-            if pos_list_a != pos_list_b:
-                st.warning(
-                    f"⚠️ **Makeweight Required on FPL Draft Site:** {alias_a} is sending `{' + '.join(pos_list_a)}` "
-                    f"while {alias_b} is sending `{' + '.join(pos_list_b)}`. Official FPL Draft rules require matching positions "
-                    f"to process a trade, though you can still inspect the raw value below."
-                )
-            else:
-                st.success(f"✅ **Valid FPL Draft Structure:** Matching `{' + '.join(pos_list_a)}` swap.")
-
-            # Simulate squads before and after trade
-            a_xi_proj_before, a_xi_ppg_before = get_best_xi_metrics(squad_a)
-            b_xi_proj_before, b_xi_ppg_before = get_best_xi_metrics(squad_b)
-
-            squad_a_after = pd.concat([squad_a[~squad_a["id"].isin(send_a_ids)], pkg_b], ignore_index = True)
-            squad_b_after = pd.concat([squad_b[~squad_b["id"].isin(send_b_ids)], pkg_a], ignore_index = True)
-
-            a_xi_proj_after, a_xi_ppg_after = get_best_xi_metrics(squad_a_after)
-            b_xi_proj_after, b_xi_ppg_after = get_best_xi_metrics(squad_b_after)
-
-            a_proj_delta = round(a_xi_proj_after - a_xi_proj_before, 1)
-            b_proj_delta = round(b_xi_proj_after - b_xi_proj_before, 1)
-            a_ppg_delta = round(a_xi_ppg_after - a_xi_ppg_before, 1)
-            b_ppg_delta = round(b_xi_ppg_after - b_xi_ppg_before, 1)
-
-            # Package totals (Note: Manager A receives Package B, Manager B receives Package A)
-            a_recv_ppg = round(float(pkg_b["points_per_game"].sum()), 1)
-            b_recv_ppg = round(float(pkg_a["points_per_game"].sum()), 1)
-            a_recv_form = round(float(pkg_b["form"].sum()), 1)
-            b_recv_form = round(float(pkg_a["form"].sum()), 1)
-            a_recv_val = round(float(pkg_b["trade_val"].sum()), 1)
-            b_recv_val = round(float(pkg_a["trade_val"].sum()), 1)
-
-            # Composite score for Fleece Meter
-            score_a = a_recv_val + (a_ppg_delta * 2.5)
-            score_b = b_recv_val + (b_ppg_delta * 2.5)
-            total_score = max(0.1, abs(score_a) + abs(score_b))
-            if score_a <= 0 and score_b <= 0:
-                win_pct_a = 50
-            else:
-                win_pct_a = int(round((max(0.1, score_a) / (max(0.1, score_a) + max(0.1, score_b))) * 100))
-                win_pct_a = max(5, min(95, win_pct_a))
-            win_pct_b = 100 - win_pct_a
-
-            if 45 <= win_pct_a <= 55:
-                if a_ppg_delta > 0 and b_ppg_delta > 0:
-                    verdict_badge = "🤝 WIN - WIN TACTICAL SWAP (Improves Both Starting XIs)"
-                    verdict_color = "#22c55e"
-                else:
-                    verdict_badge = "⚖️ FAIR & BALANCED TRADE"
-                    verdict_color = active_theme["accent"]
-            elif win_pct_a > 65:
-                verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_a} Fleeces {alias_b})"
-                verdict_color = "#ef4444"
-            elif win_pct_b > 65:
-                verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_b} Fleeces {alias_a})"
-                verdict_color = "#ef4444"
-            elif win_pct_a > 55:
-                verdict_badge = f"📈 EDGE TO {alias_a.upper()}"
-                verdict_color = active_theme["accent"]
-            else:
-                verdict_badge = f"📈 EDGE TO {alias_b.upper()}"
-                verdict_color = "#38bdf8"
-
-            with st.container(border = True):
-                st.markdown(f"<div style='text-align:center; font-weight:800; font-size:1.25rem; color:{verdict_color}; margin-bottom:8px;'>{verdict_badge}</div>", unsafe_allow_html = True)
-                st.progress(win_pct_a / 100.0)
-
-                v_col1, v_col2 = st.columns(2)
-                with v_col1:
-                    sign_a_ppg = f"+{a_ppg_delta:.1f}" if a_ppg_delta > 0 else f"{a_ppg_delta:.1f}"
-                    sign_a_proj = f"+{a_proj_delta:.1f}" if a_proj_delta > 0 else f"{a_proj_delta:.1f}"
-                    st.markdown(f"### {alias_a} ({win_pct_a}%)")
-                    st.markdown(f"**Best XI Season PPG Impact:** `{a_xi_ppg_before:.1f}` → `{a_xi_ppg_after:.1f}` (**{sign_a_ppg} PPG**)")
-                    st.markdown(f"**GW {current_gw} Best XI Projection:** `{a_xi_proj_before:.1f}` → `{a_xi_proj_after:.1f}` (**{sign_a_proj} pts**)")
-                    st.caption(f"Incoming Package: {a_recv_ppg:.1f} combined PPG • {a_recv_form:.1f} combined Form")
-
-                with v_col2:
-                    sign_b_ppg = f"+{b_ppg_delta:.1f}" if b_ppg_delta > 0 else f"{b_ppg_delta:.1f}"
-                    sign_b_proj = f"+{b_proj_delta:.1f}" if b_proj_delta > 0 else f"{b_proj_delta:.1f}"
-                    st.markdown(f"<h3 style='text-align:right;'>{alias_b} ({win_pct_b}%)</h3>", unsafe_allow_html = True)
-                    st.markdown(f"<p style='text-align:right; margin:0;'><b>Best XI Season PPG Impact:</b> <code>{b_xi_ppg_before:.1f}</code> → <code>{b_xi_ppg_after:.1f}</code> (<b>{sign_b_ppg} PPG</b>)</p>", unsafe_allow_html = True)
-                    st.markdown(f"<p style='text-align:right; margin:0;'><b>GW {current_gw} Best XI Projection:</b> <code>{b_xi_proj_before:.1f}</code> → <code>{b_xi_proj_after:.1f}</code> (<b>{sign_b_proj} pts</b>)</p>", unsafe_allow_html = True)
-                    st.markdown(f"<p style='text-align:right; color:#94a3b8; font-size:0.86rem; margin-top:4px;'>Incoming Package: {b_recv_ppg:.1f} combined PPG • {b_recv_form:.1f} combined Form</p>", unsafe_allow_html = True)
-
-            st.write("")
-            brk_col1, brk_col2 = st.columns(2)
-            t_cols = ["web_name", "position", "club", "health_status", "proj_gw", "points_per_game", "form", "next_3"]
-
-            with brk_col1:
-                st.markdown(f"**📥 {alias_a} Receives:**")
-                disp_b = pkg_b[t_cols].copy()
-                disp_b["proj_gw"] = disp_b["proj_gw"].map(lambda x: f"{float(x):.1f}")
-                disp_b["points_per_game"] = disp_b["points_per_game"].map(lambda x: f"{float(x):.1f}")
-                disp_b["form"] = disp_b["form"].map(lambda x: f"{float(x):.1f}")
-                disp_b = disp_b.rename(columns = {
-                    "web_name": "Player", "position": "Pos", "club": "Club",
-                    "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
-                    "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
-                })
-                st.table(disp_b.set_index("Player"))
-
-            with brk_col2:
-                st.markdown(f"**📥 {alias_b} Receives:**")
-                disp_a = pkg_a[t_cols].copy()
-                disp_a["proj_gw"] = disp_a["proj_gw"].map(lambda x: f"{float(x):.1f}")
-                disp_a["points_per_game"] = disp_a["points_per_game"].map(lambda x: f"{float(x):.1f}")
-                disp_a["form"] = disp_a["form"].map(lambda x: f"{float(x):.1f}")
-                disp_a = disp_a.rename(columns = {
-                    "web_name": "Player", "position": "Pos", "club": "Club",
-                    "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
-                    "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
-                })
-                st.table(disp_a.set_index("Player"))
 # ----------------- 6B. TRADE HUB SECTION -----------------
+# ----------------- TRADE HUB SECTION (TRANSFER LIST / TRADING BLOCK) -----------------
 elif st.session_state.page == "Trade Hub":
-    st.title("🤝 Trade Hub" + dash + selected_league_key)
-    st.caption("Compare trade packages, check positional validity and measure the net impact on both managers' Starting XIs.")
+    st.title("Trade Hub & Trading Block" + dash + selected_league_key)
+    st.markdown("🛒 **The League Transfer List:** Broadcast your trade targets, browse active listings across all 32 squads, and scout the market.")
 
+    # 1. Initialize data storage for trade listings
+    trade_file = base_dir / "trade_block.json"
+    def load_trade_block():
+        if trade_file.exists():
+            try:
+                with open(trade_file, "r", encoding="utf-8") as tf:
+                    return json.load(tf)
+            except Exception:
+                return []
+        return []
+
+    def save_trade_block(listings):
+        with open(trade_file, "w", encoding="utf-8") as tf:
+            json.dump(listings, tf, indent=2, ensure_ascii=False)
+
+    trade_listings = load_trade_block()
+
+    # Fetch required league and player data (including element_status for ownership mapping)
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
-    all_fixtures = fetch_all_epl_fixtures()
+    all_teams_reg = get_all_32_teams_registry()
 
     if not static_data or not league_details or not element_status:
-        st.error("Failed to load league data. Verify connection and try again.")
+        st.error("Failed to load league details for the Trade Hub.")
         st.stop()
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-
-    matches = league_details.get("matches", [])
-    all_events = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
-    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
-    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
-
-    def get_next_3_fixtures_trade(team_id):
-        if not all_fixtures or not team_id:
-            return "TBD"
-        upcoming = [
-            f for f in all_fixtures
-            if not f.get("finished", False) and (f.get("team_h") == team_id or f.get("team_a") == team_id)
-        ]
-        upcoming = sorted(upcoming, key = lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
-        if not upcoming:
-            return "None"
-        labels = []
-        for f in upcoming:
-            if f.get("team_h") == team_id:
-                labels.append(f"{team_map.get(f.get('team_a'), 'OPP')} (H)")
-            else:
-                labels.append(f"{team_map.get(f.get('team_h'), 'OPP')} (A)")
-        return ", ".join(labels)
-
+    
     elements_df = pd.DataFrame(static_data["elements"])
     elements_df["position"] = elements_df["element_type"].map(pos_map)
     elements_df["club"] = elements_df["team"].map(team_map)
-    elements_df["form"] = pd.to_numeric(elements_df["form"], errors = "coerce").fillna(0.0).round(1)
-    elements_df["points_per_game"] = pd.to_numeric(elements_df["points_per_game"], errors = "coerce").fillna(0.0).round(1)
-    elements_df["ict_index"] = pd.to_numeric(elements_df["ict_index"], errors = "coerce").fillna(0.0).round(1)
-    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors = "coerce").fillna(0)
-    elements_df["minutes"] = pd.to_numeric(elements_df["minutes"], errors = "coerce").fillna(0)
-    elements_df["chance_of_playing_next_round"] = pd.to_numeric(elements_df["chance_of_playing_next_round"], errors = "coerce")
-    elements_df["next_3"] = elements_df["team"].map(get_next_3_fixtures_trade)
-    elements_df["avail_factor"] = elements_df.apply(get_availability_multiplier, axis = 1).round(1)
-    elements_df["health_status"] = elements_df.apply(get_health_label, axis = 1)
+    elements_df["form"] = pd.to_numeric(elements_df["form"], errors="coerce").fillna(0.0)
+    elements_df["total_points"] = pd.to_numeric(elements_df["total_points"], errors="coerce").fillna(0)
 
-    def calc_trade_gw_proj(r):
-        avail = float(r["avail_factor"])
-        if avail <= 0.0:
-            return 0.0
-        form_val = float(r["form"] or 0.0)
-        ppg_val = float(r["points_per_game"] or 2.0)
-        base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
-        season_mins = float(r["minutes"] or 0.0)
-        if current_gw > 3:
-            expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
-            if expected_min_ratio < 0.6:
-                base_exp = base_exp * 0.8
-        if base_exp <= 0 and avail > 0:
-            base_exp = 2.0
-        fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
-        return round(base_exp * fdr_mult, 1)
-
-    def calc_trade_val(r):
-        avail_weight = max(0.35, float(r["avail_factor"]))
-        raw_val = (float(r["points_per_game"]) * 2.2) + (float(r["form"]) * 1.4) + (float(r["ict_index"]) * 0.04)
-        return round(raw_val * avail_weight, 1)
-
-    def get_best_xi_metrics(squad_df):
-        if squad_df is None or squad_df.empty:
-            return 0.0, 0.0
-        s_df = squad_df.sort_values(by = ["proj_gw", "trade_val"], ascending = [False, False])
-        gks = s_df[s_df["position"] == "GKP"]
-        defs = s_df[s_df["position"] == "DEF"]
-        mids = s_df[s_df["position"] == "MID"]
-        fwds = s_df[s_df["position"] == "FWD"]
-
-        xi = []
-        if not gks.empty:
-            xi.append(gks.iloc[0])
-        xi.extend([defs.iloc[i] for i in range(min(3, len(defs)))])
-        xi.extend([mids.iloc[i] for i in range(min(2, len(mids)))])
-        xi.extend([fwds.iloc[i] for i in range(min(1, len(fwds)))])
-
-        used = {p["id"] for p in xi}
-        rem = s_df[(~s_df["id"].isin(used)) & (s_df["position"] != "GKP")]
-        spots = 11 - len(xi)
-        xi.extend([rem.iloc[i] for i in range(min(spots, len(rem)))])
-
-        if not xi:
-            return 0.0, 0.0
-        xi_frame = pd.DataFrame(xi)
-        return round(float(xi_frame["proj_gw"].sum()), 1), round(float(xi_frame["points_per_game"].sum()), 1)
-
+    # Merge element_status so the 'owner' column is populated correctly
     status_df = pd.DataFrame(element_status["element_status"])
-    merged_trade = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
-    merged_trade["proj_gw"] = merged_trade.apply(calc_trade_gw_proj, axis = 1)
-    merged_trade["trade_val"] = merged_trade.apply(calc_trade_val, axis = 1)
+    elements_df = elements_df.merge(status_df, left_on="id", right_on="element", how="inner")
 
     entries = league_details.get("league_entries", [])
     entry_options = {
-        e["entry_id"]: f"{get_manager_alias(e['player_first_name'], e['player_last_name'])} ({e['entry_name']})"
+        e["entry_id"]: {
+            "team_name": e.get("entry_name", "Team"),
+            "manager_name": f"{e.get('player_first_name', '')} {e.get('player_last_name', '')}".strip(),
+            "alias": get_manager_alias(e.get('player_first_name', ''), e.get('player_last_name', ''))
+        }
         for e in entries
     }
-    entry_keys = list(entry_options.keys())
-    default_a_idx = entry_keys.index(88) if 88 in entry_keys else 0
 
-    trade_size_label = st.radio(
-        "Trade Size",
-        ["1 vs 1 Swap", "2 vs 2 Swap", "3 vs 3 Swap"],
-        horizontal = True,
-        key = "trade_size_radio"
-    )
-    num_slots = int(trade_size_label.split(" ")[0])
+    # Find logged-in manager's entry ID in this active league
+    matched_entry_id = None
+    for e_id, info in entry_options.items():
+        if info["alias"].lower() == logged_alias.lower():
+            matched_entry_id = e_id
+            break
 
-    t_col1, t_col2 = st.columns(2)
-    with t_col1:
-        mgr_a_id = st.selectbox(
-            "Manager A",
-            options = entry_keys,
-            format_func = lambda x: entry_options.get(x, str(x)),
-            index = default_a_idx,
-            key = "trade_hub_mgr_a"
-        )
-    with t_col2:
-        other_keys = [k for k in entry_keys if k != mgr_a_id] or entry_keys
-        mgr_b_id = st.selectbox(
-            "Manager B",
-            options = other_keys,
-            format_func = lambda x: entry_options.get(x, str(x)),
-            index = 0,
-            key = "trade_hub_mgr_b"
-        )
+    tab_browse, tab_manage = st.tabs(["🛒 League Trading Block (All Divisions)", "📋 Manage My Listed Players"])
 
-    squad_a = merged_trade[merged_trade["owner"] == mgr_a_id].copy()
-    squad_b = merged_trade[merged_trade["owner"] == mgr_b_id].copy()
-    squad_a["pos_rank"] = squad_a["position"].map(POS_ORDER).fillna(99)
-    squad_b["pos_rank"] = squad_b["position"].map(POS_ORDER).fillna(99)
-    squad_a = squad_a.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
-    squad_b = squad_b.sort_values(by = ["pos_rank", "trade_val"], ascending = [True, False])
-
-    alias_a = entry_options.get(mgr_a_id, "Manager A").split(" (")[0]
-    alias_b = entry_options.get(mgr_b_id, "Manager B").split(" (")[0]
-
-    a_map = {
-        r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
-        for _, r in squad_a.iterrows()
-    }
-    b_map = {
-        r["id"]: f"{r['web_name']} ({r['position']} • {r['club']}) {dash} {r['points_per_game']:.1f} PPG"
-        for _, r in squad_b.iterrows()
-    }
-
-    send_a_ids = []
-    send_b_ids = []
-
-    p_col1, p_col2 = st.columns(2)
-    with p_col1:
-        st.markdown(f"**📤 {alias_a} Sends:**")
-        for s_idx in range(num_slots):
-            avail_a = [k for k in a_map.keys() if k not in send_a_ids]
-            if avail_a:
-                chosen_a = st.selectbox(
-                    f"{alias_a} Player {s_idx + 1}",
-                    options = avail_a,
-                    format_func = lambda x: a_map.get(x, str(x)),
-                    key = f"th_send_a_{mgr_a_id}_{s_idx}"
-                )
-                send_a_ids.append(chosen_a)
-
-    with p_col2:
-        st.markdown(f"**📤 {alias_b} Sends:**")
-        for s_idx in range(num_slots):
-            avail_b = [k for k in b_map.keys() if k not in send_b_ids]
-            if avail_b:
-                chosen_b = st.selectbox(
-                    f"{alias_b} Player {s_idx + 1}",
-                    options = avail_b,
-                    format_func = lambda x: b_map.get(x, str(x)),
-                    key = f"th_send_b_{mgr_b_id}_{s_idx}"
-                )
-                send_b_ids.append(chosen_b)
-
-    if send_a_ids and send_b_ids:
-        pkg_a = squad_a[squad_a["id"].isin(send_a_ids)].copy()
-        pkg_b = squad_b[squad_b["id"].isin(send_b_ids)].copy()
-
-        pos_list_a = sorted(pkg_a["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
-        pos_list_b = sorted(pkg_b["position"].tolist(), key = lambda x: POS_ORDER.get(x, 99))
-
-        st.divider()
-        if pos_list_a != pos_list_b:
-            st.warning(
-                f"⚠️ **Position Mismatch on FPL Draft Site:** {alias_a} is sending `{' + '.join(pos_list_a)}` "
-                f"while {alias_b} is sending `{' + '.join(pos_list_b)}`. Official FPL Draft rules require matching positions "
-                f"to process a trade on the site."
-            )
+    # ----------------- TAB 1: BROWSE LEAGUE-WIDE TRADING BLOCK -----------------
+    with tab_browse:
+        st.subheader("Active Transfer List")
+        
+        if not trade_listings:
+            st.info("The trading block is currently empty. Head over to **'Manage My Listed Players'** to put someone up for trade!")
         else:
-            st.success(f"✅ **Valid FPL Draft Position Structure:** Matching `{' + '.join(pos_list_a)}` swap.")
+            # Filters
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key="trade_pos_filter")
+            with f_col2:
+                div_filter = st.selectbox("Filter by Division", ["All Divisions", "CDP (Crème Dellar Prem)", "SDM (Segundo Del Mundo)", "BDR (Best De La Rest)", "LDE (Liger Del Eager)"], key="trade_div_filter")
 
-        a_xi_proj_before, a_xi_ppg_before = get_best_xi_metrics(squad_a)
-        b_xi_proj_before, b_xi_ppg_before = get_best_xi_metrics(squad_b)
+            filtered_listings = trade_listings
+            if pos_filter != "All":
+                filtered_listings = [item for item in filtered_listings if item.get("position") == pos_filter]
+            if div_filter != "All Divisions":
+                filtered_listings = [item for item in filtered_listings if item.get("league_key") == div_filter]
 
-        squad_a_after = pd.concat([squad_a[~squad_a["id"].isin(send_a_ids)], pkg_b], ignore_index = True)
-        squad_b_after = pd.concat([squad_b[~squad_b["id"].isin(send_b_ids)], pkg_a], ignore_index = True)
-
-        a_xi_proj_after, a_xi_ppg_after = get_best_xi_metrics(squad_a_after)
-        b_xi_proj_after, b_xi_ppg_after = get_best_xi_metrics(squad_b_after)
-
-        a_proj_delta = round(a_xi_proj_after - a_xi_proj_before, 1)
-        b_proj_delta = round(b_xi_proj_after - b_xi_proj_before, 1)
-        a_ppg_delta = round(a_xi_ppg_after - a_xi_ppg_before, 1)
-        b_ppg_delta = round(b_xi_ppg_after - b_xi_ppg_before, 1)
-
-        a_recv_ppg = round(float(pkg_b["points_per_game"].sum()), 1)
-        b_recv_ppg = round(float(pkg_a["points_per_game"].sum()), 1)
-        a_recv_form = round(float(pkg_b["form"].sum()), 1)
-        b_recv_form = round(float(pkg_a["form"].sum()), 1)
-        a_recv_val = round(float(pkg_b["trade_val"].sum()), 1)
-        b_recv_val = round(float(pkg_a["trade_val"].sum()), 1)
-
-        score_a = a_recv_val + (a_ppg_delta * 2.5)
-        score_b = b_recv_val + (b_ppg_delta * 2.5)
-        if score_a <= 0 and score_b <= 0:
-            win_pct_a = 50
-        else:
-            win_pct_a = int(round((max(0.1, score_a) / (max(0.1, score_a) + max(0.1, score_b))) * 100))
-            win_pct_a = max(5, min(95, win_pct_a))
-        win_pct_b = 100 - win_pct_a
-
-        if 45 <= win_pct_a <= 55:
-            if a_ppg_delta > 0 and b_ppg_delta > 0:
-                verdict_badge = "🤝 WIN - WIN TACTICAL SWAP (Improves Both Starting XIs)"
-                verdict_color = "#22c55e"
+            if not filtered_listings:
+                st.warning("No active trade listings match your selected filters.")
             else:
-                verdict_badge = "⚖️ FAIR & BALANCED TRADE"
-                verdict_color = active_theme["accent"]
-        elif win_pct_a > 65:
-            verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_a} Fleeces {alias_b})"
-            verdict_color = "#ef4444"
-        elif win_pct_b > 65:
-            verdict_badge = f"🚨 DAYLIGHT ROBBERY ({alias_b} Fleeces {alias_a})"
-            verdict_color = "#ef4444"
-        elif win_pct_a > 55:
-            verdict_badge = f"📈 EDGE TO {alias_a.upper()}"
-            verdict_color = active_theme["accent"]
+                display_rows = []
+                for item in filtered_listings:
+                    display_rows.append({
+                        "Player": item.get("player_name"),
+                        "Club": item.get("club"),
+                        "Pos": item.get("position"),
+                        "Manager": item.get("manager_alias"),
+                        "Team": item.get("team_name"),
+                        "Division": item.get("league_key", "").split(" ")[0],
+                        "Asking Price / Notes": item.get("notes", "Open to offers"),
+                        "Listed Date": item.get("date", "Recent")
+                    })
+                
+                t_df = pd.DataFrame(display_rows)
+                st.table(t_df.set_index("Player"))
+
+    # ----------------- TAB 2: MANAGE MY LISTED PLAYERS -----------------
+    with tab_manage:
+        st.subheader("Add or Remove Players From Your Trading Block")
+
+        if not matched_entry_id and not is_admin_account:
+            st.warning(f"🔒 You do not have a registered team in **{selected_league_key}**. Switch to your home league to manage your transfer list.")
         else:
-            verdict_badge = f"📈 EDGE TO {alias_b.upper()}"
-            verdict_color = "#38bdf8"
+            # If admin, let them pick which team to manage, otherwise lock to logged-in manager
+            if is_admin_account:
+                admin_target_entry = st.selectbox("Select Team to Manage (Admin Override)", options=list(entry_options.keys()), format_func=lambda x: f"{entry_options[x]['manager_name']} ({entry_options[x]['team_name']})")
+                my_squad = elements_df[elements_df["owner"] == admin_target_entry].copy()
+                active_manager_alias = entry_options[admin_target_entry]["alias"]
+                active_team_name = entry_options[admin_target_entry]["team_name"]
+            else:
+                my_squad = elements_df[elements_df["owner"] == matched_entry_id].copy()
+                active_manager_alias = logged_alias
+                active_team_name = entry_options[matched_entry_id]["team_name"]
 
-        with st.container(border = True):
-            st.markdown(f"<div style='text-align:center; font-weight:800; font-size:1.25rem; color:{verdict_color}; margin-bottom:8px;'>{verdict_badge}</div>", unsafe_allow_html = True)
-            st.progress(win_pct_a / 100.0)
+            if my_squad.empty:
+                st.info("No squad players found for listing.")
+            else:
+                st.markdown("### ➕ Put a Player Up For Trade")
+                squad_player_options = {row["id"]: f"{row['web_name']} ({row['club']} - {row['position']})" for _, row in my_squad.iterrows()}
+                
+                with st.form("add_trade_form"):
+                    selected_player_id = st.selectbox("Select Player from Your Roster", options=list(squad_player_options.keys()), format_func=lambda x: squad_player_options[x])
+                    trade_notes = st.text_input("Trade Notes / Asking Requirements (e.g. 'Looking for a starting MID')", value="Open to offers")
+                    submit_listing = st.form_submit_button("📢 Add to League Trading Block", type="primary")
 
-            v_col1, v_col2 = st.columns(2)
-            with v_col1:
-                sign_a_ppg = f"+{a_ppg_delta:.1f}" if a_ppg_delta > 0 else f"{a_ppg_delta:.1f}"
-                sign_a_proj = f"+{a_proj_delta:.1f}" if a_proj_delta > 0 else f"{a_proj_delta:.1f}"
-                st.markdown(f"### {alias_a} ({win_pct_a}%)")
-                st.markdown(f"**Best XI Season PPG Impact:** `{a_xi_ppg_before:.1f}` → `{a_xi_ppg_after:.1f}` (**{sign_a_ppg} PPG**)")
-                st.markdown(f"**GW {current_gw} Best XI Projection:** `{a_xi_proj_before:.1f}` → `{a_xi_proj_after:.1f}` (**{sign_a_proj} pts**)")
-                st.caption(f"Incoming Package: {a_recv_ppg:.1f} combined PPG • {a_recv_form:.1f} combined Form")
+                    if submit_listing:
+                        p_info = elements_df[elements_df["id"] == selected_player_id].iloc[0]
+                        
+                        # Prevent duplicate listing for the same player by the same manager
+                        trade_listings = [t for t in trade_listings if not (t.get("player_id") == selected_player_id and t.get("manager_alias") == active_manager_alias)]
+                        
+                        new_listing = {
+                            "player_id": int(selected_player_id),
+                            "player_name": str(p_info["web_name"]),
+                            "club": str(p_info["club"]),
+                            "position": str(p_info["position"]),
+                            "manager_alias": str(active_manager_alias),
+                            "team_name": str(active_team_name),
+                            "league_key": str(selected_league_key),
+                            "notes": str(trade_notes),
+                            "date": pd.Timestamp.today().strftime("%d %b")
+                        }
+                        trade_listings.append(new_listing)
+                        save_trade_block(trade_listings)
+                        st.success(f"✅ Successfully listed **{p_info['web_name']}** on the trading block!")
+                        st.rerun()
 
-            with v_col2:
-                sign_b_ppg = f"+{b_ppg_delta:.1f}" if b_ppg_delta > 0 else f"{b_ppg_delta:.1f}"
-                sign_b_proj = f"+{b_proj_delta:.1f}" if b_proj_delta > 0 else f"{b_proj_delta:.1f}"
-                st.markdown(f"<h3 style='text-align:right;'>{alias_b} ({win_pct_b}%)</h3>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:right; margin:0;'><b>Best XI Season PPG Impact:</b> <code>{b_xi_ppg_before:.1f}</code> → <code>{b_xi_ppg_after:.1f}</code> (<b>{sign_b_ppg} PPG</b>)</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:right; margin:0;'><b>GW {current_gw} Best XI Projection:</b> <code>{b_xi_proj_before:.1f}</code> → <code>{b_xi_proj_after:.1f}</code> (<b>{sign_b_proj} pts</b>)</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:right; color:#94a3b8; font-size:0.86rem; margin-top:4px;'>Incoming Package: {b_recv_ppg:.1f} combined PPG • {b_recv_form:.1f} combined Form</p>", unsafe_allow_html = True)
+                st.divider()
+                st.markdown("### ❌ Remove Your Active Listings")
+                my_active_listings = [t for t in trade_listings if t.get("manager_alias") == active_manager_alias]
 
-        st.write("")
-        brk_col1, brk_col2 = st.columns(2)
-        t_cols = ["web_name", "position", "club", "health_status", "proj_gw", "points_per_game", "form", "next_3"]
-
-        with brk_col1:
-            st.markdown(f"**📥 {alias_a} Receives:**")
-            disp_b = pkg_b[t_cols].copy()
-            disp_b["proj_gw"] = disp_b["proj_gw"].map(lambda x: f"{float(x):.1f}")
-            disp_b["points_per_game"] = disp_b["points_per_game"].map(lambda x: f"{float(x):.1f}")
-            disp_b["form"] = disp_b["form"].map(lambda x: f"{float(x):.1f}")
-            disp_b = disp_b.rename(columns = {
-                "web_name": "Player", "position": "Pos", "club": "Club",
-                "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
-                "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
-            })
-            st.table(disp_b.set_index("Player"))
-
-        with brk_col2:
-            st.markdown(f"**📥 {alias_b} Receives:**")
-            disp_a = pkg_a[t_cols].copy()
-            disp_a["proj_gw"] = disp_a["proj_gw"].map(lambda x: f"{float(x):.1f}")
-            disp_a["points_per_game"] = disp_a["points_per_game"].map(lambda x: f"{float(x):.1f}")
-            disp_a["form"] = disp_a["form"].map(lambda x: f"{float(x):.1f}")
-            disp_a = disp_a.rename(columns = {
-                "web_name": "Player", "position": "Pos", "club": "Club",
-                "health_status": "Status", "proj_gw": f"GW {current_gw} Proj",
-                "points_per_game": "PPG", "form": "Form", "next_3": "Next 3 Fixtures"
-            })
-            st.table(disp_a.set_index("Player"))
-
-# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
+                if not my_active_listings:
+                    st.info("You currently have no players listed on the transfer list.")
+                else:
+                    for listing in my_active_listings:
+                        col_l1, col_l2 = st.columns([3, 1])
+                        with col_l1:
+                            st.markdown(f"**{listing['player_name']}** ({listing['club']} - {listing['position']}) — *{listing['notes']}*")
+                        with col_l2:
+                            if st.button(f"Remove", key=f"remove_trade_{listing['player_id']}"):
+                                trade_listings = [t for t in trade_listings if not (t.get("player_id") == listing['player_id'] and t.get("manager_alias") == active_manager_alias)]
+                                save_trade_block(trade_listings)
+                                st.success(f"Removed {listing['player_name']} from block.")
+                                st.rerun()# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
     st.title("🎯 GACS" + dash + selected_league_key)
     
