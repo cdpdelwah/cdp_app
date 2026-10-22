@@ -3563,7 +3563,7 @@ elif st.session_state.page == "Cup & Bucket":
                 st.info(f"No cup matches scheduled for Gameweek {active_cup_gw}.")
                 return
 
-            gw_epl_fixtures = [f for f in all_fixtures if f.get("event"] == active_cup_gw] if all_fixtures else []
+            gw_epl_fixtures = [f for f in all_fixtures if f.get("event") == active_cup_gw] if all_fixtures else []
             gw_officially_finished = all(f.get("finished", False) for f in gw_epl_fixtures) if gw_epl_fixtures else False
 
             live_cup_cards = []
