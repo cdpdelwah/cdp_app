@@ -4669,7 +4669,7 @@ elif st.session_state.page == "Squad Analyser":
 # ----------------- 6B. TRADE HUB SECTION (TRANSFER LIST & TRADE CALCULATOR) -----------------
 elif st.session_state.page == "Trade Hub":
     st.title("Trade Hub & Trading Block" + dash + selected_league_key)
-    st.markdown("🛒 **The League Transfer List & Calculator:** Broadcast your trade targets, browse active listings across all 32 squads and evaluate player trades.")
+    st.markdown("🛒 **The League Transfer List & Calculator:** Broadcast trade targets, scout active listings in your division, and evaluate trades.")
 
     # 1. Initialize data storage for trade listings
     trade_file = base_dir / "trade_block.json"
@@ -4688,7 +4688,7 @@ elif st.session_state.page == "Trade Hub":
 
     trade_listings = load_trade_block()
 
-    # Fetch required league and player data (including element_status for ownership mapping)
+    # Fetch required league and player data
     static_data = fetch_fpl_static()
     league_details, element_status = fetch_league_data(active_league_id)
     all_fixtures = fetch_all_epl_fixtures()
@@ -4735,7 +4735,6 @@ elif st.session_state.page == "Trade Hub":
         * elements_df["avail_factor"]
     ).round(1)
 
-    # Merge element_status so the 'owner' column is populated correctly
     status_df = pd.DataFrame(element_status["element_status"])
     elements_df = elements_df.merge(status_df, left_on = "id", right_on = "element", how = "inner")
 
@@ -4752,7 +4751,6 @@ elif st.session_state.page == "Trade Hub":
     owner_alias_map = {e_id: info["alias"] for e_id, info in entry_options.items()}
     elements_df["owner_alias"] = elements_df["owner"].map(owner_alias_map).fillna("Free Agent")
 
-    # Find logged in manager's entry ID in this active league
     matched_entry_id = None
     for e_id, info in entry_options.items():
         if info["alias"].lower() == logged_alias.lower():
@@ -4760,32 +4758,29 @@ elif st.session_state.page == "Trade Hub":
             break
 
     tab_browse, tab_manage, tab_calc = st.tabs([
-        "🛒 League Trading Block (All Divisions)",
-        "📋 Manage My Listed Players",
+        "🛒 League Transfer List",
+        "📋 Manage My Listings",
         "⚖️ Trade Calculator"
     ])
 
-    # ----------------- TAB 1: BROWSE LEAGUE WIDE TRADING BLOCK -----------------
+    # ----------------- TAB 1: BROWSE LEAGUE TRADING BLOCK (STRICTLY ACTIVE LEAGUE) -----------------
     with tab_browse:
-        st.subheader("Active Transfer List")
+        st.subheader(f"Active Transfer List — {selected_league_key}")
         
-        if not trade_listings:
-            st.info("The trading block is currently empty. Head over to **'Manage My Listed Players'** to put someone up for trade!")
-        else:
-            f_col1, f_col2 = st.columns(2)
-            with f_col1:
-                pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key = "trade_pos_filter")
-            with f_col2:
-                div_filter = st.selectbox("Filter by Division", ["All Divisions", "CDP (Crème Dellar Prem)", "SDM (Segundo Del Mundo)", "BDR (Best De La Rest)", "LDE (Liger Del Eager)"], key = "trade_div_filter")
+        # Filter listings strictly to the current active league
+        league_trade_listings = [item for item in trade_listings if item.get("league_key") == selected_league_key]
 
-            filtered_listings = trade_listings
+        if not league_trade_listings:
+            st.info(f"The trading block for **{selected_league_key}** is currently empty. Head over to **'Manage My Listings'** to put someone up for trade!")
+        else:
+            pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key = "trade_pos_filter")
+
+            filtered_listings = league_trade_listings
             if pos_filter != "All":
-                filtered_listings = [item for item in filtered_listings if item.get("position") == pos_filter]
-            if div_filter != "All Divisions":
-                filtered_listings = [item for item in filtered_listings if item.get("league_key") == div_filter]
+                filtered_listings = [item for item in filtered_listings if item.get("position"] == pos_filter]
 
             if not filtered_listings:
-                st.warning("No active trade listings match your selected filters.")
+                st.warning("No active trade listings match your selected position filter.")
             else:
                 display_rows = []
                 for item in filtered_listings:
@@ -4795,7 +4790,6 @@ elif st.session_state.page == "Trade Hub":
                         "Pos": item.get("position"),
                         "Manager": item.get("manager_alias"),
                         "Team": item.get("team_name"),
-                        "Division": item.get("league_key", "").split(" ")[0],
                         "Asking Price / Notes": item.get("notes", "Open to offers"),
                         "Listed Date": item.get("date", "Recent")
                     })
@@ -4858,10 +4852,10 @@ elif st.session_state.page == "Trade Hub":
 
                 st.divider()
                 st.markdown("### ❌ Remove Your Active Listings")
-                my_active_listings = [t for t in trade_listings if t.get("manager_alias") == active_manager_alias]
+                my_active_listings = [t for t in trade_listings if t.get("manager_alias"] == active_manager_alias and t.get("league_key") == selected_league_key]
 
                 if not my_active_listings:
-                    st.info("You currently have no players listed on the transfer list.")
+                    st.info("You currently have no players listed on the transfer list in this league.")
                 else:
                     for listing in my_active_listings:
                         col_l1, col_l2 = st.columns([3, 1])
@@ -4874,18 +4868,18 @@ elif st.session_state.page == "Trade Hub":
                                 st.success(f"Removed {listing['player_name']} from block.")
                                 st.rerun()
 
-# ----------------- TAB 3: TRADE CALCULATOR -----------------
+    # ----------------- TAB 3: TRADE CALCULATOR (FORMAT SELECTOR & SASSY VERDICT) -----------------
     with tab_calc:
         st.subheader("⚖️ Trade Package Evaluator")
-        st.markdown("Select whether you want to evaluate a **1 v 1, 2 v 2, or 3 v 3** trade format, then pick your players below.")
-
-        # Top-level selector for trade format (1v1, 2v2, 3v3)
+        
+        # Trade Format Selector right at the top
         trade_mode = st.selectbox(
             "Select Trade Format",
             [1, 2, 3],
-            format_func = lambda x: f"{x} v {x} Trade",
+            format_func = lambda x: f"{x} v {x} Trade Package",
             key = "trade_format_selector"
         )
+        st.caption(f"Evaluate a **{trade_mode} v {trade_mode}** player swap across Season Points, PPG, Form and Trade Rating.")
 
         team_filter_options = ["All Players"] + [f"{info['alias']} ({info['team_name']})" for _, info in entry_options.items()]
         alias_to_entry_id = {f"{info['alias']} ({info['team_name']})": e_id for e_id, info in entry_options.items()}
@@ -4909,17 +4903,21 @@ elif st.session_state.page == "Trade Hub":
                 pool_a = elements_df[elements_df["owner"] == alias_to_entry_id[team_a_filter]].sort_values(by = "total_points", ascending = False)
                 side_a_label = team_a_filter.split(" (")[0]
 
-            choices_a = {
-                int(row["id"]): f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
-                for _, row in pool_a.iterrows()
-            }
-            side_a_ids = st.multiselect(
-                f"Select up to {trade_mode} player(s) for Side A",
-                options = list(choices_a.keys()),
-                format_func = lambda x: choices_a[x],
-                max_selections = trade_mode,
-                key = "calc_side_a_players"
-            )
+            choices_a = {0: "➕ None (Empty Slot)"}
+            for _, row in pool_a.iterrows():
+                choices_a[int(row["id"])] = f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
+
+            a_p1 = st.selectbox("Side A • Player 1", options = list(choices_a.keys()), format_func = lambda x: choices_a[x], key = "calc_a_p1")
+            
+            a_p2, a_p3 = 0, 0
+            if trade_mode >= 2:
+                a_p2_opts = [k for k in choices_a.keys() if k == 0 or k != a_p1]
+                a_p2 = st.selectbox("Side A • Player 2", options = a_p2_opts, format_func = lambda x: choices_a[x], key = "calc_a_p2")
+            if trade_mode >= 3:
+                a_p3_opts = [k for k in choices_a.keys() if k == 0 or k not in (a_p1, a_p2)]
+                a_p3 = st.selectbox("Side A • Player 3", options = a_p3_opts, format_func = lambda x: choices_a[x], key = "calc_a_p3")
+
+            side_a_ids = [pid for pid in [a_p1, a_p2, a_p3] if pid != 0]
 
         # ----------------- SIDE B SELECTION -----------------
         with col_side2:
@@ -4932,17 +4930,21 @@ elif st.session_state.page == "Trade Hub":
                 pool_b = elements_df[elements_df["owner"] == alias_to_entry_id[team_b_filter]].sort_values(by = "total_points", ascending = False)
                 side_b_label = team_b_filter.split(" (")[0]
 
-            choices_b = {
-                int(row["id"]): f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
-                for _, row in pool_b.iterrows()
-            }
-            side_b_ids = st.multiselect(
-                f"Select up to {trade_mode} player(s) for Side B",
-                options = list(choices_b.keys()),
-                format_func = lambda x: choices_b[x],
-                max_selections = trade_mode,
-                key = "calc_side_b_players"
-            )
+            choices_b = {0: "➕ None (Empty Slot)"}
+            for _, row in pool_b.iterrows():
+                choices_b[int(row["id"])] = f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
+
+            b_p1 = st.selectbox("Side B • Player 1", options = list(choices_b.keys()), format_func = lambda x: choices_b[x], key = "calc_b_p1")
+            
+            b_p2, b_p3 = 0, 0
+            if trade_mode >= 2:
+                b_p2_opts = [k for k in choices_b.keys() if k == 0 or k != b_p1]
+                b_p2 = st.selectbox("Side B • Player 2", options = b_p2_opts, format_func = lambda x: choices_b[x], key = "calc_b_p2")
+            if trade_mode >= 3:
+                b_p3_opts = [k for k in choices_b.keys() if k == 0 or k not in (b_p1, b_p2)]
+                b_p3 = st.selectbox("Side B • Player 3", options = b_p3_opts, format_func = lambda x: choices_b[x], key = "calc_b_p3")
+
+            side_b_ids = [pid for pid in [b_p1, b_p2, b_p3] if pid != 0]
 
         # ----------------- EVALUATION & SASSY VERDICT -----------------
         if side_a_ids or side_b_ids:
@@ -4997,12 +4999,6 @@ elif st.session_state.page == "Trade Hub":
                     f"Put the phone down, step away from the keyboard and check if **{loser_name}**'s account has been compromised."
                 )
 
-            if len(side_a_ids) != len(side_b_ids) and len(side_a_ids) > 0 and len(side_b_ids) > 0:
-                st.caption(
-                    f"📏 *Note: You are comparing {len(side_a_ids)} player(s) against {len(side_b_ids)}. "
-                    f"Official FPL Draft rules require equal player counts (1 v 1, 2 v 2 or 3 v 3), so factor in the waiver fodder making up the numbers.*"
-                )
-
             crocked_a = df_a[df_a["avail_factor"] < 1.0]["web_name"].tolist()
             crocked_b = df_b[df_b["avail_factor"] < 1.0]["web_name"].tolist()
             all_crocked = crocked_a + crocked_b
@@ -5053,7 +5049,7 @@ elif st.session_state.page == "Trade Hub":
                 else:
                     st.caption("No players selected for Side B.")
 
-# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
+# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
     st.title("🎯 GACS" + dash + selected_league_key)
     
