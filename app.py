@@ -268,18 +268,26 @@ config_path = base_dir / "config.yaml"
 with open(config_path, "r", encoding = "utf-8") as file:
     config = yaml.load(file, Loader = SafeLoader)
 
+usernames_dict = config["credentials"]["usernames"]
+
+# Automatically restore session if a valid login cookie exists
+if not st.session_state.get("authentication_status", False):
+    try:
+        saved_cookie_user = cookie_manager.get('cdp_persistent_user')
+        if saved_cookie_user and saved_cookie_user in usernames_dict:
+            st.session_state["authentication_status"] = True
+            st.session_state["username"] = saved_cookie_user
+            st.session_state["name"] = usernames_dict[saved_cookie_user]["name"]
+    except Exception:
+        pass
+
 if not st.session_state.get("authentication_status", False):
     st.sidebar.subheader("🔐 Season X Login")
     
-    # Build dictionary mapping clean display names to config usernames
-    usernames_dict = config["credentials"]["usernames"]
     user_options = {}
     for u_key, u_data in usernames_dict.items():
         alias = u_data.get("alias", u_key)
-        if u_key.lower() == "admin":
-            display_name = "👑 Admin (The Commissar)"
-        else:
-            display_name = f"{alias}"
+        display_name = "👑 Admin (The Commissar)" if u_key.lower() == "admin" else f"{alias}"
         user_options[display_name] = u_key
     
     selected_display = st.sidebar.selectbox("Select Your Name", list(user_options.keys()))
@@ -290,7 +298,6 @@ if not st.session_state.get("authentication_status", False):
     if st.sidebar.button("Log In", type="primary", use_container_width=True):
         stored_hash = usernames_dict[chosen_username]["password"]
         
-        # Verify password hash (handling python bcrypt compatibility)
         pass_matches = False
         try:
             if bcrypt.checkpw(entered_password.encode(), stored_hash.encode()):
@@ -307,12 +314,16 @@ if not st.session_state.get("authentication_status", False):
             st.session_state["authentication_status"] = True
             st.session_state["username"] = chosen_username
             st.session_state["name"] = usernames_dict[chosen_username]["name"]
+            # Save cookie for 30 days
+            try:
+                cookie_manager.set('cdp_persistent_user', chosen_username, expiry_days = 30)
+            except Exception:
+                pass
             st.rerun()
         else:
             st.sidebar.error("Incorrect password.")
             
     st.stop()
-
 # Retrieve logged-in manager details once authenticated
 logged_username = st.session_state.get("username", "")
 logged_user_data = config["credentials"]["usernames"].get(logged_username, {})
@@ -331,6 +342,10 @@ st.sidebar.markdown(f"👤 Logged in as: **{'Admin (Commissar)' if is_admin_acco
 if st.sidebar.button("Log Out", use_container_width = True):
     st.session_state["authentication_status"] = False
     st.session_state["username"] = None
+    try:
+        cookie_manager.remove('cdp_persistent_user')
+    except Exception:
+        pass
     st.rerun()
 
 st.sidebar.link_button(
