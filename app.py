@@ -3495,13 +3495,14 @@ elif st.session_state.page == "Cup & Bucket":
     cup_df = load_cup_matches()
     static_data = fetch_fpl_static()
     all_fixtures = fetch_all_epl_fixtures()
+    league_details, _ = fetch_league_data(active_league_id)
 
     if cup_df is None or cup_df.empty:
         st.warning("No 'cupmatches' spreadsheet found. Place 'cupmatches.xlsx', '.ods' or '.csv' in your Assets folder.")
         st.stop()
 
     if not static_data:
-        st.error("Failed to connect to Premier League API.")
+        st.error("Error connecting to Premier League API.")
         st.stop()
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
@@ -3516,6 +3517,22 @@ elif st.session_state.page == "Cup & Bucket":
 
     all_cup_gws = sorted(list(set(cup_df["Week"].unique()) - {0}))
 
+    # Determine current active gameweek to default selections
+    matches = league_details.get("matches", []) if league_details else []
+    all_events = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
+    unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
+    current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
+
+    default_cup_gw_idx = 0
+    if current_gw in all_cup_gws:
+        default_cup_gw_idx = all_cup_gws.index(current_gw)
+    else:
+        future_gws = [gw for gw in all_cup_gws if gw >= current_gw]
+        if future_gws:
+            default_cup_gw_idx = all_cup_gws.index(future_gws[0])
+        elif all_cup_gws:
+            default_cup_gw_idx = len(all_cup_gws) - 1
+
     cup_tab_live, cup_tab_standings, cup_tab_analyser = st.tabs([
         "🔴 Live Cup Matchday",
         "📊 32 Team Group Standings",
@@ -3529,7 +3546,7 @@ elif st.session_state.page == "Cup & Bucket":
             with top_m1:
                 st.caption("Auto refreshes every 45s • Around the Grounds live inter league cup matches with live auto subs")
             with top_m2:
-                active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = 0, key = "cup_live_gw_sel")
+                active_cup_gw = st.selectbox("Select Cup Gameweek", all_cup_gws, index = default_cup_gw_idx, key = "cup_live_gw_sel")
             with top_m3:
                 st.write("")
                 if st.button("🔄 Refresh Cup", use_container_width = True, key = "cup_ref_btn"):
@@ -3546,7 +3563,7 @@ elif st.session_state.page == "Cup & Bucket":
                 st.info(f"No cup matches scheduled for Gameweek {active_cup_gw}.")
                 return
 
-            gw_epl_fixtures = [f for f in all_fixtures if f.get("event") == active_cup_gw] if all_fixtures else []
+            gw_epl_fixtures = [f for f in all_fixtures if f.get("event"] == active_cup_gw] if all_fixtures else []
             gw_officially_finished = all(f.get("finished", False) for f in gw_epl_fixtures) if gw_epl_fixtures else False
 
             live_cup_cards = []
@@ -3751,7 +3768,7 @@ elif st.session_state.page == "Cup & Bucket":
 
         if cup_view_mode == "By Gameweek":
             with c_col2:
-                chosen_c_gw = st.selectbox("Select Gameweek", all_cup_gws, key = "c_gw_picker")
+                chosen_c_gw = st.selectbox("Select Gameweek", all_cup_gws, index = default_cup_gw_idx, key = "c_gw_picker")
             gw_matches_df = cup_df[cup_df["Week"] == chosen_c_gw].copy()
             gw_matches_df = gw_matches_df[gw_matches_df["Team 1"].notna() & gw_matches_df["Team 2"].notna()]
 
@@ -3849,7 +3866,6 @@ elif st.session_state.page == "Cup & Bucket":
                     large_mode,
                     score = c_s2
                 )
-
 # ----------------- 4. EPL SCORES SECTION -----------------
 elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
     st.title("⚽ EPL Scores")
