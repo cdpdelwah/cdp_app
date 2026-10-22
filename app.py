@@ -278,6 +278,7 @@ if not st.session_state.get("authentication_status", False):
             st.session_state["authentication_status"] = True
             st.session_state["username"] = saved_cookie_user
             st.session_state["name"] = usernames_dict[saved_cookie_user]["name"]
+            st.rerun()
     except Exception:
         pass
 
@@ -293,9 +294,9 @@ if not st.session_state.get("authentication_status", False):
     selected_display = st.sidebar.selectbox("Select Your Name", list(user_options.keys()))
     chosen_username = user_options[selected_display]
     
-    entered_password = st.sidebar.text_input("Password", type="password")
+    entered_password = st.sidebar.text_input("Password", type = "password")
     
-    if st.sidebar.button("Log In", type="primary", use_container_width=True):
+    if st.sidebar.button("Log In", type = "primary", use_container_width = True):
         stored_hash = usernames_dict[chosen_username]["password"]
         
         pass_matches = False
@@ -314,7 +315,6 @@ if not st.session_state.get("authentication_status", False):
             st.session_state["authentication_status"] = True
             st.session_state["username"] = chosen_username
             st.session_state["name"] = usernames_dict[chosen_username]["name"]
-            # Save cookie for 30 days
             try:
                 cookie_manager.set('cdp_persistent_user', chosen_username, expiry_days = 30)
             except Exception:
@@ -324,6 +324,7 @@ if not st.session_state.get("authentication_status", False):
             st.sidebar.error("Incorrect password.")
             
     st.stop()
+
 # Retrieve logged-in manager details once authenticated
 logged_username = st.session_state.get("username", "")
 logged_user_data = config["credentials"]["usernames"].get(logged_username, {})
