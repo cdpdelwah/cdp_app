@@ -4976,7 +4976,7 @@ elif st.session_state.page == "Trade Hub":
 
             side_b_ids = [pid for pid in [b_p1, b_p2, b_p3] if pid != 0]
 
-        # ----------------- EVALUATION & SASSY VERDICT -----------------
+# ----------------- EVALUATION & SASSY VERDICT -----------------
         if side_a_ids or side_b_ids:
             st.divider()
             df_a = elements_df[elements_df["id"].isin(side_a_ids)].copy()
@@ -4987,17 +4987,23 @@ elif st.session_state.page == "Trade Hub":
             form_a, form_b = round(float(df_a["form"].sum()), 1), round(float(df_b["form"].sum()), 1)
             val_a, val_b = round(float(df_a["trade_value"].sum()), 1), round(float(df_b["trade_value"].sum()), 1)
 
-            val_diff = round(val_b - val_a, 1)
+            val_diff = round(val_b - val_a, 1) # Positive means Side B is higher rated
             pts_diff = pts_b - pts_a
             ppg_diff = round(ppg_b - ppg_a, 1)
             form_diff = round(form_b - form_a, 1)
 
+            # Correctly map names to sides
+            mgr_a_text = side_a_label if side_a_label != "Side A" else "Side A Manager"
+            mgr_b_text = side_b_label if side_b_label != "Side B" else "Side B Manager"
+
             if val_diff >= 0:
-                winner_name = f"{side_a_label} (Receiving Side B)" if side_a_label != "Side A" else "Side B"
-                loser_name = f"{side_b_label} (Receiving Side A)" if side_b_label != "Side B" else "Side A"
+                winner_mgr = mgr_b_text
+                loser_mgr = mgr_a_text
+                winning_side = "Side B"
             else:
-                winner_name = f"{side_b_label} (Receiving Side A)" if side_b_label != "Side B" else "Side A"
-                loser_name = f"{side_a_label} (Receiving Side B)" if side_a_label != "Side A" else "Side B"
+                winner_mgr = mgr_a_text
+                loser_mgr = mgr_b_text
+                winning_side = "Side A"
 
             abs_val = abs(val_diff)
             abs_ppg = abs(ppg_diff)
@@ -5012,21 +5018,21 @@ elif st.session_state.page == "Trade Hub":
                 )
             elif abs_val <= 4.5:
                 st.info(
-                    f"😏 **The Commissar's Verdict: Cheeky Edge to {winner_name}.** "
-                    f"**{winner_name}** quietly pockets the better end of this swap (**+{abs_val:.1f}** rating / **{abs_ppg:.1f}** PPG gap). "
-                    f"It is not quite a war crime, though **{loser_name}** is definitely trading on pure vibes and blind hope."
+                    f"😏 **The Commissar's Verdict: Cheeky Edge to {winner_mgr} ({winning_side}).** "
+                    f"**{winner_mgr}** quietly pockets the better end of this swap (**+{abs_val:.1f}** rating / **{abs_ppg:.1f}** PPG gap). "
+                    f"It is not quite a war crime, though **{loser_mgr}** is definitely trading on pure vibes and blind hope."
                 )
             elif abs_val <= 8.5:
                 st.warning(
                     f"🚨 **The Commissar's Verdict: Daylight Robbery.** "
-                    f"**{winner_name}** is having **{loser_name}**'s pants right down here (**+{abs_val:.1f}** rating advantage). "
-                    f"Unless **{loser_name}** lost a forfeit or owes money, accepting this is proper mug behaviour."
+                    f"**{winner_mgr} ({winning_side})** is having **{loser_mgr}**'s pants right down here (**+{abs_val:.1f}** rating advantage). "
+                    f"Unless **{loser_mgr}** lost a forfeit or owes money, accepting this is proper mug behaviour."
                 )
             else:
                 st.error(
                     f"🚓 **The Commissar's Verdict: Call the Police.** "
-                    f"This is not a trade, it is a registered charity donation (**+{abs_val:.1f}** rating gulf in favour of **{winner_name}**). "
-                    f"Put the phone down, step away from the keyboard and check if **{loser_name}**'s account has been compromised."
+                    f"This is not a trade, it is a registered charity donation (**+{abs_val:.1f}** rating gulf in favour of **{winner_mgr}**). "
+                    f"Put the phone down, step away from the keyboard and check if **{loser_mgr}**'s account has been compromised."
                 )
 
             crocked_a = df_a[df_a["avail_factor"] < 1.0]["web_name"].tolist()
@@ -5034,7 +5040,7 @@ elif st.session_state.page == "Trade Hub":
             all_crocked = crocked_a + crocked_b
             if all_crocked:
                 st.caption(
-                    f"🏥 *Medical Room Alert: {', '.join(all_crocked)} currently carries an injury or suspension flag. "
+                    f"🏥 *Medical Room Alert: {', '.join(all_crocked)} currently carries an injury or suspension flag[cite: 6]. "
                     f"Trying to sneak damaged goods into a package as a 'makeweight' is elite shithousery.*"
                 )
 
@@ -5078,7 +5084,6 @@ elif st.session_state.page == "Trade Hub":
                     st.table(view_b.set_index("Player"))
                 else:
                     st.caption("No players selected for Side B.")
-
 # ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
     st.title("🎯 GACS" + dash + selected_league_key)
