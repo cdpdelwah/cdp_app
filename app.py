@@ -4669,7 +4669,7 @@ elif st.session_state.page == "Squad Analyser":
 # ----------------- 6B. TRADE HUB SECTION (TRANSFER LIST & TRADE CALCULATOR) -----------------
 elif st.session_state.page == "Trade Hub":
     st.title("Trade Hub & Trading Block" + dash + selected_league_key)
-    st.markdown("🛒 **The League Transfer List & Calculator:** Broadcast trade targets, scout active listings in your division, and evaluate trades.")
+    st.markdown("🛒 **The League Transfer List & Calculator:** Broadcast your trade targets, scout active listings in your division, and evaluate trades.")
 
     # 1. Initialize data storage for trade listings
     trade_file = base_dir / "trade_block.json"
@@ -4767,7 +4767,6 @@ elif st.session_state.page == "Trade Hub":
     with tab_browse:
         st.subheader(f"Active Transfer List — {selected_league_key}")
         
-        # Filter listings strictly to the current active league
         league_trade_listings = [item for item in trade_listings if item.get("league_key") == selected_league_key]
 
         if not league_trade_listings:
@@ -4777,7 +4776,7 @@ elif st.session_state.page == "Trade Hub":
 
             filtered_listings = league_trade_listings
             if pos_filter != "All":
-                filtered_listings = [item for item in filtered_listings if item.get("position"] == pos_filter]
+                filtered_listings = [item for item in filtered_listings if item.get("position") == pos_filter]
 
             if not filtered_listings:
                 st.warning("No active trade listings match your selected position filter.")
@@ -4852,7 +4851,7 @@ elif st.session_state.page == "Trade Hub":
 
                 st.divider()
                 st.markdown("### ❌ Remove Your Active Listings")
-                my_active_listings = [t for t in trade_listings if t.get("manager_alias"] == active_manager_alias and t.get("league_key") == selected_league_key]
+                my_active_listings = [t for t in trade_listings if t.get("manager_alias") == active_manager_alias and t.get("league_key") == selected_league_key]
 
                 if not my_active_listings:
                     st.info("You currently have no players listed on the transfer list in this league.")
@@ -4872,7 +4871,6 @@ elif st.session_state.page == "Trade Hub":
     with tab_calc:
         st.subheader("⚖️ Trade Package Evaluator")
         
-        # Trade Format Selector right at the top
         trade_mode = st.selectbox(
             "Select Trade Format",
             [1, 2, 3],
