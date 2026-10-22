@@ -4874,18 +4874,19 @@ elif st.session_state.page == "Trade Hub":
                                 st.success(f"Removed {listing['player_name']} from block.")
                                 st.rerun()
 
-    # ----------------- TAB 3: TRADE CALCULATOR -----------------
+# ----------------- TAB 3: TRADE CALCULATOR -----------------
     with tab_calc:
-        st.subheader("⚖️ Trade Package Evaluator")
-        st.caption("Compare multi player trade packages across Season Points, Points Per Game (PPG), Form and Trade Value Score.")
+        st.subheader("⚖️ Trade Package Evaluator (1, 2 or 3 Players)")
+        st.caption("Select up to 3 players per side to compare Season Points, PPG, Form and overall Trade Rating.")
 
         team_filter_options = ["All Players"] + [f"{info['alias']} ({info['team_name']})" for _, info in entry_options.items()]
         alias_to_entry_id = {f"{info['alias']} ({info['team_name']})": e_id for e_id, info in entry_options.items()}
 
         col_side1, col_side2 = st.columns(2)
 
+        # ----------------- SIDE A SELECTION (1 TO 3 PLAYERS) -----------------
         with col_side1:
-            st.markdown("### 📤 Side A (Players Giving Up)")
+            st.markdown("### 📤 Side A (Sending)")
             default_team_a_idx = 0
             if matched_entry_id and matched_entry_id in entry_options:
                 my_label = f"{entry_options[matched_entry_id]['alias']} ({entry_options[matched_entry_id]['team_name']})"
@@ -4895,29 +4896,47 @@ elif st.session_state.page == "Trade Hub":
             team_a_filter = st.selectbox("Filter Side A by Squad", team_filter_options, index = default_team_a_idx, key = "calc_team_a_filter")
             if team_a_filter == "All Players":
                 pool_a = elements_df.sort_values(by = "total_points", ascending = False)
+                side_a_label = "Side A"
             else:
                 pool_a = elements_df[elements_df["owner"] == alias_to_entry_id[team_a_filter]].sort_values(by = "total_points", ascending = False)
+                side_a_label = team_a_filter.split(" (")[0]
 
-            choices_a = {
-                row["id"]: f"{row['web_name']} ({row['club']} - {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
-                for _, row in pool_a.iterrows()
-            }
-            side_a_ids = st.multiselect("Select Player(s) for Side A", options = list(choices_a.keys()), format_func = lambda x: choices_a[x], key = "calc_side_a_players")
+            choices_a = {0: "➕ None (Empty Slot)"}
+            for _, row in pool_a.iterrows():
+                choices_a[int(row["id"])] = f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
 
+            a_p1 = st.selectbox("Side A • Player 1", options = list(choices_a.keys()), format_func = lambda x: choices_a[x], key = "calc_a_p1")
+            a_p2_opts = [k for k in choices_a.keys() if k == 0 or k != a_p1]
+            a_p2 = st.selectbox("Side A • Player 2 (Optional)", options = a_p2_opts, format_func = lambda x: choices_a[x], key = "calc_a_p2")
+            a_p3_opts = [k for k in choices_a.keys() if k == 0 or k not in (a_p1, a_p2)]
+            a_p3 = st.selectbox("Side A • Player 3 (Optional)", options = a_p3_opts, format_func = lambda x: choices_a[x], key = "calc_a_p3")
+
+            side_a_ids = [pid for pid in [a_p1, a_p2, a_p3] if pid != 0]
+
+        # ----------------- SIDE B SELECTION (1 TO 3 PLAYERS) -----------------
         with col_side2:
-            st.markdown("### 📥 Side B (Players Receiving)")
+            st.markdown("### 📥 Side B (Receiving)")
             team_b_filter = st.selectbox("Filter Side B by Squad", team_filter_options, index = 0, key = "calc_team_b_filter")
             if team_b_filter == "All Players":
                 pool_b = elements_df.sort_values(by = "total_points", ascending = False)
+                side_b_label = "Side B"
             else:
                 pool_b = elements_df[elements_df["owner"] == alias_to_entry_id[team_b_filter]].sort_values(by = "total_points", ascending = False)
+                side_b_label = team_b_filter.split(" (")[0]
 
-            choices_b = {
-                row["id"]: f"{row['web_name']} ({row['club']} - {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
-                for _, row in pool_b.iterrows()
-            }
-            side_b_ids = st.multiselect("Select Player(s) for Side B", options = list(choices_b.keys()), format_func = lambda x: choices_b[x], key = "calc_side_b_players")
+            choices_b = {0: "➕ None (Empty Slot)"}
+            for _, row in pool_b.iterrows():
+                choices_b[int(row["id"])] = f"{row['web_name']} ({row['club']} • {row['position']}) | {row['owner_alias']} | {row['total_points']} pts"
 
+            b_p1 = st.selectbox("Side B • Player 1", options = list(choices_b.keys()), format_func = lambda x: choices_b[x], key = "calc_b_p1")
+            b_p2_opts = [k for k in choices_b.keys() if k == 0 or k != b_p1]
+            b_p2 = st.selectbox("Side B • Player 2 (Optional)", options = b_p2_opts, format_func = lambda x: choices_b[x], key = "calc_b_p2")
+            b_p3_opts = [k for k in choices_b.keys() if k == 0 or k not in (b_p1, b_p2)]
+            b_p3 = st.selectbox("Side B • Player 3 (Optional)", options = b_p3_opts, format_func = lambda x: choices_b[x], key = "calc_b_p3")
+
+            side_b_ids = [pid for pid in [b_p1, b_p2, b_p3] if pid != 0]
+
+        # ----------------- EVALUATION & SASSY VERDICT -----------------
         if side_a_ids or side_b_ids:
             st.divider()
             df_a = elements_df[elements_df["id"].isin(side_a_ids)].copy()
@@ -4933,12 +4952,59 @@ elif st.session_state.page == "Trade Hub":
             ppg_diff = round(ppg_b - ppg_a, 1)
             form_diff = round(form_b - form_a, 1)
 
-            if abs(val_diff) <= 2.5:
-                st.success(f"🤝 **Fair Trade Verdict:** Package values are closely balanced (Net Trade Rating Difference: {val_diff:+.1f}).")
-            elif val_diff > 2.5:
-                st.info(f"📈 **Side B Wins Trade:** Receiving package grades stronger by **{val_diff:+.1f}** rating points ({ppg_diff:+.1f} combined PPG).")
+            # Determine winner and loser labels for the narrative
+            if val_diff >= 0:
+                winner_name = f"{side_a_label} (Receiving Side B)" if side_a_label != "Side A" else "Side B"
+                loser_name = f"{side_b_label} (Receiving Side A)" if side_b_label != "Side B" else "Side A"
             else:
-                st.warning(f"⚠️ **Side A Wins Trade:** Giving up package grades higher by **{abs(val_diff):.1f}** rating points ({abs(ppg_diff):.1f} combined PPG).")
+                winner_name = f"{side_b_label} (Receiving Side A)" if side_b_label != "Side B" else "Side A"
+                loser_name = f"{side_a_label} (Receiving Side B)" if side_a_label != "Side A" else "Side B"
+
+            abs_val = abs(val_diff)
+            abs_ppg = abs(ppg_diff)
+
+            if len(side_a_ids) == 0 or len(side_b_ids) == 0:
+                st.info("👀 Pick at least one player on both sides unless you are genuinely proposing a free giveaway.")
+            elif abs_val <= 1.5:
+                st.success(
+                    f"🤝 **The Commissar's Verdict: Shockingly Sensible.** "
+                    f"Only **{abs_val:.1f}** rating points separate these packages. Nobody is getting mugged off here, "
+                    f"so shake hands and hit submit before one of you overthinks it."
+                )
+            elif abs_val <= 4.5:
+                st.info(
+                    f"😏 **The Commissar's Verdict: Cheeky Edge to {winner_name}.** "
+                    f"**{winner_name}** quietly pockets the better end of this swap (**+{abs_val:.1f}** rating / **{abs_ppg:.1f}** PPG gap). "
+                    f"It is not quite a war crime, though **{loser_name}** is definitely trading on pure vibes and blind hope."
+                )
+            elif abs_val <= 8.5:
+                st.warning(
+                    f"🚨 **The Commissar's Verdict: Daylight Robbery.** "
+                    f"**{winner_name}** is having **{loser_name}**'s pants right down here (**+{abs_val:.1f}** rating advantage). "
+                    f"Unless **{loser_name}** lost a forfeit or owes money, accepting this is proper mug behaviour."
+                )
+            else:
+                st.error(
+                    f"🚓 **The Commissar's Verdict: Call the Police.** "
+                    f"This is not a trade, it is a registered charity donation (**+{abs_val:.1f}** rating gulf in favour of **{winner_name}**). "
+                    f"Put the phone down, step away from the keyboard and check if **{loser_name}**'s account has been compromised."
+                )
+
+            # Extra callouts for uneven player counts or injured deadwood
+            if len(side_a_ids) != len(side_b_ids) and len(side_a_ids) > 0 and len(side_b_ids) > 0:
+                st.caption(
+                    f"📏 *Note: You are comparing {len(side_a_ids)} player(s) against {len(side_b_ids)}. "
+                    f"Official FPL Draft rules require equal player counts (1 v 1, 2 v 2 or 3 v 3), so factor in the waiver fodder making up the numbers.*"
+                )
+
+            crocked_a = df_a[df_a["avail_factor"] < 1.0]["web_name"].tolist()
+            crocked_b = df_b[df_b["avail_factor"] < 1.0]["web_name"].tolist()
+            all_crocked = crocked_a + crocked_b
+            if all_crocked:
+                st.caption(
+                    f"🏥 *Medical Room Alert: {', '.join(all_crocked)} currently carries an injury or suspension flag. "
+                    f"Trying to sneak damaged goods into a package as a 'makeweight' is elite shithousery.*"
+                )
 
             m_c1, m_c2, m_c3, m_c4 = st.columns(4)
             with m_c1:
@@ -4966,7 +5032,7 @@ elif st.session_state.page == "Trade Hub":
             }
 
             with b_col1:
-                st.markdown("**Side A Breakdown**")
+                st.markdown(f"**Side A Package ({len(side_a_ids)}/3 Players)**")
                 if not df_a.empty:
                     view_a = format_table_floats(df_a[calc_cols].rename(columns = rename_map))
                     st.table(view_a.set_index("Player"))
@@ -4974,12 +5040,14 @@ elif st.session_state.page == "Trade Hub":
                     st.caption("No players selected for Side A.")
 
             with b_col2:
-                st.markdown("**Side B Breakdown**")
+                st.markdown(f"**Side B Package ({len(side_b_ids)}/3 Players)**")
                 if not df_b.empty:
                     view_b = format_table_floats(df_b[calc_cols].rename(columns = rename_map))
                     st.table(view_b.set_index("Player"))
                 else:
                     st.caption("No players selected for Side B.")
+
+# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 
 # ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------# ----------------- 7. GACS SECTION (GOALS, ASSISTS AND CLEAN SHEETS) -----------------
 elif st.session_state.page in ["GACS", "XI Stats"]:
