@@ -848,6 +848,11 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         state = str(p.get("State", "FT")).strip().upper()
         sub_act = str(p.get("sub_action", "")).strip()
 
+        raw_opp = p.get("Opp", "")
+        if not raw_opp and p.get("next_3"):
+            raw_opp = str(p.get("next_3", "")).split(",")[0]
+        opp_str = str(raw_opp).strip() if pd.notna(raw_opp) else ""
+
         badges = []
         if g > 0:
             badges.append(f"{g}⚽" if g > 1 else "⚽")
@@ -870,6 +875,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             "name": str(p.get("Player", "Unknown")),
             "pos": str(p.get("Pos", "")),
             "club": club_code,
+            "opp": opp_str,
             "club_bg": c_palette["bg"],
             "club_text": c_palette["text"],
             "club_border": c_palette["border"],
@@ -930,6 +936,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     token_size = "44px" if is_large else "38px"
     badge_font = "0.78rem" if is_large else "0.70rem"
     name_font = "0.85rem" if is_large else "0.74rem"
+    opp_font = "0.74rem" if is_large else "0.66rem"
     pts_font = "0.88rem" if is_large else "0.76rem"
     left_banner_label = "Season Total" if show_proj_pill else "Match Total"
 
@@ -955,13 +962,13 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             width: 100%;
             max-width: 600px;
             margin: 0 auto;
-            height: 520px;
+            height: 560px;
             background: repeating-linear-gradient(
                 180deg,
                 #0f351e,
-                #0f351e 65px,
-                #0d2e1a 65px,
-                #0d2e1a 130px
+                #0f351e 70px,
+                #0d2e1a 70px,
+                #0d2e1a 140px
             );
             border-radius: 10px;
             border: 2px solid #1a4d2e;
@@ -990,7 +997,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             justify-content: space-around;
             align-items: center;
             width: 100%;
-            margin: 4px 0;
+            margin: 2px 0;
         }}
 
         .player-card {{
@@ -1074,6 +1081,18 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             text-overflow: ellipsis;
             max-width: 96px;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+        }}
+
+        .player-opp-pill {{
+            background: rgba(6, 9, 17, 0.88);
+            color: #cbd5e1;
+            font-size: {opp_font};
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-top: 1px;
+            white-space: nowrap;
+            letter-spacing: -0.1px;
         }}
 
         .player-pts-pill {{
@@ -1255,6 +1274,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                 sub_tag = '<span class="sub-tag-off">OFF</span>'
 
             event_icon = f'<span style="margin-left:2px;">{p["events_str"]}</span>' if p["events_str"] else ''
+            opp_html = f'<div class="player-opp-pill">{p["opp"]}</div>' if p.get("opp") else ''
 
             pitch_html += f"""
                 <div class="player-card" onclick="showPlayerStats('{p['name']}')">
@@ -1264,6 +1284,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                         {sub_tag}
                     </div>
                     <div class="player-name-pill">{p['name']}</div>
+                    {opp_html}
                     <div class="player-pts-pill">{p['pill_text']}{event_icon}</div>
                 </div>
             """
@@ -1311,6 +1332,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             sub_tag = '<span class="sub-tag-off">OFF</span>'
 
         event_icon = f'<span style="margin-left:2px;">{bp["events_str"]}</span>' if bp["events_str"] else ''
+        opp_html = f'<div class="player-opp-pill">{bp["opp"]}</div>' if bp.get("opp") else ''
 
         pitch_html += f"""
             <div class="player-card" onclick="showPlayerStats('{bp['name']}')">
@@ -1320,6 +1342,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                     {sub_tag}
                 </div>
                 <div class="player-name-pill">{bp['name']}</div>
+                {opp_html}
                 <div class="player-pts-pill">{bp['pill_text']}{event_icon}</div>
             </div>
         """
@@ -1335,8 +1358,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             const p = playersData.find(item => item.name === name);
             if (!p) return;
 
+            const oppText = p.opp ? ' • vs ' + p.opp : '';
             document.getElementById('m-name').textContent = p.name;
-            document.getElementById('m-meta').textContent = p.pos + ' • ' + p.club + ' (' + p.state + ')';
+            document.getElementById('m-meta').textContent = p.pos + ' • ' + p.club + oppText + ' (' + p.state + ')';
             document.getElementById('m-pts').textContent = p.pts + ' PTS';
             document.getElementById('m-proj').textContent = p.proj + ' pts';
 
@@ -1396,7 +1420,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     </html>
     """
 
-    components.html(pitch_html, height = 660)
+    components.html(pitch_html, height = 710)
 
 def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large, score = None):
     score_tag = f" ({score} pts)" if score is not None else ""
@@ -1409,16 +1433,18 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        display_cols = ["Player", "Pos", "Club", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        display_cols = ["Player", "Pos", "Club", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
         if starters_df is not None and not starters_df.empty:
-            s_view = starters_df[display_cols].copy()
+            avail_s_cols = [c for c in display_cols if c in starters_df.columns]
+            s_view = starters_df[avail_s_cols].copy()
             if "Proj" in s_view.columns:
                 s_view["Proj"] = s_view["Proj"].map(lambda x: f"{float(x):.1f}")
             st.markdown("**Starting XI (GK First)**")
             st.table(s_view.set_index("Player"))
 
             if bench_df is not None and not bench_df.empty:
-                b_view = bench_df[display_cols].copy()
+                avail_b_cols = [c for c in display_cols if c in bench_df.columns]
+                b_view = bench_df[avail_b_cols].copy()
                 if "Proj" in b_view.columns:
                     b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
                 b_view["pos_order"] = b_view["Pos"].map(POS_ORDER).fillna(99)
@@ -1480,6 +1506,25 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
         pos_str = pos_map.get(pos_type, "")
         club_id = raw_elem.get("team")
         
+        opp_str = "-"
+        if all_fixtures_list and club_id:
+            team_fixes = [
+                f for f in all_fixtures_list
+                if f.get("event") == current_gw and (f.get("team_h") == club_id or f.get("team_a") == club_id)
+            ]
+            if team_fixes:
+                opp_labels = []
+                for tf in team_fixes:
+                    if tf.get("team_h") == club_id:
+                        opp_short = team_map.get(tf.get("team_a"), "OPP")
+                        opp_labels.append(f"{opp_short} (H)")
+                    else:
+                        opp_short = team_map.get(tf.get("team_h"), "OPP")
+                        opp_labels.append(f"{opp_short} (A)")
+                opp_str = ", ".join(opp_labels)
+            else:
+                opp_str = "Blank"
+
         mins = stats.get("minutes", 0)
         pts = stats.get("total_points", 0)
         team_mins = club_minutes.get(club_id, 0)
@@ -1538,6 +1583,7 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             "pos_num": pos_type,
             "Pos": pos_str,
             "Club": team_map.get(club_id, ""),
+            "Opp": opp_str,
             "club_id": club_id,
             "State": state,
             "Mins": mins,
