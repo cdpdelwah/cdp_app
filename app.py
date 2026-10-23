@@ -9,7 +9,6 @@ import html
 import altair as alt
 from pathlib import Path
 import pypdfium2 as pdfium
-from streamlit_cookies_controller import CookieController
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
@@ -35,8 +34,6 @@ st.set_page_config(
     page_icon = str(logo_path) if logo_path.exists() else "⚽",
     layout = "wide"
 )
-
-cookie_manager = CookieController()
 
 # Hardcoded league registry
 LEAGUE_PRESETS = {
@@ -265,8 +262,6 @@ def get_all_32_teams_registry():
 import bcrypt
 import hashlib
 import hmac
-import time
-from datetime import datetime, timedelta
 
 config_path = base_dir / "config.yaml"
 with open(config_path, "r") as file:
@@ -284,40 +279,20 @@ def verify_auth_token(token_str):
     if not token_str or "." not in str(token_str):
         return None
     parts = str(token_str).split(".", 1)
-    u_key, sig = parts[0], parts[1]
+    u_key = parts[0]
     if u_key in usernames_dict:
         expected = make_auth_token(u_key)
         if hmac.compare_digest(str(token_str), expected):
             return u_key
     return None
 
-# 1. Restore session from URL token (instant on mobile and browser reopen) or browser cookie
 if not st.session_state.get("authentication_status", False):
-    restored_user = None
-
-    # Check URL query parameter first (survives mobile app switching, minimizing and tab restores)
     url_token = st.query_params.get("session", "")
-    if url_token:
-        restored_user = verify_auth_token(url_token)
-
-    # Fallback: check browser cookie if URL token is not present
-    if not restored_user:
-        try:
-            cookie_val = cookie_manager.get("cdp_persistent_user")
-            if cookie_val:
-                restored_user = verify_auth_token(cookie_val)
-                if not restored_user and cookie_val in usernames_dict:
-                    restored_user = cookie_val
-        except Exception:
-            pass
-
+    restored_user = verify_auth_token(url_token) if url_token else None
     if restored_user and restored_user in usernames_dict:
         st.session_state["authentication_status"] = True
         st.session_state["username"] = restored_user
         st.session_state["name"] = usernames_dict[restored_user]["name"]
-        valid_token = make_auth_token(restored_user)
-        if st.query_params.get("session") != valid_token:
-            st.query_params["session"] = valid_token
 
 if not st.session_state.get("authentication_status", False):
     st.sidebar.subheader("🔐 Season X Login")
@@ -352,23 +327,7 @@ if not st.session_state.get("authentication_status", False):
             st.session_state["authentication_status"] = True
             st.session_state["username"] = chosen_username
             st.session_state["name"] = usernames_dict[chosen_username]["name"]
-
-            token_val = make_auth_token(chosen_username)
-            st.query_params["session"] = token_val
-
-            # Save cookie properly using expires and max_age, then pause so browser writes it
-            try:
-                exp_date = datetime.now() + timedelta(days = 30)
-                cookie_manager.set("cdp_persistent_user", token_val, expires = exp_date, max_age = 30 * 86400)
-            except TypeError:
-                try:
-                    cookie_manager.set("cdp_persistent_user", token_val)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-            time.sleep(0.7)
+            st.query_params["session"] = make_auth_token(chosen_username)
             st.rerun()
         else:
             st.sidebar.error("Incorrect password.")
@@ -381,12 +340,10 @@ logged_user_data = config["credentials"]["usernames"].get(logged_username, {})
 logged_alias = logged_user_data.get("alias", logged_username)
 is_admin_account = (str(logged_username).strip().lower() == "admin")
 
-# Keep URL session token synced while logged in
 if logged_username in usernames_dict:
     expected_tok = make_auth_token(logged_username)
     if st.query_params.get("session") != expected_tok:
         st.query_params["session"] = expected_tok
-
 # ----------------- SIDEBAR BRAND & NAVIGATION -----------------if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width = True)
 else:
@@ -398,10 +355,7 @@ st.sidebar.markdown(f"👤 Logged in as: **{'Admin (Commissar)' if is_admin_acco
 if st.sidebar.button("Log Out", use_container_width = True):
     st.session_state["authentication_status"] = False
     st.session_state["username"] = None
-    try:
-        cookie_manager.remove('cdp_persistent_user')
-    except Exception:
-        pass
+    st.query_params.clear()
     st.rerun()
 
 st.sidebar.link_button(
