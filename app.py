@@ -1465,7 +1465,8 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
                 st.markdown("**Bench Substitutes**")
                 st.table(b_view.set_index("Player"))
         else:
-            st.info("Lineup selections not yet available.")def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
+            st.info("Lineup selections not yet available.")
+def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
     if not isinstance(elem_stats, dict):
         return False
     cbi = elem_stats.get("clearances_blocks_interceptions", 0) or elem_stats.get("cbi", 0)
