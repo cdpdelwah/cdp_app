@@ -4000,20 +4000,28 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
         a_short = team_short_map.get(a_id, "A")
         
         is_finished = f.get("finished", False)
-        is_started = f.get("started", False)
-        h_score = f.get("team_h_score")
-        a_score = f.get("team_a_score")
-        
-        if is_finished:
-            status_text = "FT"
-            status_color = "#94a3b8"
-        elif is_started:
-            mins_val = f.get("minutes", 0)
-            status_text = f"LIVE {mins_val}'"
-            status_color = active_theme["accent"]
-        else:
-            status_text = f.get("kickoff_time", "")[11:16] if f.get("kickoff_time") else "Upcoming"
-            status_color = "#cbd5e1"
+     is_started = f.get("started", False)
+     h_score = f.get("team_h_score")
+     a_score = f.get("team_a_score")
+
+     if is_finished:
+         status_text = "FT"
+         status_color = "#94a3b8"
+     elif is_started:
+         mins_val = f.get("minutes", 0)
+         status_text = f"LIVE {mins_val}'"
+         status_color = active_theme["accent"]
+     else:
+         kickoff = f.get("kickoff_time")
+         if kickoff:
+             try:
+                 dt = pd.to_datetime(kickoff)
+                 status_text = dt.strftime("%a %d %b, %H:%M")
+             except Exception:
+                 status_text = kickoff[11:16]
+         else:
+             status_text = "Upcoming"
+         status_color = "#cbd5e1"
 
         with st.container(border = True):
             f_col1, f_col2, f_col3 = st.columns([4, 3, 4])
