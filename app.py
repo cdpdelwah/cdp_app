@@ -1433,24 +1433,66 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        display_cols = ["Player", "Pos", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        display_cols = ["Player", "Pos", "Club", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        
+        def render_compact_df(df, subtitle):
+            if df is None or df.empty:
+                return
+            st.markdown(f"**{subtitle}**")
+            sub_df = df[[c for c in display_cols if c in df.columns]].copy()
+            if "Proj" in sub_df.columns:
+                sub_df["Proj"] = sub_df["Proj"].map(lambda x: f"{float(x):.1f}")
+            
+            html_table = sub_df.to_html(index = False, classes = "compact-fpl-table", escape = False)
+            
+            scoped_html = f"""
+            <style>
+                .fpl-table-wrapper {{
+                    width: 100%;
+                    overflow-x: auto;
+                    margin-bottom: 10px;
+                }}
+                .compact-fpl-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    background-color: #090c13 !important;
+                    color: #cbd5e1 !important;
+                    font-size: 0.76rem !important;
+                }}
+                .compact-fpl-table th {{
+                    background-color: #0e131d !important;
+                    color: {accent_color} !important;
+                    border-bottom: 2px solid #182030 !important;
+                    padding: 4px 5px !important;
+                    text-align: left !important;
+                    font-weight: 700 !important;
+                    white-space: nowrap !important;
+                }}
+                .compact-fpl-table td {{
+                    background-color: #090c13 !important;
+                    border-bottom: 1px solid #141a26 !important;
+                    color: #cbd5e1 !important;
+                    padding: 4px 5px !important;
+                    white-space: nowrap !important;
+                }}
+                .compact-fpl-table tr:hover td {{
+                    background-color: #121724 !important;
+                }}
+            </style>
+            <div class="fpl-table-wrapper">
+                {html_table}
+            </div>
+            """
+            st.markdown(scoped_html, unsafe_allow_html = True)
+
         if starters_df is not None and not starters_df.empty:
-            avail_s_cols = [c for c in display_cols if c in starters_df.columns]
-            s_view = starters_df[avail_s_cols].copy()
-            if "Proj" in s_view.columns:
-                s_view["Proj"] = s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Starting XI (GK First)**")
-            st.table(s_view.set_index("Player"))
+            render_compact_df(starters_df, "Starting XI (GK First)")
 
             if bench_df is not None and not bench_df.empty:
-                avail_b_cols = [c for c in display_cols if c in bench_df.columns]
-                b_view = bench_df[avail_b_cols].copy()
-                if "Proj" in b_view.columns:
-                    b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                b_view["pos_order"] = b_view["Pos"].map(POS_ORDER).fillna(99)
-                b_view = b_view.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
-                st.markdown("**Bench Substitutes**")
-                st.table(b_view.set_index("Player"))
+                b_work = bench_df.copy()
+                b_work["pos_order"] = b_work["Pos"].map(POS_ORDER).fillna(99)
+                b_work = b_work.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
+                render_compact_df(b_work, "Bench Substitutes")
         else:
             st.info("Lineup selections not yet available.")
 def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
