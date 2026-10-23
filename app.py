@@ -263,42 +263,79 @@ def get_all_32_teams_registry():
 
 # ----------------- CUSTOM DROPDOWN AUTHENTICATION GATE -----------------
 import bcrypt
+import hashlib
+import hmac
+import time
+from datetime import datetime, timedelta
 
 config_path = base_dir / "config.yaml"
-with open(config_path, "r", encoding = "utf-8") as file:
+with open(config_path, "r") as file:
     config = yaml.load(file, Loader = SafeLoader)
 
 usernames_dict = config["credentials"]["usernames"]
 
-# Automatically restore session if a valid login cookie exists
+def make_auth_token(username_key):
+    user_obj = usernames_dict.get(username_key, {})
+    secret_seed = str(user_obj.get("password", "cdp_secret"))
+    sig = hmac.new(secret_seed.encode(), username_key.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{username_key}.{sig}"
+
+def verify_auth_token(token_str):
+    if not token_str or "." not in str(token_str):
+        return None
+    parts = str(token_str).split(".", 1)
+    u_key, sig = parts[0], parts[1]
+    if u_key in usernames_dict:
+        expected = make_auth_token(u_key)
+        if hmac.compare_digest(str(token_str), expected):
+            return u_key
+    return None
+
+# 1. Restore session from URL token (instant on mobile and browser reopen) or browser cookie
 if not st.session_state.get("authentication_status", False):
-    try:
-        saved_cookie_user = cookie_manager.get('cdp_persistent_user')
-        if saved_cookie_user and saved_cookie_user in usernames_dict:
-            st.session_state["authentication_status"] = True
-            st.session_state["username"] = saved_cookie_user
-            st.session_state["name"] = usernames_dict[saved_cookie_user]["name"]
-            st.rerun()
-    except Exception:
-        pass
+    restored_user = None
+
+    # Check URL query parameter first (survives mobile app switching, minimizing and tab restores)
+    url_token = st.query_params.get("session", "")
+    if url_token:
+        restored_user = verify_auth_token(url_token)
+
+    # Fallback: check browser cookie if URL token is not present
+    if not restored_user:
+        try:
+            cookie_val = cookie_manager.get("cdp_persistent_user")
+            if cookie_val:
+                restored_user = verify_auth_token(cookie_val)
+                if not restored_user and cookie_val in usernames_dict:
+                    restored_user = cookie_val
+        except Exception:
+            pass
+
+    if restored_user and restored_user in usernames_dict:
+        st.session_state["authentication_status"] = True
+        st.session_state["username"] = restored_user
+        st.session_state["name"] = usernames_dict[restored_user]["name"]
+        valid_token = make_auth_token(restored_user)
+        if st.query_params.get("session") != valid_token:
+            st.query_params["session"] = valid_token
 
 if not st.session_state.get("authentication_status", False):
     st.sidebar.subheader("🔐 Season X Login")
-    
+
     user_options = {}
     for u_key, u_data in usernames_dict.items():
         alias = u_data.get("alias", u_key)
         display_name = "👑 Admin (The Commissar)" if u_key.lower() == "admin" else f"{alias}"
         user_options[display_name] = u_key
-    
+
     selected_display = st.sidebar.selectbox("Select Your Name", list(user_options.keys()))
     chosen_username = user_options[selected_display]
-    
+
     entered_password = st.sidebar.text_input("Password", type = "password")
-    
+
     if st.sidebar.button("Log In", type = "primary", use_container_width = True):
         stored_hash = usernames_dict[chosen_username]["password"]
-        
+
         pass_matches = False
         try:
             if bcrypt.checkpw(entered_password.encode(), stored_hash.encode()):
@@ -310,29 +347,47 @@ if not st.session_state.get("authentication_status", False):
                     pass_matches = True
             except Exception:
                 pass
-                
+
         if pass_matches:
             st.session_state["authentication_status"] = True
             st.session_state["username"] = chosen_username
             st.session_state["name"] = usernames_dict[chosen_username]["name"]
+
+            token_val = make_auth_token(chosen_username)
+            st.query_params["session"] = token_val
+
+            # Save cookie properly using expires and max_age, then pause so browser writes it
             try:
-                cookie_manager.set('cdp_persistent_user', chosen_username, expiry_days = 30)
+                exp_date = datetime.now() + timedelta(days = 30)
+                cookie_manager.set("cdp_persistent_user", token_val, expires = exp_date, max_age = 30 * 86400)
+            except TypeError:
+                try:
+                    cookie_manager.set("cdp_persistent_user", token_val)
+                except Exception:
+                    pass
             except Exception:
                 pass
+
+            time.sleep(0.7)
             st.rerun()
         else:
             st.sidebar.error("Incorrect password.")
-            
+
     st.stop()
 
-# Retrieve logged-in manager details once authenticated
+# Retrieve logged in manager details once authenticated
 logged_username = st.session_state.get("username", "")
 logged_user_data = config["credentials"]["usernames"].get(logged_username, {})
 logged_alias = logged_user_data.get("alias", logged_username)
 is_admin_account = (str(logged_username).strip().lower() == "admin")
 
-# ----------------- SIDEBAR BRAND & NAVIGATION -----------------
-if logo_path.exists():
+# Keep URL session token synced while logged in
+if logged_username in usernames_dict:
+    expected_tok = make_auth_token(logged_username)
+    if st.query_params.get("session") != expected_tok:
+        st.query_params["session"] = expected_tok
+
+# ----------------- SIDEBAR BRAND & NAVIGATION -----------------if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width = True)
 else:
     st.sidebar.title("CDP App")
