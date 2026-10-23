@@ -1433,7 +1433,7 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        display_cols = ["Player", "Pos", "Club", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        display_cols = ["Player", "Pos", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
         if starters_df is not None and not starters_df.empty:
             avail_s_cols = [c for c in display_cols if c in starters_df.columns]
             s_view = starters_df[avail_s_cols].copy()
@@ -1453,7 +1453,6 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
                 st.table(b_view.set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
-
 def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
     if not isinstance(elem_stats, dict):
         return False
