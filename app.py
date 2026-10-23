@@ -378,7 +378,8 @@ NAV_ITEMS = [
     "Standings",
     "Newsletters",
     "Power Rankings",
-    "Records"
+    "Records",
+    "Asterisk*"
 ]
 
 st.sidebar.radio(
@@ -5401,3 +5402,99 @@ elif st.session_state.page == "Records":
             for idx, s_name in enumerate(sheet_names):
                 with record_tabs[idx]:
                     render_record_content(valid_sheets[s_name])
+
+
+
+# ----------------- ASTERISK* LEAGUE HISTORY & ARCHIVES -----------------
+elif st.session_state.page == "Asterisk*":
+    top_h1, top_h2 = st.columns([5, 1])
+    with top_h1:
+        st.title("📜 Asterisk* — Master League Archives")
+        st.caption("10 Seasons of Power Query data, manager profiles, historical records and season chronicles")
+    with top_h2:
+        st.write("")
+        if st.button("🔄 Refresh Archive", use_container_width = True, key = "btn_refresh_asterisk"):
+            st.rerun()
+
+    @st.cache_data(ttl = 3600)
+    def load_asterisk_workbook():
+        target_file = assets_folder / "Asterisk.xlsx"
+        if not target_file.exists():
+            target_file = base_dir / "Asterisk.xlsx"
+        if not target_file.exists():
+            return None
+        try:
+            return pd.read_excel(target_file, sheet_name = None, engine = "openpyxl")
+        except Exception as e:
+            return e
+
+    asterisk_sheets = load_asterisk_workbook()
+
+    if not asterisk_sheets or isinstance(asterisk_sheets, Exception):
+        st.warning("⚠️ 'Asterisk.xlsx' not found in your Assets or base directory. Please ensure it is placed in the Assets folder.")
+    else:
+        valid_sheets = {name: df for name, df in asterisk_sheets.items() if df is not None and not df.empty}
+        
+        ast_tabs = st.tabs([
+            "🏆 Palmares & Records", 
+            "👤 Manager Career Hub", 
+            "🔥 All-Time Streaks", 
+            "📖 Season Bios & Chronicles",
+            "📊 Historical Standings"
+        ])
+
+        with ast_tabs[0]:
+            st.subheader("Palmares & All-Time Honor Roll")
+            palmares_df = valid_sheets.get("Palmares & Records")
+            if palmares_df is not None:
+                st.table(format_table_floats(palmares_df.fillna("")))
+            else:
+                st.info("Palmares & Records sheet not found.")
+
+        with ast_tabs[1]:
+            st.subheader("Manager Career Profiles")
+            profiles_df = valid_sheets.get("qPlayerProfiles")
+            if profiles_df is not None and "Player" in profiles_df.columns:
+                selected_mgr = st.selectbox("Select Manager", sorted(profiles_df["Player"].dropna().unique()), key = "ast_mgr_sel")
+                mgr_row = profiles_df[profiles_df["Player"] == selected_mgr]
+                st.dataframe(format_table_floats(mgr_row.T.reset_index().rename(columns={"index": "Metric", 0: "Value"})).set_index("Metric"), use_container_width = True)
+            else:
+                st.info("qPlayerProfiles sheet unavailable.")
+
+        with ast_tabs[2]:
+            st.subheader("All-Time Streaks & Form Records")
+            streaks_df = valid_sheets.get("qLeagueStreaks")
+            if streaks_df is not None:
+                st.table(format_table_floats(streaks_df.fillna("")))
+            else:
+                st.info("qLeagueStreaks sheet unavailable.")
+
+        with ast_tabs[3]:
+            st.subheader("Season Chronicles & Bios")
+            bios_df = valid_sheets.get("Season Bios")
+            if bios_df is not None:
+                for _, row in bios_df.iterrows():
+                    season_title = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else "Season"
+                    season_years = str(row.iloc[1]) if not pd.isna(row.iloc[1]) else ""
+                    season_text = str(row.iloc[2]) if len(row) > 2 and not pd.isna(row.iloc[2]) else "No narrative recorded."
+                    with st.expander(f"📖 {season_title} ({season_years})"):
+                        st.write(season_text)
+            else:
+                st.info("Season Bios sheet unavailable.")
+
+        with ast_tabs[4]:
+            st.subheader("Historical Standings Archive")
+            standings_df = valid_sheets.get("qStandings")
+            if standings_df is not None:
+                s_div = st.selectbox("Filter Division", ["All"] + list(standings_df["Division"].dropna().unique()), key = "ast_standings_div")
+                s_seas = st.selectbox("Filter Season", ["All"] + list(standings_df["Season"].dropna().unique()), key = "ast_standings_seas")
+                
+                filtered_st = standings_df.copy()
+                if s_div != "All":
+                    filtered_st = filtered_st[filtered_st["Division"] == s_div]
+                if s_seas != "All":
+                    filtered_st = filtered_st[filtered_st["Season"] == s_seas]
+                    
+                st.table(format_table_floats(filtered_st.fillna("")))
+            else:
+                st.info("qStandings sheet unavailable.")
