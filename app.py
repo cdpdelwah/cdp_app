@@ -1433,20 +1433,7 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        # Scoped CSS: shrinks font & padding strictly for lineup tables so all columns fit side-by-side
-        st.markdown(f"""
-        <style>
-            div[data-baseweb="tab-panel"] table {{
-                font-size: 0.74rem !important;
-            }}
-            div[data-baseweb="tab-panel"] th, div[data-baseweb="tab-panel"] td {{
-                padding: 4px 5px !important;
-                white-space: nowrap !important;
-            }}
-        </style>
-        """, unsafe_allow_html = True)
-
-        display_cols = ["Player", "Pos", "Club", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        display_cols = ["Player", "Pos", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
         if starters_df is not None and not starters_df.empty:
             avail_s_cols = [c for c in display_cols if c in starters_df.columns]
             s_view = starters_df[avail_s_cols].copy()
