@@ -815,7 +815,24 @@ st.markdown(f"""
             padding: 8px 10px !important;
         }}
         div[data-testid="stVerticalBlockBorderWrapper"] {{
-            padding: 10px 12px !important;
+            padding: 8px 10px !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) {{
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) > div[data-testid="stColumn"] {{
+            flex: 1 1 calc(50% - 6px) !important;
+            min-width: calc(50% - 6px) !important;
+            max-width: calc(50% - 6px) !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) button {{
+            padding: 6px 4px !important;
+            font-size: 0.82rem !important;
         }}
     }}
 </style>
@@ -2444,7 +2461,6 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     components.html(chart_html, height = 400)
 
 @st.cache_data(ttl = 45)
-@st.cache_data(ttl = 45)
 def resolve_cup_match_score(manager_alias, gw_num):
     teams_registry = get_all_32_teams_registry()
     static_data = fetch_fpl_static()
@@ -3491,10 +3507,10 @@ if st.session_state.page == "Home":
                 if crest_file and crest_file.exists():
                     st.image(str(crest_file), use_container_width = True)
                 else:
-                    st.markdown(f"<div style='height:100px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:1.8rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
+                    st.markdown(f"<div style='height:80px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:1.5rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
                 
-                st.markdown(f"<p style='text-align:center; font-weight:900; color:{l_theme['accent']}; margin:2px 0 0 0; font-size:0.95rem;'>{short_code}</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:center; font-size:0.7rem; color:#94a3b8; margin:0 0 6px 0; font-weight:600;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:center; font-weight:900; color:{l_theme['accent']}; margin:4px 0 0 0; font-size:1.0rem;'>{short_code}</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:center; font-size:0.75rem; color:#ffffff; margin:0 0 6px 0; font-weight:700;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
                 
                 if st.button(f"Enter {short_code}", key = f"btn_enter_{short_code}", use_container_width = True, type = "primary" if is_current_active else "secondary"):
                     st.session_state["active_competition"] = l_key
