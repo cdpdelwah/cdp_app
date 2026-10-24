@@ -3300,13 +3300,103 @@ if st.session_state.page == "Home":
     """
     components.html(countdown_html, height = 230 if large_mode else 215)
 
-    # Assemble category candidates with adaptive thresholds
+    # ----------------- DYNAMIC MATCHDAY NEWS & WIRE -----------------
+    entries = league_details.get("league_entries", []) if league_details else []
+    lentry_map = {e["id"]: e for e in entries}
+    gw_matches_active = [m for m in matches if m.get("event") == current_gw]
+    top_wire_title = f"⚡ Matchday Intelligence • Gameweek {current_gw}"
+    
+    wire_cards = []
+    if gw_matches_active and static_data:
+        pos_map_wire = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+        team_map_wire = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+        element_lookup_wire = {item["id"]: item for item in static_data.get("elements", [])}
+
+        highest_scorer = None
+        highest_score_val = -1
+        tightest_match = None
+        tightest_margin = 999
+        biggest_blowout = None
+        biggest_margin = -1
+        worst_benched = None
+        highest_bench_pts = 0
+        card_disaster = None
+        highest_card_penalty = 0
+        best_escape = None
+
+        live_data_gw = fetch_live_event(current_gw)
+        live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
+        club_mins_gw = {}
+        for elem_str_id, e_info in live_elements_gw.items():
+            try:
+                elem_int_id = int(elem_str_id)
+            except (ValueError, TypeError):
+                continue
+            elem_obj = element_lookup_wire.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                club_mins_gw[c_id] = club_mins_gw.get(c_id, 0) + e_info.get("stats", {}).get("minutes", 0)
+
+        for m in gw_matches_active:
+            s1 = m.get("league_entry_1_points", 0)
+            s2 = m.get("league_entry_2_points", 0)
+            e1 = lentry_map.get(m.get("league_entry_1"), {})
+            e2 = lentry_map.get(m.get("league_entry_2"), {})
+            a1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+            a2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
+
+            p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
+            p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
+
+            t1_start, t1_b, t1_live, _, t1_inp, t1_ytp, t1_bp, _ = evaluate_lineup(p1, live_elements_gw, element_lookup_wire, club_mins_gw, pos_map_wire, team_map_wire, current_gw, all_fixtures)
+            t2_start, t2_b, t2_live, _, t2_inp, t2_ytp, t2_bp, _ = evaluate_lineup(p2, live_elements_gw, element_lookup_wire, club_mins_gw, pos_map_wire, team_map_wire, current_gw, all_fixtures)
+
+            act_s1 = s1 if m.get("finished", False) else t1_live
+            act_s2 = s2 if m.get("finished", False) else t2_live
+
+            if act_s1 > highest_score_val:
+                highest_score_val = act_s1
+                highest_scorer = (a1, act_s1)
+            if act_s2 > highest_score_val:
+                highest_score_val = act_s2
+                highest_scorer = (a2, act_s2)
+
+            margin = abs(act_s1 - act_s2)
+            if act_s1 > 0 or act_s2 > 0:
+                if margin < tightest_margin:
+                    tightest_margin = margin
+                    tightest_match = (a1, act_s1, a2, act_s2, margin)
+                if margin > biggest_margin:
+                    biggest_margin = margin
+                    biggest_blowout = (a1 if act_s1 >= act_s2 else a2, max(act_s1, act_s2), a2 if act_s1 >= act_s2 else a1, min(act_s1, act_s2), margin)
+
+            if t1_bp > highest_bench_pts:
+                highest_bench_pts = t1_bp
+                worst_benched = (a1, t1_bp, a2, act_s1, act_s2)
+            if t2_bp > highest_bench_pts:
+                highest_bench_pts = t2_bp
+                worst_benched = (a2, t2_bp, a1, act_s2, act_s1)
+
+            t1_cards_lost = (int(t1_start["YC"].sum()) if not t1_start.empty and "YC" in t1_start.columns else 0) + ((int(t1_start["RC"].sum()) if not t1_start.empty and "RC" in t1_start.columns else 0) * 3)
+            t2_cards_lost = (int(t2_start["YC"].sum()) if not t2_start.empty and "YC" in t2_start.columns else 0) + ((int(t2_start["RC"].sum()) if not t2_start.empty and "RC" in t2_start.columns else 0) * 3)
+            if t1_cards_lost > highest_card_penalty:
+                highest_card_penalty = t1_cards_lost
+                card_disaster = (a1, t1_cards_lost)
+            if t2_cards_lost > highest_card_penalty:
+                highest_card_penalty = t2_cards_lost
+                card_disaster = (a2, t2_cards_lost)
+
+            if (t1_inp + t1_ytp >= 2) and (t2_inp + t2_ytp == 0) and (act_s2 > act_s1):
+                best_escape = (a1, act_s2 - act_s1, t1_inp + t1_ytp, a2)
+            elif (t2_inp + t2_ytp >= 2) and (t1_inp + t1_ytp == 0) and (act_s1 > act_s2):
+                best_escape = (a2, act_s1 - act_s2, t2_inp + t2_ytp, a1)
+
         if worst_benched and worst_benched[1] >= 4:
             wire_cards.append({
                 "tag": "🪑 LEFT ON THE PINE",
                 "color": "#a855f7",
                 "headline": f"{worst_benched[0]} benched {worst_benched[1]} pts",
-                "detail": f"Dugout haul stranded while trailing {worst_benched[2]}." if worst_benched[3] < worst_benched[4] else f"Dugout haul left out of starting XI."
+                "detail": f"Dugout haul stranded while trailing {worst_benched[2]}." if worst_benched[3] < worst_benched[4] else "Dugout haul left out of starting XI."
             })
 
         if card_disaster and card_disaster[1] >= 1:
@@ -3314,7 +3404,7 @@ if st.session_state.page == "Home":
                 "tag": "🟨🟥 CARD CARNAGE",
                 "color": "#f43f5e",
                 "headline": f"{card_disaster[0]} docked -{card_disaster[1]} pts",
-                "detail": f"Starting XI card deductions hurting their gameweek total."
+                "detail": "Starting XI card deductions hurting their gameweek total."
             })
 
         if best_escape:
@@ -3349,7 +3439,6 @@ if st.session_state.page == "Home":
                 "detail": f"Division high score for Gameweek {current_gw} so far."
             })
 
-    # Show up to 4 stories across the 4-column layout to match the division crests below
     display_wire = wire_cards[:4]
     if display_wire:
         st.markdown(f"<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 6px 0 4px 0;'>{top_wire_title}</p>", unsafe_allow_html = True)
@@ -3363,7 +3452,6 @@ if st.session_state.page == "Home":
                     <div style="font-size:0.75rem; color:#94a3b8; font-weight:500;">{card['detail']}</div>
                 </div>
                 """, unsafe_allow_html = True)
-
     # ----------------- COMPACT 4-DIVISION SHOWCASE -----------------
     crest_map = {
         "CDP (Crème Dellar Prem)": assets_folder / "CDP_Crest.jpg",
@@ -3806,16 +3894,14 @@ elif st.session_state.page == "Cup & Bucket":
                                 st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; text-transform:uppercase; letter-spacing:0.5px;'>{card['m1']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<div class='card-score-left'>{card['s1']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<p class='card-proj-sub'>Proj: {card['proj1']:.1f} ({rem1})</p>", unsafe_allow_html = True)
-   ...
-   st.markdown(f"<p class='card-proj-sub' style='text-align: right;'>Proj: {card['proj2']:.1f} ({rem2})</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p class='card-bench-sub'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
                             with sc2:
                                 st.markdown("<div class='card-vs-text' style='margin-top:22px !important;'>vs</div>", unsafe_allow_html = True)
                             with sc3:
                                 st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.5px; text-align:right;'>{card['m2']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<div class='card-score-right'>{card['s2']}</div>", unsafe_allow_html = True)
-                               st.markdown(f"<p class='card-proj-sub'>Proj: {card['proj1']:.1f} ({rem1})</p>", unsafe_allow_html = True)
-   ...
-   st.markdown(f"<p class='card-proj-sub' style='text-align: right;'>Proj: {card['proj2']:.1f} ({rem2})</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p class='card-proj-sub' style='text-align: right;'>Proj: {card['proj2']:.1f} ({rem2})</p>", unsafe_allow_html = True)
+                                st.markdown(f"<p class='card-bench-sub' style='text-align: right;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
 
                             st.progress(card["prob1"] / 100.0)
 
