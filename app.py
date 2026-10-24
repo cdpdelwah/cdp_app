@@ -1434,24 +1434,45 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        display_cols = ["Player", "Pos", "Opp", "State", "Pts", "Proj", "Mins", "G", "A", "CS", "GC", "Bonus"]
+        def build_compact_lineup_rows(df):
+            if df is None or df.empty:
+                return pd.DataFrame()
+            rows = []
+            for _, r in df.iterrows():
+                actions = []
+                g = int(r.get("G", 0))
+                a = int(r.get("A", 0))
+                cs = int(r.get("CS", 0))
+                b = int(r.get("Bonus", 0))
+                if g > 0: actions.append(f"{g}⚽" if g > 1 else "⚽")
+                if a > 0: actions.append(f"{a}🎯" if a > 1 else "🎯")
+                if cs > 0 and r.get("Pos") in ["GKP", "DEF"]: actions.append("🛡️")
+                act_str = " ".join(actions) if actions else "-"
+                
+                rows.append({
+                    "Player": str(r.get("Player", "")),
+                    "Pos": str(r.get("Pos", "")),
+                    "Club": str(r.get("Club", "")),
+                    "Opp": str(r.get("Opp", "")).replace(" (H)", " [H]").replace(" (A)", " [A]"),
+                    "Mins": f"{int(r.get('Mins', 0))}'",
+                    "Events": act_str,
+                    "⭐": b if b > 0 else "-",
+                    "Pts": int(r.get("Pts", 0))
+                })
+            return pd.DataFrame(rows)
+
         if starters_df is not None and not starters_df.empty:
-            avail_s_cols = [c for c in display_cols if c in starters_df.columns]
-            s_view = starters_df[avail_s_cols].copy()
-            if "Proj" in s_view.columns:
-                s_view["Proj"] = s_view["Proj"].map(lambda x: f"{float(x):.1f}")
-            st.markdown("**Starting XI (GK First)**")
-            st.table(s_view.set_index("Player"))
+            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:{accent_color}; text-transform:uppercase; margin-bottom:4px;'>Starting XI</p>", unsafe_allow_html = True)
+            s_compact = build_compact_lineup_rows(starters_df)
+            st.table(s_compact.set_index("Player"))
 
             if bench_df is not None and not bench_df.empty:
-                avail_b_cols = [c for c in display_cols if c in bench_df.columns]
-                b_view = bench_df[avail_b_cols].copy()
-                if "Proj" in b_view.columns:
-                    b_view["Proj"] = b_view["Proj"].map(lambda x: f"{float(x):.1f}")
-                b_view["pos_order"] = b_view["Pos"].map(POS_ORDER).fillna(99)
-                b_view = b_view.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
-                st.markdown("**Bench Substitutes**")
-                st.table(b_view.set_index("Player"))
+                b_work = bench_df.copy()
+                b_work["pos_order"] = b_work["Pos"].map(POS_ORDER).fillna(99)
+                b_work = b_work.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
+                st.markdown("<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin:8px 0 4px 0;'>Dugout Substitutes</p>", unsafe_allow_html = True)
+                b_compact = build_compact_lineup_rows(b_work)
+                st.table(b_compact.set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
@@ -2682,11 +2703,11 @@ def calculate_league_tables(entries, matches, current_gw, live_elements, element
         off_pos = official_rank_map.get(r["team_id"], idx)
         diff = off_pos - idx
         if diff > 0:
-            r["Move"] = "▲ " + str(diff)
+            r["Move"] = f"<span style='color:#22c55e; font-weight:800;'>▲ {diff}</span>"
         elif diff < 0:
-            r["Move"] = "▼ " + str(abs(diff))
+            r["Move"] = f"<span style='color:#ef4444; font-weight:800;'>▼ {abs(diff)}</span>"
         else:
-            r["Move"] = "▬"
+            r["Move"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
     official_df = pd.DataFrame(official_rows)[["Pos", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
     live_df = pd.DataFrame(live_rows)[["Pos", "Move", "Team", "Manager", "W", "D", "L", "PF", "Pts"]].set_index("Pos")
@@ -3275,7 +3296,43 @@ if st.session_state.page == "Home":
     """
     components.html(countdown_html, height = 165)
 
-    st.markdown("#### Quick Launchpad")
+    # ----------------- DIVISION SHOWCASE WITH EMBEDDED CRESTS -----------------
+    st.write("")
+    st.markdown("<h3 style='margin-bottom: 2px;'>🏆 The Four Divisions</h3>", unsafe_allow_html = True)
+    st.caption("Season X Championship Tiers • Select any league to set active focus")
+
+    crest_map = {
+        "CDP (Crème Dellar Prem)": assets_folder / "CDP_Crest.jpg",
+        "SDM (Segundo Del Mundo)": assets_folder / "SDM_Crest.jpg",
+        "BDR (Best De La Rest)": assets_folder / "BDR_Crest.jpg",
+        "LDE (Liger Del Eager)": assets_folder / "LDE_Crest.jpg"
+    }
+
+    div_cols = st.columns(4)
+    for idx, (l_key, l_theme) in enumerate(LEAGUE_THEMES.items()):
+        short_code = l_key.split(" ")[0]
+        crest_file = crest_map.get(l_key)
+        is_current_active = (selected_league_key == l_key)
+
+        with div_cols[idx]:
+            with st.container(border = True):
+                if crest_file and crest_file.exists():
+                    st.image(str(crest_file), use_container_width = True)
+                else:
+                    st.markdown(f"<div style='height:140px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:2rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
+                
+                st.markdown(f"<p style='text-align:center; font-weight:800; color:{l_theme['accent']}; margin:4px 0 0 0; font-size:1.05rem;'>{short_code}</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:center; font-size:0.75rem; color:#94a3b8; margin:0 0 8px 0; font-weight:600;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
+                
+                if st.button(f"Enter {short_code}", key = f"btn_enter_{short_code}", use_container_width = True, type = "primary" if is_current_active else "secondary"):
+                    st.session_state["active_competition"] = l_key
+                    st.session_state.page = "LIVE SCORES"
+                    st.rerun()
+
+    st.divider()
+
+    # ----------------- QUICK LAUNCHPAD -----------------
+    st.markdown("<h3>⚡ Command Launchpad</h3>", unsafe_allow_html = True)
     
     r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
     with r1_c1:
@@ -3288,7 +3345,7 @@ if st.session_state.page == "Home":
         st.button("Cup & Bucket", on_click = set_page, args = ("Cup & Bucket",), use_container_width = True)
 
     st.write("")
-    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
+    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6 = st.columns(6)
     with r2_c1:
         st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
     with r2_c2:
@@ -3300,25 +3357,7 @@ if st.session_state.page == "Home":
     with r2_c5:
         st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
     with r2_c6:
-        st.button("Newsletters", on_click = set_page, args = ("Newsletters",), use_container_width = True)
-    with r2_c7:
-        st.button("⚡ Power Rankings", on_click = set_page, args = ("Power Rankings",), use_container_width = True)
-
-    st.divider()
-
-    st.subheader("Core Capabilities")
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>LIVE SCORES</b>: Around the grounds matchday scoreboard, manager aliases, live win probabilities, real time auto subs and live points progression graphs.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Cup & Bucket</b>: Cross league tournament portal featuring 32 team group standings, live cup scoreboards and cup results analyser.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>EPL Scores</b>: Premier League fixtures, goalscorers, assists, clean sheets, DEFCON metrics and discipline.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Results Analyser</b>: Historical head to head match breakdowns and chronological matchday points progression graphs.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Squad Analyser</b>: Starting lineup recommendations, next 3 fixtures, injury tracking and tailored waiver wire scout board.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>GACS</b>: Weekly starting lineup goals, assists and clean sheets with gameweek selection.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Disciplinary</b>: Weekly and season yellow and red cards in starting lineups and whether card deductions altered match outcomes.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Standings</b>: Real time in play standings with movement indicators and official frozen tables.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Newsletters</b>: Embedded full page previews for both League and Cup gazettes.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Power Rankings</b>: Comprehensive form rankings and team trajectories.</p>", unsafe_allow_html = True)
-    st.markdown(f"<p style='font-size: {font_body};'>• <b>Records</b>: Historical hall of fame, individual records and statistical milestones.</p>", unsafe_allow_html = True)
-
+        st.button("📜 Asterisk*", on_click = set_page, args = ("Asterisk*",), use_container_width = True)
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
     st.title("🔴 LIVE SCORES" + dash + selected_league_key)
@@ -4862,34 +4901,43 @@ elif st.session_state.page == "Trade Hub":
     with tab_browse:
         st.subheader(f"Active Transfer List — {selected_league_key}")
         
-        league_trade_listings = [item for item in trade_listings if item.get("league_key") == selected_league_key]
+        tb_col1, tb_col2 = st.columns([2, 1])
+        with tb_col1:
+            trade_div_scope = st.selectbox(
+                "Filter Division",
+                ["All Divisions", "CDP (Crème Dellar Prem)", "SDM (Segundo Del Mundo)", "BDR (Best De La Rest)", "LDE (Liger Del Eager)"],
+                index = 0,
+                key = "trade_div_scope_filter"
+            )
+        with tb_col2:
+            pos_filter = st.selectbox("Filter Position", ["All", "GKP", "DEF", "MID", "FWD"], key = "trade_pos_filter")
 
-        if not league_trade_listings:
-            st.info(f"The trading block for **{selected_league_key}** is currently empty. Head over to **'Manage My Listings'** to put someone up for trade!")
+        if trade_div_scope == "All Divisions":
+            filtered_listings = trade_listings
         else:
-            pos_filter = st.selectbox("Filter by Position", ["All", "GKP", "DEF", "MID", "FWD"], key = "trade_pos_filter")
+            filtered_listings = [item for item in trade_listings if item.get("league_key") == trade_div_scope]
 
-            filtered_listings = league_trade_listings
-            if pos_filter != "All":
-                filtered_listings = [item for item in filtered_listings if item.get("position") == pos_filter]
+        if pos_filter != "All":
+            filtered_listings = [item for item in filtered_listings if item.get("position") == pos_filter]
 
-            if not filtered_listings:
-                st.warning("No active trade listings match your selected position filter.")
-            else:
-                display_rows = []
-                for item in filtered_listings:
-                    display_rows.append({
-                        "Player": item.get("player_name"),
-                        "Club": item.get("club"),
-                        "Pos": item.get("position"),
-                        "Manager": item.get("manager_alias"),
-                        "Team": item.get("team_name"),
-                        "Asking Price / Notes": item.get("notes", "Open to offers"),
-                        "Listed Date": item.get("date", "Recent")
-                    })
-                
-                t_df = pd.DataFrame(display_rows)
-                st.table(t_df.set_index("Player"))
+        if not filtered_listings:
+            st.info("The trading block is currently empty for these filters. Add players under 'Manage My Listings'!")
+        else:
+            display_rows = []
+            for item in filtered_listings:
+                display_rows.append({
+                    "Player": item.get("player_name"),
+                    "Club": item.get("club"),
+                    "Pos": item.get("position"),
+                    "Division": str(item.get("league_key", "")).split(" ")[0],
+                    "Manager": item.get("manager_alias"),
+                    "Team": item.get("team_name"),
+                    "Asking Price / Notes": item.get("notes", "Open to offers"),
+                    "Listed Date": item.get("date", "Recent")
+                })
+            
+            t_df = pd.DataFrame(display_rows)
+            st.table(t_df.set_index("Player"))
 
     # ----------------- TAB 2: MANAGE MY LISTED PLAYERS -----------------
     with tab_manage:
@@ -5255,7 +5303,7 @@ elif st.session_state.page == "Standings":
     with standings_tab1:
         st.subheader("Live Standings " + dash + " Active Round (GW " + str(current_gw) + ")")
         st.caption("Updated continuously with active points. Movement indicators show changes against previous official rank.")
-        st.table(live_table_df)
+        st.markdown(live_table_df.to_html(escape=False), unsafe_allow_html=True)
 
     with standings_tab2:
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
