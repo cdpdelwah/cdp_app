@@ -1932,27 +1932,75 @@ def fetch_all_epl_fixtures():
         return []
     return resp.json()
 
-@st.cache_data(ttl = 45)
-@st.cache_data(ttl = 45)
-def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90):
-    pos_order_map = {"GKP": 1, "GK": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
+@st.cache_data(ttl = 1800)
+def get_pulse_fixtures_map():
+    headers = {
+        "Origin": "https://www.premierleague.com",
+        "Referer": "https://www.premierleague.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "account": "premierleague"
+    }
+    pulse_map = {}
+    try:
+        # 1. Fetch current Premier League season ID dynamically
+        s_url = "https://footballapi.pulselive.com/football/competitions/1/compseasons"
+        s_resp = requests.get(s_url, headers = headers, timeout = 5)
+        if s_resp.status_code == 200:
+            seasons = s_resp.json().get("content", [])
+            if seasons:
+                latest_season_id = int(seasons[-1].get("id"))
+                
+                # 2. Load all fixtures for the active season to map match IDs
+                f_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&compSeasons={latest_season_id}&page=0&pageSize=380"
+                f_resp = requests.get(f_url, headers = headers, timeout = 6)
+                if f_resp.status_code == 200:
+                    for fix in f_resp.json().get("content", []):
+                        fix_id = fix.get("id")
+                        gw = fix.get("gameweek", {}).get("gameweek")
+                        teams = fix.get("teams", [])
+                        if len(teams) == 2 and fix_id:
+                            t0 = teams[0].get("team", {})
+                            t1 = teams[1].get("team", {})
+                            abbr0 = (t0.get("club", {}).get("abbr") or t0.get("shortName") or "").upper()
+                            abbr1 = (t1.get("club", {}).get("abbr") or t1.get("shortName") or "").upper()
+                            if gw and abbr0 and abbr1:
+                                pulse_map[(int(gw), abbr0, abbr1)] = int(fix_id)
+                                pulse_map[(abbr0, abbr1)] = int(fix_id)
+    except Exception:
+        pass
+    return pulse_map
 
-    # 1. Official Premier League Pulse team sheet
+@st.cache_data(ttl = 45)
+def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None):
+    pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
+
+    # 1. Find the official PulseLive match ID using team short codes
+    pulse_id = None
+    if home_short and away_short:
+        h_s = str(home_short).strip().upper()
+        a_s = str(away_short).strip().upper()
+        p_map = get_pulse_fixtures_map()
+        if event_num:
+            pulse_id = p_map.get((int(event_num), h_s, a_s))
+        if not pulse_id:
+            pulse_id = p_map.get((h_s, a_s))
+
+    # 2. Query official Premier League team sheet (available 60-75m pre-match)
     if pulse_id:
         url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
         headers = {
             "Origin": "https://www.premierleague.com",
             "Referer": "https://www.premierleague.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
             "account": "premierleague"
         }
         try:
-            resp = requests.get(url, headers=headers, timeout=5)
+            resp = requests.get(url, headers = headers, timeout = 5)
             if resp.status_code == 200:
                 data = resp.json()
                 team_lists = data.get("teamLists", [])
-                if len(team_lists) >= 2 and team_lists[0].get("lineup") and team_lists[1].get("lineup"):
+                if len(team_lists) >= 2 and len(team_lists[0].get("lineup", [])) >= 11 and len(team_lists[1].get("lineup", [])) >= 11:
                     sub_events = {}
                     for ev in data.get("events", []):
                         if ev.get("type") in ["substitution", "sub"]:
@@ -1983,6 +2031,7 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
                                 "text": f"#{num} **{name}**{capt} • *{clean_pos}*{sub_tag}"
                             })
 
+                        # Sort starting XI strictly top to bottom: GK -> DEF -> MID -> FWD
                         starters = [s["text"] for s in sorted(starters, key = lambda x: x["pos_rank"])]
 
                         subs_used = []
@@ -2009,7 +2058,7 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
         except Exception:
             pass
 
-    # 2. Live FPL Matchday Parser: Only runs if players have actually played minutes
+    # 3. Live In-Play Fallback (Only active once match starts and players have minutes)
     if live_elements and element_lookup and home_team_id and away_team_id:
         def extract_club_lineup(target_club_id):
             club_players = []
@@ -2035,13 +2084,9 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
                         "pts": pts
                     })
 
-            if not club_players:
-                return [], [], []
-
             played = [p for p in club_players if p["mins"] > 0]
             unplayed = [p for p in club_players if p["mins"] == 0]
 
-            # If no one has played yet, the match hasn't started and no team sheet is available
             if not played:
                 return [], [], []
 
@@ -4596,7 +4641,17 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
 
                 with tab_sheets:
                     curr_match_mins = f.get("minutes", 90 if is_finished else 45)
-                    sheet_data = fetch_premier_league_match_lineup(pulse_code, h_id, a_id, live_elements, element_lookup, curr_match_mins)
+                    sheet_data = fetch_premier_league_match_lineup(
+                        fpl_fixture_code = pulse_code,
+                        home_team_id = h_id,
+                        away_team_id = a_id,
+                        live_elements = live_elements,
+                        element_lookup = element_lookup,
+                        match_minute = curr_match_mins,
+                        event_num = selected_epl_gw,
+                        home_short = h_short,
+                        away_short = a_short
+                    )
                     
                     if sheet_data and sheet_data.get("has_lineups"):
                         col_h_team, col_a_team = st.columns(2)
