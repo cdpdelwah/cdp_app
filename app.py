@@ -3775,18 +3775,22 @@ if st.session_state.page == "Home":
 # ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES - STACKED) -----------------
     st.markdown("""
     <style>
-    /* Pin selectable radio options to opposite sides of the card */
-    div[role="radiogroup"][aria-label*="Vote"] {
+    /* Pin selectable radio options across the tile */
+    div[data-testid="stRadio"] > div[role="radiogroup"] {
         display: flex !important;
         flex-direction: row !important;
         justify-content: space-between !important;
+        align-items: center !important;
         width: 100% !important;
-    }
-    div[role="radiogroup"][aria-label*="Vote"] > label:first-child {
         margin: 0 !important;
+        padding: 0 !important;
     }
-    div[role="radiogroup"][aria-label*="Vote"] > label:last-child {
-        margin: 0 0 0 auto !important;
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label:last-child {
+        margin-left: auto !important;
     }
     </style>
     """, unsafe_allow_html = True)
@@ -3818,7 +3822,7 @@ if st.session_state.page == "Home":
         if not gw_div_matches:
             continue
 
-        st.markdown(f"<p style='font-size:0.80rem; font-weight:800; color:{l_color}; text-transform:uppercase; letter-spacing:0.5px; margin:12px 0 4px 0;'>{l_name}</p>", unsafe_allow_html = True)
+        st.markdown(f"<p style='font-size:0.80rem; font-weight:800; color:{l_color}; text-transform:uppercase; letter-spacing:0.5px; margin:14px 0 6px 0;'>{l_name}</p>", unsafe_allow_html = True)
         
         pred_cols = st.columns(len(gw_div_matches))
 
@@ -3851,16 +3855,6 @@ if st.session_state.page == "Home":
 
             with pred_cols[p_idx]:
                 with st.container(border = True):
-                    # Big Title Header
-                    st.markdown(
-                        f"<div style='display:flex; justify-content:space-between; align-items:center; padding:0 2px; margin-bottom:6px;'>"
-                        f"<span style='font-size:0.95rem; font-weight:800; color:#ffffff;'>{alias1}</span>"
-                        f"<span style='font-size:0.72rem; font-weight:700; color:#64748b;'>vs</span>"
-                        f"<span style='font-size:0.95rem; font-weight:800; color:#ffffff;'>{alias2}</span>"
-                        f"</div>", 
-                        unsafe_allow_html = True
-                    )
-
                     if not is_fin:
                         chosen_pick = st.radio(
                             f"Vote {l_name} {alias1} vs {alias2}",
@@ -3878,21 +3872,30 @@ if st.session_state.page == "Home":
                         col1_style = "#22c55e" if (valid_votes > 0 and pct_t1 > pct_t2) else ("#ffffff" if valid_votes > 0 else "#64748b")
                         col2_style = "#22c55e" if (valid_votes > 0 and pct_t2 > pct_t1) else ("#ffffff" if valid_votes > 0 else "#64748b")
 
-                        # Large percentages with full vote count in the center
+                        # Percentages left and right, with vote count centered on the tile
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:baseline; padding:4px 2px 0 2px;'>"
-                            f"<div style='font-size:1.35rem; font-weight:900; color:{col1_style};'>{pct_t1}%</div>"
-                            f"<div style='font-size:0.75rem; font-weight:600; color:#94a3b8;'>{vote_label}</div>"
-                            f"<div style='font-size:1.35rem; font-weight:900; color:{col2_style};'>{pct_t2}%</div>"
+                            f"<div style='position:relative; width:100%; margin-top:8px;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:600; color:#64748b; top:6px; pointer-events:none;'>{vote_label}</div>"
+                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline;'>"
+                            f"    <span style='font-size:1.35rem; font-weight:900; color:{col1_style};'>{pct_t1}%</span>"
+                            f"    <span style='font-size:1.35rem; font-weight:900; color:{col2_style};'>{pct_t2}%</span>"
+                            f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
                         )
                     else:
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:baseline; padding:4px 2px 0 2px;'>"
-                            f"<div style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</div>"
-                            f"<div style='font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase;'>{vote_label} • Final</div>"
-                            f"<div style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</div>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:center; font-size:0.95rem; font-weight:800; color:#ffffff; margin-bottom:8px;'>"
+                            f"  <span>{alias1}</span>"
+                            f"  <span style='font-size:0.72rem; color:#64748b;'>vs</span>"
+                            f"  <span>{alias2}</span>"
+                            f"</div>"
+                            f"<div style='position:relative; width:100%; margin-top:4px;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:700; color:#64748b; top:4px; pointer-events:none;'>{vote_label} • FINAL</div>"
+                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline;'>"
+                            f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
+                            f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
+                            f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
                         )
