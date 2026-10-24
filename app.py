@@ -2444,19 +2444,28 @@ def render_progression_chart(gw_num, alias1, alias2, starters1_df, bench1_df, st
     components.html(chart_html, height = 400)
 
 @st.cache_data(ttl = 45)
+@st.cache_data(ttl = 45)
 def resolve_cup_match_score(manager_alias, gw_num):
     teams_registry = get_all_32_teams_registry()
     static_data = fetch_fpl_static()
     all_fixtures = fetch_all_epl_fixtures()
     if not static_data:
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
+        return {
+            "score": 0, "proj": 0.0, "high_player": 0,
+            "starters": pd.DataFrame(), "bench": pd.DataFrame(),
+            "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+        }
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
 
     t_info = teams_registry.get(str(manager_alias).strip().lower())
     if not t_info or not t_info.get("entry_id"):
-        return 0, 0, pd.DataFrame(), pd.DataFrame(), 0, 0, 0, 0
+        return {
+            "score": 0, "proj": 0.0, "high_player": 0,
+            "starters": pd.DataFrame(), "bench": pd.DataFrame(),
+            "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+        }
     picks = fetch_entry_event(t_info["entry_id"], gw_num)
     live_data = fetch_live_event(gw_num)
     live_elements = live_data.get("elements", {}) if live_data else {}
@@ -2477,14 +2486,20 @@ def resolve_cup_match_score(manager_alias, gw_num):
         picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
     )
     active_players = get_active_players_from_dfs(starters, bench)
-    active_p = []
-    if active_players:
-        for p in active_players:
-            active_p.append(int(p.get("Pts", 0)))
+    active_p = [int(p.get("Pts", 0)) for p in active_players] if active_players else []
     max_player_pts = max(active_p) if active_p else 0
-    return live_score, proj_score, max_player_pts, starters, bench, in_play, ytp, bench_pts, opt_score
-@st.cache_data(ttl = 60)
-def calculate_group_standings():
+
+    return {
+        "score": live_score,
+        "proj": proj_score,
+        "high_player": max_player_pts,
+        "starters": starters,
+        "bench": bench,
+        "in_play": in_play,
+        "ytp": ytp,
+        "bench_pts": bench_pts,
+        "opt": opt_score
+    }def calculate_group_standings():
     cup_df = load_cup_matches()
     teams_registry = get_all_32_teams_registry()
     if cup_df is None or cup_df.empty:
@@ -2518,8 +2533,10 @@ def calculate_group_standings():
         if m1 not in standings_dict or m2 not in standings_dict:
             continue
 
-        s1, high1, _, _, _, _, _, _ = resolve_cup_match_score(m1, gw)
-        s2, high2, _, _, _, _, _, _ = resolve_cup_match_score(m2, gw)
+        r1_cup = resolve_cup_match_score(m1, gw)
+        r2_cup = resolve_cup_match_score(m2, gw)
+        s1, high1 = r1_cup["score"], r1_cup["high_player"]
+        s2, high2 = r2_cup["score"], r2_cup["high_player"]
 
         standings_dict[m1]["PF"] += s1
         standings_dict[m2]["PF"] += s2
@@ -3835,14 +3852,14 @@ elif st.session_state.page == "Cup & Bucket":
                 if not m1_alias or not m2_alias or m1_alias.lower() == "nan" or m2_alias.lower() == "nan":
                     continue
 
-                s1, proj1, _, _, inp1, ytp1, bp1, opt1 = resolve_cup_match_score(m1_alias, active_cup_gw)
-                s2, proj2, _, _, inp2, ytp2, bp2, opt2 = resolve_cup_match_score(m2_alias, active_cup_gw)
+                r1 = resolve_cup_match_score(m1_alias, active_cup_gw)
+                r2 = resolve_cup_match_score(m2_alias, active_cup_gw)
 
                 info1 = teams_registry.get(m1_alias.lower(), {})
                 info2 = teams_registry.get(m2_alias.lower(), {})
 
-                is_fin = gw_officially_finished and (inp1 + ytp1 + inp2 + ytp2 == 0) and (s1 > 0 or s2 > 0)
-                prob1, prob2 = calculate_win_probability(s1, proj1, inp1 + ytp1, s2, proj2, inp2 + ytp2, is_fin)
+                is_fin = gw_officially_finished and (r1["in_play"] + r1["ytp"] + r2["in_play"] + r2["ytp"] == 0) and (r1["score"] > 0 or r2["score"] > 0)
+                prob1, prob2 = calculate_win_probability(r1["score"], r1["proj"], r1["in_play"] + r1["ytp"], r2["score"], r2["proj"], r2["in_play"] + r2["ytp"], is_fin)
 
                 live_cup_cards.append({
                     "m1": m1_alias,
@@ -3851,18 +3868,18 @@ elif st.session_state.page == "Cup & Bucket":
                     "t2_name": info2.get("team_name", "Team 2"),
                     "l1": info1.get("league_key", "").split(" ")[0],
                     "l2": info2.get("league_key", "").split(" ")[0],
-                    "s1": s1,
-                    "s2": s2,
-                    "proj1": proj1,
-                    "proj2": proj2,
-                    "inp1": inp1,
-                    "ytp1": ytp1,
-                    "inp2": inp2,
-                    "ytp2": ytp2,
-                    "bp1": bp1,
-                    "opt1": opt1,
-                    "bp2": bp2,
-                    "opt2": opt2,
+                    "s1": r1["score"],
+                    "s2": r2["score"],
+                    "proj1": r1["proj"],
+                    "proj2": r2["proj"],
+                    "inp1": r1["in_play"],
+                    "ytp1": r1["ytp"],
+                    "inp2": r2["in_play"],
+                    "ytp2": r2["ytp"],
+                    "bp1": r1["bench_pts"],
+                    "opt1": r1["opt"],
+                    "bp2": r2["bench_pts"],
+                    "opt2": r2["opt"],
                     "prob1": prob1,
                     "prob2": prob2,
                     "is_fin": is_fin,
@@ -3939,8 +3956,10 @@ elif st.session_state.page == "Cup & Bucket":
                 spot_m1 = active_c_spot["m1"]
                 spot_m2 = active_c_spot["m2"]
 
-                spot_s1, _, spot_st1, spot_b1, _, _, spot_bp1, spot_opt1 = resolve_cup_match_score(spot_m1, active_cup_gw)
-                spot_s2, _, spot_st2, spot_b2, _, _, spot_bp2, spot_opt2 = resolve_cup_match_score(spot_m2, active_cup_gw)
+                sp1 = resolve_cup_match_score(spot_m1, active_cup_gw)
+                sp2 = resolve_cup_match_score(spot_m2, active_cup_gw)
+                spot_s1, spot_st1, spot_b1, spot_bp1, spot_opt1 = sp1["score"], sp1["starters"], sp1["bench"], sp1["bench_pts"], sp1["opt"]
+                spot_s2, spot_st2, spot_b2, spot_bp2, spot_opt2 = sp2["score"], sp2["starters"], sp2["bench"], sp2["bench_pts"], sp2["opt"]
 
                 s_info1 = teams_registry.get(spot_m1.lower(), {})
                 s_info2 = teams_registry.get(spot_m2.lower(), {})
@@ -4072,8 +4091,10 @@ elif st.session_state.page == "Cup & Bucket":
             c_m1 = str(selected_cup_match["Team 1"]).strip()
             c_m2 = str(selected_cup_match["Team 2"]).strip()
 
-            c_s1, _, c_st1, c_b1, _, _, c_bp1, c_opt1 = resolve_cup_match_score(c_m1, c_gw)
-            c_s2, _, c_st2, c_b2, _, _, c_bp2, c_opt2 = resolve_cup_match_score(c_m2, c_gw)
+            cp1 = resolve_cup_match_score(c_m1, c_gw)
+            cp2 = resolve_cup_match_score(c_m2, c_gw)
+            c_s1, c_st1, c_b1, c_bp1, c_opt1 = cp1["score"], cp1["starters"], cp1["bench"], cp1["bench_pts"], cp1["opt"]
+            c_s2, c_st2, c_b2, c_bp2, c_opt2 = cp2["score"], cp2["starters"], cp2["bench"], cp2["bench_pts"], cp2["opt"]
 
             info1 = teams_registry.get(c_m1.lower(), {})
             info2 = teams_registry.get(c_m2.lower(), {})
