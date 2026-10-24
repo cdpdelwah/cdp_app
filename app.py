@@ -3773,6 +3773,24 @@ if st.session_state.page == "Home":
                 </div>
                 """, unsafe_allow_html = True)
 # ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES - STACKED) -----------------
+    st.markdown("""
+    <style>
+    /* Pin selectable radio options to opposite sides of the card */
+    div[role="radiogroup"][aria-label*="Vote"] {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+    }
+    div[role="radiogroup"][aria-label*="Vote"] > label:first-child {
+        margin: 0 !important;
+    }
+    div[role="radiogroup"][aria-label*="Vote"] > label:last-child {
+        margin: 0 0 0 auto !important;
+    }
+    </style>
+    """, unsafe_allow_html = True)
+
     st.markdown(
         f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 18px 0 10px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
         unsafe_allow_html = True
@@ -3821,6 +3839,7 @@ if st.session_state.page == "Home":
 
             pct_t1 = int(round((v_t1 / valid_votes) * 100)) if valid_votes > 0 else 50
             pct_t2 = 100 - pct_t1 if valid_votes > 0 else 50
+            vote_label = f"{valid_votes} vote" if valid_votes == 1 else f"{valid_votes} votes"
 
             vote_options = [alias1, alias2]
             val_map = {alias1: "1", alias2: "2"}
@@ -3832,12 +3851,12 @@ if st.session_state.page == "Home":
 
             with pred_cols[p_idx]:
                 with st.container(border = True):
-                    # Fixed header alignment
+                    # Big Title Header
                     st.markdown(
                         f"<div style='display:flex; justify-content:space-between; align-items:center; padding:0 2px; margin-bottom:6px;'>"
-                        f"<span style='font-size:0.88rem; font-weight:800; color:#ffffff;'>{alias1}</span>"
-                        f"<span style='font-size:0.70rem; font-weight:700; color:#64748b;'>vs</span>"
-                        f"<span style='font-size:0.88rem; font-weight:800; color:#ffffff;'>{alias2}</span>"
+                        f"<span style='font-size:0.95rem; font-weight:800; color:#ffffff;'>{alias1}</span>"
+                        f"<span style='font-size:0.72rem; font-weight:700; color:#64748b;'>vs</span>"
+                        f"<span style='font-size:0.95rem; font-weight:800; color:#ffffff;'>{alias2}</span>"
                         f"</div>", 
                         unsafe_allow_html = True
                     )
@@ -3856,23 +3875,23 @@ if st.session_state.page == "Home":
                             record_draft_prediction(l_id, current_gw, m_id, logged_username, val_map[chosen_pick])
                             st.rerun()
 
-                        # Aligned, clear percentages directly underneath each respective manager
                         col1_style = "#22c55e" if (valid_votes > 0 and pct_t1 > pct_t2) else ("#ffffff" if valid_votes > 0 else "#64748b")
                         col2_style = "#22c55e" if (valid_votes > 0 and pct_t2 > pct_t1) else ("#ffffff" if valid_votes > 0 else "#64748b")
 
+                        # Large percentages with full vote count in the center
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:center; padding:2px 4px 0 4px;'>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:baseline; padding:4px 2px 0 2px;'>"
                             f"<div style='font-size:1.35rem; font-weight:900; color:{col1_style};'>{pct_t1}%</div>"
-                            f"<div style='font-size:0.68rem; font-weight:600; color:#64748b; letter-spacing:0.3px;'>{valid_votes}V</div>"
+                            f"<div style='font-size:0.75rem; font-weight:600; color:#94a3b8;'>{vote_label}</div>"
                             f"<div style='font-size:1.35rem; font-weight:900; color:{col2_style};'>{pct_t2}%</div>"
                             f"</div>",
                             unsafe_allow_html = True
                         )
                     else:
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:center; padding:2px 4px 0 4px;'>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:baseline; padding:4px 2px 0 2px;'>"
                             f"<div style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</div>"
-                            f"<div style='font-size:0.68rem; font-weight:700; color:#64748b; text-transform:uppercase;'>Final</div>"
+                            f"<div style='font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase;'>{vote_label} • Final</div>"
                             f"<div style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</div>"
                             f"</div>",
                             unsafe_allow_html = True
