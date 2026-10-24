@@ -43,7 +43,8 @@ LEAGUE_PRESETS = {
     "LDE (Liger Del Eager)": 240
 }
 
-# Thematic identity colours extracted directly from the Season X league crestsLEAGUE_THEMES = {
+# Thematic identity colours extracted directly from the Season X league crests
+LEAGUE_THEMES = {
     "CDP (Crème Dellar Prem)": {
         "accent": "#f59e0b",
         "accent_glow": "rgba(245, 158, 11, 0.25)",
