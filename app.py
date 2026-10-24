@@ -3310,7 +3310,6 @@ if st.session_state.page == "Home":
     gw_matches_active = [m for m in matches if m.get("event") == current_gw]
     top_wire_title = f"⚡ Matchday Intelligence • Gameweek {current_gw}"
     
-    # Calculate live wire stories from current gameweek data if available
     wire_cards = []
     if gw_matches_active:
         highest_scorer = None
@@ -3319,6 +3318,25 @@ if st.session_state.page == "Home":
         tightest_margin = 999
         biggest_blowout = None
         biggest_margin = -1
+        worst_benched = None
+        highest_bench_pts = 0
+        card_disaster = None
+        highest_card_penalty = 0
+        best_escape = None
+
+        # Fetch live elements and picks to analyze bench, discipline, and in-play squeeze
+        live_data_gw = fetch_live_event(current_gw)
+        live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
+        club_mins_gw = {}
+        for elem_str_id, e_info in live_elements_gw.items():
+            try:
+                elem_int_id = int(elem_str_id)
+            except (ValueError, TypeError):
+                continue
+            elem_obj = element_lookup.get(elem_int_id, {})
+            c_id = elem_obj.get("team")
+            if c_id:
+                club_mins_gw[c_id] = club_mins_gw.get(c_id, 0) + e_info.get("stats", {}).get("minutes", 0)
 
         for m in gw_matches_active:
             s1 = m.get("league_entry_1_points", 0)
@@ -3328,22 +3346,58 @@ if st.session_state.page == "Home":
             a1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
             a2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
 
-            if s1 > highest_score_val:
-                highest_score_val = s1
-                highest_scorer = (a1, s1)
-            if s2 > highest_score_val:
-                highest_score_val = s2
-                highest_scorer = (a2, s2)
+            p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
+            p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
 
-            margin = abs(s1 - s2)
-            if s1 > 0 or s2 > 0:
+            t1_start, t1_b, t1_live, _, t1_inp, t1_ytp, t1_bp, _ = evaluate_lineup(p1, live_elements_gw, element_lookup, club_mins_gw, pos_map, team_map, current_gw, all_fixtures)
+            t2_start, t2_b, t2_live, _, t2_inp, t2_ytp, t2_bp, _ = evaluate_lineup(p2, live_elements_gw, element_lookup, club_mins_gw, pos_map, team_map, current_gw, all_fixtures)
+
+            act_s1 = s1 if m.get("finished", False) else t1_live
+            act_s2 = s2 if m.get("finished", False) else t2_live
+
+            # 1. High Score Tracker
+            if act_s1 > highest_score_val:
+                highest_score_val = act_s1
+                highest_scorer = (a1, act_s1)
+            if act_s2 > highest_score_val:
+                highest_score_val = act_s2
+                highest_scorer = (a2, act_s2)
+
+            # 2. Tightest Match & Blowout Margin Trackers
+            margin = abs(act_s1 - act_s2)
+            if act_s1 > 0 or act_s2 > 0:
                 if margin < tightest_margin:
                     tightest_margin = margin
-                    tightest_match = (a1, s1, a2, s2, margin)
+                    tightest_match = (a1, act_s1, a2, act_s2, margin)
                 if margin > biggest_margin:
                     biggest_margin = margin
-                    biggest_blowout = (a1 if s1 >= s2 else a2, max(s1, s2), a2 if s1 >= s2 else a1, min(s1, s2), margin)
+                    biggest_blowout = (a1 if act_s1 >= act_s2 else a2, max(act_s1, act_s2), a2 if act_s1 >= act_s2 else a1, min(act_s1, act_s2), margin)
 
+            # 3. Bench Nightmare Tracker
+            if t1_bp > highest_bench_pts:
+                highest_bench_pts = t1_bp
+                worst_benched = (a1, t1_bp, a2, act_s1, act_s2)
+            if t2_bp > highest_bench_pts:
+                highest_bench_pts = t2_bp
+                worst_benched = (a2, t2_bp, a1, act_s2, act_s1)
+
+            # 4. Card Carnage Tracker
+            t1_cards_lost = (int(t1_start["YC"].sum()) if not t1_start.empty else 0) + ((int(t1_start["RC"].sum()) if not t1_start.empty else 0) * 3)
+            t2_cards_lost = (int(t2_start["YC"].sum()) if not t2_start.empty else 0) + ((int(t2_start["RC"].sum()) if not t2_start.empty else 0) * 3)
+            if t1_cards_lost > highest_card_penalty:
+                highest_card_penalty = t1_cards_lost
+                card_disaster = (a1, t1_cards_lost)
+            if t2_cards_lost > highest_card_penalty:
+                highest_card_penalty = t2_cards_lost
+                card_disaster = (a2, t2_cards_lost)
+
+            # 5. The Great Escape (Trailing score with players in play vs finished opponent)
+            if (t1_inp + t1_ytp >= 2) and (t2_inp + t2_ytp == 0) and (act_s2 > act_s1):
+                best_escape = (a1, act_s2 - act_s1, t1_inp + t1_ytp, a2)
+            elif (t2_inp + t2_ytp >= 2) and (t1_inp + t1_ytp == 0) and (act_s1 > act_s2):
+                best_escape = (a2, act_s1 - act_s2, t2_inp + t2_ytp, a1)
+
+        # Assemble category candidates
         if tightest_match:
             wire_cards.append({
                 "tag": "🔥 ON A KNIFE EDGE",
@@ -3351,12 +3405,33 @@ if st.session_state.page == "Home":
                 "headline": f"{tightest_match[0]} vs {tightest_match[2]}",
                 "detail": f"Deadlocked at {tightest_match[1]}–{tightest_match[3]} ({tightest_match[4]} pt margin)."
             })
-        if biggest_blowout and biggest_blowout[4] > 5:
+        if best_escape:
+            wire_cards.append({
+                "tag": "🎯 THE GREAT ESCAPE",
+                "color": "#38bdf8",
+                "headline": f"{best_escape[0]} chasing {best_escape[1]} pts",
+                "detail": f"{best_escape[2]} player(s) left to hunt down {best_escape[3]}."
+            })
+        if worst_benched and worst_benched[1] >= 10:
+            wire_cards.append({
+                "tag": "🪑 LEFT ON THE PINE",
+                "color": "#a855f7",
+                "headline": f"{worst_benched[0]} benched {worst_benched[1]} pts",
+                "detail": f"Dugout haul stranded while trailing {worst_benched[2]}." if worst_benched[3] < worst_benched[4] else f"Dugout haul left out of the starting lineup."
+            })
+        if biggest_blowout and biggest_blowout[4] >= 8:
             wire_cards.append({
                 "tag": "🔨 DEMOLITION JOB",
                 "color": "#ef4444",
                 "headline": f"{biggest_blowout[0]} leads {biggest_blowout[2]}",
-                "detail": f"Cruising {biggest_blowout[1]}–{biggest_blowout[3]} (+{biggest_blowout[4]} pt cushion)."
+                "detail": f"Dominating {biggest_blowout[1]}–{biggest_blowout[3]} (+{biggest_blowout[4]} pt cushion)."
+            })
+        if card_disaster and card_disaster[1] >= 3:
+            wire_cards.append({
+                "tag": "🟨🟥 CARD CARNAGE",
+                "color": "#f43f5e",
+                "headline": f"{card_disaster[0]} docked -{card_disaster[1]} pts",
+                "detail": f"Starting XI card deductions hurting their gameweek total."
             })
         if highest_scorer and highest_scorer[1] > 0:
             wire_cards.append({
@@ -3366,10 +3441,12 @@ if st.session_state.page == "Home":
                 "detail": f"Division high score for Gameweek {current_gw} so far."
             })
 
-    if wire_cards:
+    # Display top 3 most relevant cards
+    display_wire = wire_cards[:3]
+    if display_wire:
         st.markdown(f"<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 6px 0 4px 0;'>{top_wire_title}</p>", unsafe_allow_html = True)
-        wire_cols = st.columns(len(wire_cards))
-        for w_idx, card in enumerate(wire_cards):
+        wire_cols = st.columns(len(display_wire))
+        for w_idx, card in enumerate(display_wire):
             with wire_cols[w_idx]:
                 st.markdown(f"""
                 <div style="background-color: #0b0f19; border: 1px solid #1c2638; border-left: 3px solid {card['color']}; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px;">
