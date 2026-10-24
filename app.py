@@ -173,6 +173,35 @@ if "page" not in st.session_state:
 
 def set_page(page_name):
     st.session_state.page = page_name
+draft_pred_file = base_dir / "draft_predictions.json"
+
+def load_draft_predictions():
+    if draft_pred_file.exists():
+        try:
+            with open(draft_pred_file, "r", encoding = "utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def record_draft_prediction(league_id, gw, match_id, username, pick):
+    data = load_draft_predictions()
+    l_key = str(league_id)
+    gw_key = str(gw)
+    m_key = str(match_id)
+    
+    if l_key not in data:
+        data[l_key] = {}
+    if gw_key not in data[l_key]:
+        data[l_key][gw_key] = {}
+    if m_key not in data[l_key][gw_key]:
+        data[l_key][gw_key][m_key] = {}
+        
+    data[l_key][gw_key][m_key][username] = pick
+    
+    with open(draft_pred_file, "w", encoding = "utf-8") as f:
+        json.dump(data, f, indent = 2, ensure_ascii = False)
+
 
 def format_remaining_players(in_play, yet_to_play):
     if in_play > 0 and yet_to_play > 0:
@@ -3801,34 +3830,6 @@ if st.session_state.page == "Home":
         st.button("🟨🟥 Disciplinary", on_click = set_page, args = ("Disciplinary",), use_container_width = True)
     with r2_c5:
         st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
-draft_pred_file = base_dir / "draft_predictions.json"
-
-def load_draft_predictions():
-    if draft_pred_file.exists():
-        try:
-            with open(draft_pred_file, "r", encoding = "utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def record_draft_prediction(league_id, gw, match_id, username, pick):
-    data = load_draft_predictions()
-    l_key = str(league_id)
-    gw_key = str(gw)
-    m_key = str(match_id)
-    
-    if l_key not in data:
-        data[l_key] = {}
-    if gw_key not in data[l_key]:
-        data[l_key][gw_key] = {}
-    if m_key not in data[l_key][gw_key]:
-        data[l_key][gw_key][m_key] = {}
-        
-    data[l_key][gw_key][m_key][username] = pick
-    
-    with open(draft_pred_file, "w", encoding = "utf-8") as f:
-        json.dump(data, f, indent = 2, ensure_ascii = False)
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
     st.title("🔴 LIVE SCORES" + dash + selected_league_key)
