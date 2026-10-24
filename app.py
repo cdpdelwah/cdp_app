@@ -1901,6 +1901,7 @@ def fetch_all_epl_fixtures():
     return resp.json()
 
 @st.cache_data(ttl = 45)
+@st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90):
     pos_order_map = {"GKP": 1, "GK": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
 
@@ -1969,13 +1970,14 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
                     a_start, a_used, a_un = format_pulse_sheet(team_lists[1])
 
                     return {
+                        "has_lineups": True,
                         "home_starters": h_start, "home_subs_used": h_used, "home_subs_unused": h_un,
                         "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
                     }
         except Exception:
             pass
 
-    # 2. Live FPL Matchday Parser: Mathematically isolates exactly 11 starters & live subs
+    # 2. Live FPL Matchday Parser: Only runs if players have actually played minutes
     if live_elements and element_lookup and home_team_id and away_team_id:
         def extract_club_lineup(target_club_id):
             club_players = []
@@ -2007,22 +2009,21 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
             played = [p for p in club_players if p["mins"] > 0]
             unplayed = [p for p in club_players if p["mins"] == 0]
 
-            # Separate GK and Outfield
+            # If no one has played yet, the match hasn't started and no team sheet is available
+            if not played:
+                return [], [], []
+
             gkps_played = [p for p in played if p["pos"] == "GKP"]
             outfield_played = [p for p in played if p["pos"] != "GKP"]
 
-            # 1 Starter GK (highest minutes)
             starting_gk = sorted(gkps_played, key = lambda x: x["mins"], reverse = True)[:1] if gkps_played else []
             other_gks = [p for p in gkps_played if p not in starting_gk]
 
-            # 10 Starting Outfield (highest minutes)
             sorted_outfield = sorted(outfield_played, key = lambda x: x["mins"], reverse = True)
             starting_outfield = sorted_outfield[:10]
             subs_outfield = sorted_outfield[10:]
 
-            # Total exactly 11 starters
             starters_raw = starting_gk + starting_outfield
-            # Sort strictly: GKP -> DEF -> MID -> FWD
             starters_sorted = sorted(starters_raw, key = lambda x: (x["pos_rank"], -x["mins"]))
 
             effective_full_mins = max([p["mins"] for p in starters_sorted]) if starters_sorted else match_minute
@@ -2030,13 +2031,11 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
 
             starters_formatted = []
             for p in starters_sorted:
-                # If they played fewer than full match minutes, they were subbed off
                 sub_off_tag = ""
                 if p["mins"] < effective_full_mins:
                     sub_off_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {p['mins']}'</span>"
                 starters_formatted.append(f"**{p['name']}** • *{p['pos']}* ({p['mins']}', {p['pts']} pts){sub_off_tag}")
 
-            # Substitutes who entered the pitch
             subs_used_raw = other_gks + subs_outfield
             subs_used_sorted = sorted(subs_used_raw, key = lambda x: (x["pos_rank"], -x["mins"]))
             subs_used_formatted = []
@@ -2044,7 +2043,6 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
                 on_minute = max(1, effective_full_mins - p["mins"])
                 subs_used_formatted.append(f"**{p['name']}** • *{p['pos']}* ({p['mins']}', {p['pts']} pts) <span style='color:#22c55e; font-weight:800;'>▲ {on_minute}'</span>")
 
-            # Unused substitutes
             unused_sorted = sorted(unplayed, key = lambda x: x["pos_rank"])
             subs_unused_formatted = [f"{p['name']} ({p['pos']})" for p in unused_sorted]
 
@@ -2053,13 +2051,14 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
         h_start, h_used, h_un = extract_club_lineup(home_team_id)
         a_start, a_used, a_un = extract_club_lineup(away_team_id)
 
-        return {
-            "home_starters": h_start, "home_subs_used": h_used, "home_subs_unused": h_un,
-            "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
-        }
+        if h_start or a_start:
+            return {
+                "has_lineups": True,
+                "home_starters": h_start, "home_subs_used": h_used, "home_subs_unused": h_un,
+                "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
+            }
 
-    return None
-def get_availability_multiplier(row):
+    return {"has_lineups": False}def get_availability_multiplier(row):
     status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
     
@@ -4437,7 +4436,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                 st.markdown(f"<div class='card-mgr-title' style='text-align: right;'><span class='card-div-tag'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
             with st.expander("📋 Match Events & Confirmed Lineups"):
-                tab_events, tab_sheets = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs"])
+                tab_events, tab_sheets, tab_bps = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs", "⭐ BPS & Bonus"])
 
                 with tab_events:
                     stats_raw = f.get("stats", [])
@@ -4562,18 +4561,11 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                         if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                             st.caption("No registered match events yet.")
 
-                    bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
-                    if bonus_list:
-                        st.divider()
-                        bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
-                        bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
-                        st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
-
                 with tab_sheets:
                     curr_match_mins = f.get("minutes", 90 if is_finished else 45)
                     sheet_data = fetch_premier_league_match_lineup(pulse_code, h_id, a_id, live_elements, element_lookup, curr_match_mins)
                     
-                    if sheet_data:
+                    if sheet_data and sheet_data.get("has_lineups"):
                         col_h_team, col_a_team = st.columns(2)
                         
                         with col_h_team:
@@ -4609,6 +4601,72 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                                 st.caption("No subs announced yet.")
                     else:
                         st.info("🕒 Official team sheets drop 60–75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.")
+
+                with tab_bps:
+                    bps_list = []
+                    raw_bps_entries = stats_dict.get("bps", {}).get("h", []) + stats_dict.get("bps", {}).get("a", [])
+                    for item in raw_bps_entries:
+                        elem_id = item.get("element")
+                        p_elem = element_lookup.get(elem_id, {})
+                        c_id = p_elem.get("team")
+                        c_code = team_short_map.get(c_id, "")
+                        pos_str = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_elem.get("element_type", 1), "")
+                        bps_list.append({
+                            "element": elem_id,
+                            "Player": p_elem.get("web_name", "Unknown"),
+                            "Club": c_code,
+                            "Pos": pos_str,
+                            "BPS": int(item.get("value", 0))
+                        })
+
+                    if bps_list:
+                        bps_sorted = sorted(bps_list, key = lambda x: x["BPS"], reverse = True)
+                        
+                        # Calculate official projected bonus points (+3, +2, +1) with ties
+                        unique_scores = sorted(list({p["BPS"] for p in bps_sorted}), reverse = True)
+                        bonus_award = {}
+                        if len(unique_scores) >= 1:
+                            top_val = unique_scores[0]
+                            top_count = sum(1 for p in bps_sorted if p["BPS"] == top_val)
+                            for p in bps_sorted:
+                                if p["BPS"] == top_val:
+                                    bonus_award[p["element"]] = 3
+                            
+                            if top_count == 1 and len(unique_scores) >= 2:
+                                second_val = unique_scores[1]
+                                second_count = sum(1 for p in bps_sorted if p["BPS"] == second_val)
+                                for p in bps_sorted:
+                                    if p["BPS"] == second_val:
+                                        bonus_award[p["element"]] = 2
+                                if second_count == 1 and len(unique_scores) >= 3:
+                                    third_val = unique_scores[2]
+                                    for p in bps_sorted:
+                                        if p["BPS"] == third_val:
+                                            bonus_award[p["element"]] = 1
+                            elif top_count == 2 and len(unique_scores) >= 2:
+                                second_val = unique_scores[1]
+                                for p in bps_sorted:
+                                    if p["BPS"] == second_val:
+                                        bonus_award[p["element"]] = 1
+
+                        table_rows = []
+                        for rank, p in enumerate(bps_sorted[:12], 1):
+                            bonus_pts = bonus_award.get(p["element"], 0)
+                            proj_bonus = f"<span style='color:#f59e0b; font-weight:800;'>+{bonus_pts} pts</span>" if bonus_pts > 0 else "<span style='color:#64748b;'>-</span>"
+                            table_rows.append({
+                                "Rank": rank,
+                                "Player": p["Player"],
+                                "Club": p["Club"],
+                                "Pos": p["Pos"],
+                                "BPS": p["BPS"],
+                                "Projected Bonus": proj_bonus
+                            })
+
+                        bps_df = pd.DataFrame(table_rows).set_index("Rank")
+                        st.caption("Live BPS ranking across both clubs • Top 3 receive official FPL bonus points (+3, +2, +1)")
+                        st.markdown(bps_df.to_html(escape = False), unsafe_allow_html = True)
+                    else:
+                        st.info("No BPS data registered for this fixture yet.")
 # ----------------- 5. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
