@@ -868,6 +868,8 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         saves = int(p.get("Saves", 0))
         p_saved = int(p.get("Penalties_Saved", 0))
         p_missed = int(p.get("Penalties_Missed", 0))
+        yc = int(p.get("YC", 0))
+        rc = int(p.get("RC", 0))
         defcon_hit = bool(p.get("DEFCON_Achieved", False))
         state = str(p.get("State", "FT")).strip().upper()
         sub_act = str(p.get("sub_action", "")).strip()
@@ -919,6 +921,8 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             "gc": gc,
             "bonus": bonus,
             "saves": saves,
+            "yc": yc,
+            "rc": rc,
             "p_saved": p_saved,
             "p_missed": p_missed,
             "defcon_hit": defcon_hit,
@@ -1424,6 +1428,15 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             gridHtml += '<div class="stat-item"><span class="stat-label">Goals ⚽:</span><span class="stat-val">' + p.g + '</span></div>';
             gridHtml += '<div class="stat-item"><span class="stat-label">Assists 🎯:</span><span class="stat-val">' + p.a + '</span></div>';
             gridHtml += '<div class="stat-item"><span class="stat-label">Bonus ⭐:</span><span class="stat-val">' + p.bonus + '</span></div>';
+            if (p.yc > 0 || p.rc > 0) {
+                let cardDetail = [];
+                if (p.yc > 0) cardDetail.push(p.yc + ' 🟨 (-' + p.yc + ' pt)');
+                if (p.rc > 0) cardDetail.push(p.rc + ' 🟥 (-' + (p.rc * 3) + ' pts)');
+                gridHtml += '<div class="stat-item" style="grid-column: span 2; background: #270606; border-color: #ef4444;"><span class="stat-label" style="color:#ef4444; font-weight:700;">Cards:</span><span class="stat-val" style="color:#ef4444;">' + cardDetail.join(', ') + '</span></div>';
+            } else {
+                gridHtml += '<div class="stat-item"><span class="stat-label">Yellow Cards 🟨:</span><span class="stat-val">0</span></div>';
+                gridHtml += '<div class="stat-item"><span class="stat-label">Red Cards 🟥:</span><span class="stat-val">0</span></div>';
+            }
 
             if (p.pos === 'GKP' || p.pos === 'DEF' || p.pos === 'MID') {{
                 gridHtml += '<div class="stat-item"><span class="stat-label">Clean Sheet 🛡️:</span><span class="stat-val">' + p.cs + '</span></div>';
