@@ -2499,7 +2499,9 @@ def resolve_cup_match_score(manager_alias, gw_num):
         "ytp": ytp,
         "bench_pts": bench_pts,
         "opt": opt_score
-    }def calculate_group_standings():
+    }
+
+def calculate_group_standings():
     cup_df = load_cup_matches()
     teams_registry = get_all_32_teams_registry()
     if cup_df is None or cup_df.empty:
