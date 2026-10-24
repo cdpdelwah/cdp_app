@@ -3801,6 +3801,34 @@ if st.session_state.page == "Home":
         st.button("🟨🟥 Disciplinary", on_click = set_page, args = ("Disciplinary",), use_container_width = True)
     with r2_c5:
         st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
+draft_pred_file = base_dir / "draft_predictions.json"
+
+def load_draft_predictions():
+    if draft_pred_file.exists():
+        try:
+            with open(draft_pred_file, "r", encoding = "utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def record_draft_prediction(league_id, gw, match_id, username, pick):
+    data = load_draft_predictions()
+    l_key = str(league_id)
+    gw_key = str(gw)
+    m_key = str(match_id)
+    
+    if l_key not in data:
+        data[l_key] = {}
+    if gw_key not in data[l_key]:
+        data[l_key][gw_key] = {}
+    if m_key not in data[l_key][gw_key]:
+        data[l_key][gw_key][m_key] = {}
+        
+    data[l_key][gw_key][m_key][username] = pick
+    
+    with open(draft_pred_file, "w", encoding = "utf-8") as f:
+        json.dump(data, f, indent = 2, ensure_ascii = False)
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
     st.title("🔴 LIVE SCORES" + dash + selected_league_key)
@@ -3978,6 +4006,51 @@ elif st.session_state.page == "LIVE SCORES":
                             st.markdown(f"<span class='card-win-pct' style='color: {col1_style};'>Win: {item['prob1']}%</span>", unsafe_allow_html = True)
                         with p_r:
                             st.markdown(f"<p class='card-win-pct' style='text-align: right; margin: 0; color: {col2_style};'>Win: {item['prob2']}%</p>", unsafe_allow_html = True)
+# ----------------- CLEAN PREDICTION VOTING -----------------
+                        m_obj = item["match"]
+                        m_id = str(m_obj.get("id", f"{m_obj.get('league_entry_1')}_{m_obj.get('league_entry_2')}"))
+                        
+                        all_draft_preds = load_draft_predictions()
+                        m_votes = all_draft_preds.get(str(active_league_id), {}).get(str(current_gw), {}).get(m_id, {})
+                        
+                        my_vote = m_votes.get(logged_username)
+                        tot_v = len(m_votes)
+                        
+                        v_t1 = sum(1 for v in m_votes.values() if v == "1")
+                        v_draw = sum(1 for v in m_votes.values() if v == "D")
+                        v_t2 = sum(1 for v in m_votes.values() if v == "2")
+                        
+                        pct_t1 = int(round((v_t1 / tot_v) * 100)) if tot_v > 0 else 0
+                        pct_draw = int(round((v_draw / tot_v) * 100)) if tot_v > 0 else 0
+                        pct_t2 = 100 - pct_t1 - pct_draw if tot_v > 0 else 0
+
+                        vote_options = [alias1, "Draw", alias2]
+                        val_map = {alias1: "1", "Draw": "D", alias2: "2"}
+                        rev_map = {"1": alias1, "D": "Draw", "2": alias2}
+                        
+                        init_idx = None
+                        if my_vote in rev_map:
+                            init_idx = vote_options.index(rev_map[my_vote])
+
+                        if not item["is_fin"]:
+                            chosen_pick = st.radio(
+                                f"Vote {alias1} vs {alias2}",
+                                vote_options,
+                                index = init_idx,
+                                key = f"d_vote_{active_league_id}_{current_gw}_{m_id}",
+                                horizontal = True,
+                                label_visibility = "collapsed"
+                            )
+                            
+                            if chosen_pick and val_map.get(chosen_pick) != my_vote:
+                                record_draft_prediction(active_league_id, current_gw, m_id, logged_username, val_map[chosen_pick])
+                                st.rerun(scope = "fragment")
+
+                            if tot_v > 0:
+                                st.markdown(f"<p style='font-size:0.75rem; text-align:center; color:#94a3b8; margin:2px 0 0 0;'>{alias1} <b>{pct_t1}%</b> &nbsp;•&nbsp; Draw <b>{pct_draw}%</b> &nbsp;•&nbsp; {alias2} <b>{pct_t2}%</b></p>", unsafe_allow_html = True)
+                        else:
+                            if tot_v > 0:
+                                st.markdown(f"<p style='font-size:0.75rem; text-align:center; color:#64748b; margin:4px 0 0 0;'>Final Votes: {alias1} {pct_t1}% • Draw {pct_draw}% • {alias2} {pct_t2}%</p>", unsafe_allow_html = True)
 
         st.divider()
 
