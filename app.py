@@ -3772,65 +3772,116 @@ if st.session_state.page == "Home":
                     <div style="font-size:0.75rem; color:#94a3b8; font-weight:500;">{card['detail']}</div>
                 </div>
                 """, unsafe_allow_html = True)
-# ----------------- HOME COMMUNITY PREDICTIONS -----------------
-    if gw_matches_active:
-        st.markdown(f"<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 12px 0 6px 0;'>🗳️ Community Match Predictions • {selected_league_key.split(' ')[0]} GW {current_gw}</p>", unsafe_allow_html = True)
-        
-        all_draft_preds = load_draft_predictions()
-        pred_cols = st.columns(len(gw_matches_active))
-        
-        for p_idx, m in enumerate(gw_matches_active):
-            e1 = lentry_map.get(m.get("league_entry_1"), {})
-            e2 = lentry_map.get(m.get("league_entry_2"), {})
-            alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
-            alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
-            is_fin = m.get("finished", False)
+# ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES) -----------------
+    st.markdown(
+        f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 16px 0 8px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
+        unsafe_allow_html = True
+    )
+
+    all_draft_preds = load_draft_predictions()
+
+    # Create tabs for all 4 divisions so any manager can vote across every league
+    pred_tab_cdp, pred_tab_sdm, pred_tab_bdr, pred_tab_lde = st.tabs([
+        "CDP (Crème Dellar Prem)",
+        "SDM (Segundo Del Mundo)",
+        "BDR (Best De La Rest)",
+        "LDE (Liger Del Eager)"
+    ])
+
+    div_tab_pairs = [
+        (pred_tab_cdp, "CDP (Crème Dellar Prem)", LEAGUE_PRESETS["CDP (Crème Dellar Prem)"]),
+        (pred_tab_sdm, "SDM (Segundo Del Mundo)", LEAGUE_PRESETS["SDM (Segundo Del Mundo)"]),
+        (pred_tab_bdr, "BDR (Best De La Rest)", LEAGUE_PRESETS["BDR (Best De La Rest)"]),
+        (pred_tab_lde, "LDE (Liger Del Eager)", LEAGUE_PRESETS["LDE (Liger Del Eager)"])
+    ]
+
+    for target_tab, l_name, l_id in div_tab_pairs:
+        with target_tab:
+            l_details, _ = fetch_league_data(l_id)
+            if not l_details:
+                st.info("League fixtures currently unavailable.")
+                continue
+
+            l_matches = l_details.get("matches", [])
+            l_entries = l_details.get("league_entries", [])
+            l_entry_map = {e["id"]: e for e in l_entries}
             
-            m_id = str(m.get("id", f"{m.get('league_entry_1')}_{m.get('league_entry_2')}"))
-            m_votes = all_draft_preds.get(str(active_league_id), {}).get(str(current_gw), {}).get(m_id, {})
-            my_vote = m_votes.get(logged_username)
-            tot_v = len(m_votes)
-            
-            v_t1 = sum(1 for v in m_votes.values() if v == "1")
-            v_draw = sum(1 for v in m_votes.values() if v == "D")
-            v_t2 = sum(1 for v in m_votes.values() if v == "2")
-            
-            pct_t1 = int(round((v_t1 / tot_v) * 100)) if tot_v > 0 else 0
-            pct_draw = int(round((v_draw / tot_v) * 100)) if tot_v > 0 else 0
-            pct_t2 = 100 - pct_t1 - pct_draw if tot_v > 0 else 0
-            
-            vote_options = [alias1, "Draw", alias2]
-            val_map = {alias1: "1", "Draw": "D", alias2: "2"}
-            rev_map = {"1": alias1, "D": "Draw", "2": alias2}
-            
-            init_idx = None
-            if my_vote in rev_map:
-                init_idx = vote_options.index(rev_map[my_vote])
+            gw_div_matches = [m for m in l_matches if m.get("event") == current_gw]
+            if not gw_div_matches:
+                st.info("No fixtures scheduled for this round.")
+                continue
+
+            pred_cols = st.columns(len(gw_div_matches))
+
+            for p_idx, m in enumerate(gw_div_matches):
+                e1 = l_entry_map.get(m.get("league_entry_1"), {})
+                e2 = l_entry_map.get(m.get("league_entry_2"), {})
+                alias1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+                alias2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
+                is_fin = m.get("finished", False)
+
+                m_id = str(m.get("id", f"{m.get('league_entry_1')}_{m.get('league_entry_2')}"))
+                m_votes = all_draft_preds.get(str(l_id), {}).get(str(current_gw), {}).get(m_id, {})
+                my_vote = m_votes.get(logged_username)
                 
-            with pred_cols[p_idx]:
-                with st.container(border = True):
-                    st.markdown(f"<div style='font-size:0.85rem; font-weight:800; color:#ffffff; text-align:center;'>{alias1} vs {alias2}</div>", unsafe_allow_html = True)
-                    
-                    if not is_fin:
-                        chosen_pick = st.radio(
-                            f"Home Vote {alias1} vs {alias2}",
-                            vote_options,
-                            index = init_idx,
-                            key = f"home_vote_{active_league_id}_{current_gw}_{m_id}",
-                            horizontal = True,
-                            label_visibility = "collapsed"
+                # Head-to-head calculations (Draw removed)
+                v_t1 = sum(1 for v in m_votes.values() if v == "1")
+                v_t2 = sum(1 for v in m_votes.values() if v == "2")
+                valid_votes = v_t1 + v_t2
+
+                pct_t1 = int(round((v_t1 / valid_votes) * 100)) if valid_votes > 0 else 50
+                pct_t2 = 100 - pct_t1 if valid_votes > 0 else 50
+
+                vote_options = [alias1, alias2]
+                val_map = {alias1: "1", alias2: "2"}
+                rev_map = {"1": alias1, "2": alias2}
+
+                init_idx = None
+                if my_vote in rev_map:
+                    init_idx = vote_options.index(rev_map[my_vote])
+
+                with pred_cols[p_idx]:
+                    with st.container(border = True):
+                        st.markdown(
+                            f"<div style='font-size:0.92rem; font-weight:800; color:#ffffff; text-align:center; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>"
+                            f"{alias1} vs {alias2}</div>", 
+                            unsafe_allow_html = True
                         )
-                        
-                        if chosen_pick and val_map.get(chosen_pick) != my_vote:
-                            record_draft_prediction(active_league_id, current_gw, m_id, logged_username, val_map[chosen_pick])
-                            st.rerun()
-                            
-                        if tot_v > 0:
-                            st.markdown(f"<p style='font-size:0.72rem; text-align:center; color:#94a3b8; margin:2px 0 0 0;'>{alias1} <b>{pct_t1}%</b> • Draw <b>{pct_draw}%</b> • {alias2} <b>{pct_t2}%</b></p>", unsafe_allow_html = True)
+
+                        if not is_fin:
+                            chosen_pick = st.radio(
+                                f"Vote {l_name} {alias1} vs {alias2}",
+                                vote_options,
+                                index = init_idx,
+                                key = f"h2h_vote_{l_id}_{current_gw}_{m_id}",
+                                horizontal = True,
+                                label_visibility = "collapsed"
+                            )
+
+                            if chosen_pick and val_map.get(chosen_pick) != my_vote:
+                                record_draft_prediction(l_id, current_gw, m_id, logged_username, val_map[chosen_pick])
+                                st.rerun()
+
+                            if valid_votes > 0:
+                                st.markdown(
+                                    f"<div style='display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding:0 4px;'>"
+                                    f"<span style='font-size:1.15rem; font-weight:900; color:{'#22c55e' if pct_t1 > pct_t2 else '#f1f5f9'};'>{pct_t1}%</span>"
+                                    f"<span style='font-size:0.75rem; font-weight:600; color:#64748b;'>{valid_votes} vote{'s' if valid_votes > 1 else ''}</span>"
+                                    f"<span style='font-size:1.15rem; font-weight:900; color:{'#22c55e' if pct_t2 > pct_t1 else '#f1f5f9'};'>{pct_t2}%</span>"
+                                    f"</div>",
+                                    unsafe_allow_html = True
+                                )
+                            else:
+                                st.markdown("<p style='font-size:0.75rem; text-align:center; color:#64748b; margin:8px 0 2px 0;'>0 votes cast</p>", unsafe_allow_html = True)
                         else:
-                            st.markdown("<p style='font-size:0.72rem; text-align:center; color:#64748b; margin:2px 0 0 0;'>0 votes cast</p>", unsafe_allow_html = True)
-                    else:
-                        st.markdown(f"<p style='font-size:0.72rem; text-align:center; color:#64748b; margin:4px 0 0 0;'>Final: {alias1} {pct_t1}% • Draw {pct_draw}% • {alias2} {pct_t2}%</p>", unsafe_allow_html = True)
+                            st.markdown(
+                                f"<div style='display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding:0 4px;'>"
+                                f"<span style='font-size:1.05rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
+                                f"<span style='font-size:0.72rem; color:#64748b;'>Final</span>"
+                                f"<span style='font-size:1.05rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
+                                f"</div>",
+                                unsafe_allow_html = True
+                            )
     # ----------------- COMPACT 4-DIVISION SHOWCASE -----------------
     with st.container():
         st.markdown("<div id='division-showcase'></div>", unsafe_allow_html = True)
