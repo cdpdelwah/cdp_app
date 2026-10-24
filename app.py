@@ -3773,28 +3773,6 @@ if st.session_state.page == "Home":
                 </div>
                 """, unsafe_allow_html = True)
 # ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES - STACKED) -----------------
-    st.markdown("""
-    <style>
-    /* Pin selectable radio options across the tile */
-    div[data-testid="stRadio"] > div[role="radiogroup"] {
-        display: flex !important;
-        flex-direction: row !important;
-        justify-content: space-between !important;
-        align-items: center !important;
-        width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    div[data-testid="stRadio"] > div[role="radiogroup"] > label:last-child {
-        margin-left: auto !important;
-    }
-    </style>
-    """, unsafe_allow_html = True)
-
     st.markdown(
         f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 18px 0 10px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
         unsafe_allow_html = True
@@ -3845,38 +3823,30 @@ if st.session_state.page == "Home":
             pct_t2 = 100 - pct_t1 if valid_votes > 0 else 50
             vote_label = f"{valid_votes} vote" if valid_votes == 1 else f"{valid_votes} votes"
 
-            vote_options = [alias1, alias2]
-            val_map = {alias1: "1", alias2: "2"}
-            rev_map = {"1": alias1, "2": alias2}
-
-            init_idx = None
-            if my_vote in rev_map:
-                init_idx = vote_options.index(rev_map[my_vote])
-
             with pred_cols[p_idx]:
                 with st.container(border = True):
                     if not is_fin:
-                        chosen_pick = st.radio(
-                            f"Vote {l_name} {alias1} vs {alias2}",
-                            vote_options,
-                            index = init_idx,
-                            key = f"h2h_vote_{l_id}_{current_gw}_{m_id}",
-                            horizontal = True,
-                            label_visibility = "collapsed"
-                        )
-
-                        if chosen_pick and val_map.get(chosen_pick) != my_vote:
-                            record_draft_prediction(l_id, current_gw, m_id, logged_username, val_map[chosen_pick])
-                            st.rerun()
+                        b_l, b_mid, b_r = st.columns([5, 2, 5])
+                        with b_l:
+                            btn_t1_type = "primary" if my_vote == "1" else "secondary"
+                            if st.button(alias1, key = f"btn_pred_{l_id}_{current_gw}_{m_id}_1", use_container_width = True, type = btn_t1_type):
+                                record_draft_prediction(l_id, current_gw, m_id, logged_username, "1")
+                                st.rerun()
+                        with b_mid:
+                            st.markdown("<p style='text-align:center; color:#64748b; font-weight:800; font-size:0.75rem; margin-top:8px;'>vs</p>", unsafe_allow_html = True)
+                        with b_r:
+                            btn_t2_type = "primary" if my_vote == "2" else "secondary"
+                            if st.button(alias2, key = f"btn_pred_{l_id}_{current_gw}_{m_id}_2", use_container_width = True, type = btn_t2_type):
+                                record_draft_prediction(l_id, current_gw, m_id, logged_username, "2")
+                                st.rerun()
 
                         col1_style = "#22c55e" if (valid_votes > 0 and pct_t1 > pct_t2) else ("#ffffff" if valid_votes > 0 else "#64748b")
                         col2_style = "#22c55e" if (valid_votes > 0 and pct_t2 > pct_t1) else ("#ffffff" if valid_votes > 0 else "#64748b")
 
-                        # Percentages left and right, with vote count centered on the tile
                         st.markdown(
                             f"<div style='position:relative; width:100%; margin-top:8px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:600; color:#64748b; top:6px; pointer-events:none;'>{vote_label}</div>"
-                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:600; color:#94a3b8; top:6px; pointer-events:none;'>{vote_label}</div>"
+                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
                             f"    <span style='font-size:1.35rem; font-weight:900; color:{col1_style};'>{pct_t1}%</span>"
                             f"    <span style='font-size:1.35rem; font-weight:900; color:{col2_style};'>{pct_t2}%</span>"
                             f"  </div>"
@@ -3885,14 +3855,14 @@ if st.session_state.page == "Home":
                         )
                     else:
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:center; font-size:0.95rem; font-weight:800; color:#ffffff; margin-bottom:8px;'>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:center; font-size:0.95rem; font-weight:800; color:#ffffff; padding:0 2px; margin-bottom:8px;'>"
                             f"  <span>{alias1}</span>"
-                            f"  <span style='font-size:0.72rem; color:#64748b;'>vs</span>"
+                            f"  <span style='font-size:0.75rem; color:#475569; font-weight:800;'>vs</span>"
                             f"  <span>{alias2}</span>"
                             f"</div>"
                             f"<div style='position:relative; width:100%; margin-top:4px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:700; color:#64748b; top:4px; pointer-events:none;'>{vote_label} • FINAL</div>"
-                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:700; color:#64748b; top:4px; pointer-events:none;'>{vote_label} • FINAL</div>"
+                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
                             f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
                             f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
                             f"  </div>"
