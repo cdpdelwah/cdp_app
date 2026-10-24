@@ -1901,77 +1901,111 @@ def fetch_all_epl_fixtures():
     return resp.json()
 
 @st.cache_data(ttl = 45)
-def fetch_premier_league_match_lineup(pulse_id):
-    if not pulse_id:
-        return None
-    url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
-    headers = {
-        "Origin": "https://www.premierleague.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
-    try:
-        resp = requests.get(url, headers=headers, timeout=6)
-        if resp.status_code == 200:
-            data = resp.json()
-            team_lists = data.get("teamLists", [])
-            if len(team_lists) < 2:
-                return None
+def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None):
+    # 1. Attempt to fetch verified pre-match team sheets from official Premier League Pulse feed
+    if pulse_id:
+        url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
+        headers = {
+            "Origin": "https://www.premierleague.com",
+            "Referer": "https://www.premierleague.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "account": "premierleague"
+        }
+        try:
+            resp = requests.get(url, headers=headers, timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                team_lists = data.get("teamLists", [])
+                if len(team_lists) >= 2 and team_lists[0].get("lineup") and team_lists[1].get("lineup"):
+                    sub_events = {}
+                    for ev in data.get("events", []):
+                        if ev.get("type") in ["substitution", "sub"]:
+                            min_str = ev.get("time", {}).get("label", "")
+                            off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
+                            on_id = ev.get("subOn", {}).get("id")
+                            if off_id:
+                                sub_events[off_id] = ("OFF", min_str)
+                            if on_id:
+                                sub_events[on_id] = ("ON", min_str)
 
-            sub_events = {}
-            for ev in data.get("events", []):
-                if ev.get("type") in ["substitution", "sub"]:
-                    min_str = ev.get("time", {}).get("label", "")
-                    off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
-                    on_id = ev.get("subOn", {}).get("id")
-                    if off_id:
-                        sub_events[off_id] = ("OFF", min_str)
-                    if on_id:
-                        sub_events[on_id] = ("ON", min_str)
+                    def format_team_sheet(team_data):
+                        starters = []
+                        for p in team_data.get("lineup", []):
+                            p_id = p.get("id")
+                            num = p.get("shirtNum", "-")
+                            name = p.get("name", {}).get("display", "Unknown")
+                            capt = " (C)" if p.get("captain", False) else ""
+                            pos = p.get("matchPosition", "")
+                            sub_tag = ""
+                            if p_id in sub_events and sub_events[p_id][0] == "OFF":
+                                sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>"
+                            starters.append(f"#{num} **{name}**{capt} • *{pos}*{sub_tag}")
 
-            def format_team_sheet(team_data):
-                starters = []
-                for p in team_data.get("lineup", []):
-                    p_id = p.get("id")
-                    num = p.get("shirtNum", "-")
-                    name = p.get("name", {}).get("display", "Unknown")
-                    capt = " (C)" if p.get("captain", False) else ""
-                    pos = p.get("matchPosition", "")
-                    
-                    sub_tag = ""
-                    if p_id in sub_events and sub_events[p_id][0] == "OFF":
-                        sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>"
-                    
-                    starters.append(f"#{num} **{name}**{capt} • *{pos}*{sub_tag}")
+                        subs = []
+                        for p in team_data.get("substitutes", []):
+                            p_id = p.get("id")
+                            num = p.get("shirtNum", "-")
+                            name = p.get("name", {}).get("display", "Unknown")
+                            sub_tag = ""
+                            if p_id in sub_events and sub_events[p_id][0] == "ON":
+                                sub_tag = f" <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>"
+                            subs.append(f"#{num} {name}{sub_tag}")
 
-                subs = []
-                for p in team_data.get("substitutes", []):
-                    p_id = p.get("id")
-                    num = p.get("shirtNum", "-")
-                    name = p.get("name", {}).get("display", "Unknown")
-                    
-                    sub_tag = ""
-                    if p_id in sub_events and sub_events[p_id][0] == "ON":
-                        sub_tag = f" <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>"
+                        return starters, subs
 
-                    subs.append(f"#{num} {name}{sub_tag}")
+                    home_starters, home_subs = format_team_sheet(team_lists[0])
+                    away_starters, away_subs = format_team_sheet(team_lists[1])
 
-                return starters, subs
+                    return {
+                        "home_starters": home_starters,
+                        "home_subs": home_subs,
+                        "away_starters": away_starters,
+                        "away_subs": away_subs
+                    }
+        except Exception:
+            pass
 
-            home_starters, home_subs = format_team_sheet(team_lists[0])
-            away_starters, away_subs = format_team_sheet(team_lists[1])
+    # 2. Live matchday fallback: Derive confirmed active lineups directly from FPL match data
+    if live_elements and element_lookup and home_team_id and away_team_id:
+        def extract_club_rosters(target_club_id):
+            starters = []
+            subs = []
+            for elem_str_id, e_info in live_elements.items():
+                try:
+                    eid = int(elem_str_id)
+                except (ValueError, TypeError):
+                    continue
+                p_obj = element_lookup.get(eid, {})
+                if p_obj.get("team") == target_club_id:
+                    stats = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
+                    mins = stats.get("minutes", 0)
+                    pts = stats.get("total_points", 0)
+                    p_name = p_obj.get("web_name", "Unknown")
+                    pos_abbr = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_obj.get("element_type", 1), "")
 
+                    if mins > 0:
+                        starters.append((mins, f"**{p_name}** • *{pos_abbr}* ({mins}', {pts} pts)"))
+                    elif pts != 0 or e_info.get("explain"):
+                        subs.append(f"{p_name} <span style='color:#22c55e; font-weight:800;'>▲ Sub</span>")
+
+            starters = [item[1] for item in sorted(starters, key = lambda x: x[0], reverse = True)]
+            return starters, subs
+
+        h_start, h_sub = extract_club_rosters(home_team_id)
+        a_start, a_sub = extract_club_rosters(away_team_id)
+
+        if h_start or a_start:
             return {
-                "home_starters": home_starters,
-                "home_subs": home_subs,
-                "away_starters": away_starters,
-                "away_subs": away_subs
+                "home_starters": h_start,
+                "home_subs": h_sub,
+                "away_starters": a_start,
+                "away_subs": a_sub
             }
-    except Exception:
-        pass
+
     return None
 
-def get_availability_multiplier(row):
-    status = row.get("status", "a")
+def get_availability_multiplier(row):    status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
     
     if status in ["i", "s", "u"]:
@@ -4348,36 +4382,8 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
             with f_col3:
                 st.markdown(f"<div class='card-mgr-title' style='text-align: right;'><span class='card-div-tag'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
-            with st.expander("📋 Confirmed Team Sheets & Match Events"):
-                sheet_data = fetch_premier_league_match_lineup(pulse_code)
-                
-                tab_sheets, tab_events = st.tabs(["👥 Lineups & Subs", "⚡ Goals & Match Stats"])
-                
-                with tab_sheets:
-                    if sheet_data:
-                        col_h_team, col_a_team = st.columns(2)
-                        
-                        with col_h_team:
-                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; margin-bottom:4px;'>{h_name} Starting XI</p>", unsafe_allow_html = True)
-                            h_starters = sheet_data.get("home_starters", [])
-                            st.markdown("\n\n".join(h_starters) if h_starters else "Lineup not yet available.", unsafe_allow_html = True)
-                            
-                            st.divider()
-                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{h_name} Subs</p>", unsafe_allow_html = True)
-                            h_subs = sheet_data.get("home_subs", [])
-                            st.markdown(", ".join(h_subs) if h_subs else "No subs announced yet.", unsafe_allow_html = True)
-
-                        with col_a_team:
-                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; margin-bottom:4px;'>{a_name} Starting XI</p>", unsafe_allow_html = True)
-                            a_starters = sheet_data.get("away_starters", [])
-                            st.markdown("\n\n".join(a_starters) if a_starters else "Lineup not yet available.", unsafe_allow_html = True)
-                            
-                            st.divider()
-                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{a_name} Subs</p>", unsafe_allow_html = True)
-                            a_subs = sheet_data.get("away_subs", [])
-                            st.markdown(", ".join(a_subs) if a_subs else "No subs announced yet.", unsafe_allow_html = True)
-                    else:
-                        st.info("🕒 Official team sheets drop 60–75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.")
+            with st.expander("📋 Match Events & Confirmed Lineups"):
+                tab_events, tab_sheets = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs"])
 
                 with tab_events:
                     stats_raw = f.get("stats", [])
@@ -4508,6 +4514,33 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                         bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
                         bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
                         st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
+
+                with tab_sheets:
+                    sheet_data = fetch_premier_league_match_lineup(pulse_code, h_id, a_id, live_elements, element_lookup)
+                    if sheet_data:
+                        col_h_team, col_a_team = st.columns(2)
+                        
+                        with col_h_team:
+                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; margin-bottom:4px;'>{h_name} Starting XI</p>", unsafe_allow_html = True)
+                            h_starters = sheet_data.get("home_starters", [])
+                            st.markdown("\n\n".join(h_starters) if h_starters else "Lineup not yet available.", unsafe_allow_html = True)
+                            
+                            st.divider()
+                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{h_name} Subs</p>", unsafe_allow_html = True)
+                            h_subs = sheet_data.get("home_subs", [])
+                            st.markdown(", ".join(h_subs) if h_subs else "No subs announced yet.", unsafe_allow_html = True)
+
+                        with col_a_team:
+                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; margin-bottom:4px;'>{a_name} Starting XI</p>", unsafe_allow_html = True)
+                            a_starters = sheet_data.get("away_starters", [])
+                            st.markdown("\n\n".join(a_starters) if a_starters else "Lineup not yet available.", unsafe_allow_html = True)
+                            
+                            st.divider()
+                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{a_name} Subs</p>", unsafe_allow_html = True)
+                            a_subs = sheet_data.get("away_subs", [])
+                            st.markdown(", ".join(a_subs) if a_subs else "No subs announced yet.", unsafe_allow_html = True)
+                    else:
+                        st.info("🕒 Official team sheets drop 60–75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.")
 # ----------------- 5. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
