@@ -3305,6 +3305,8 @@ if st.session_state.page == "Home":
     components.html(countdown_html, height = 125)
 
     # ----------------- DYNAMIC MATCHDAY NEWS & WIRE -----------------
+    entries = league_details.get("league_entries", []) if league_details else []
+    lentry_map = {e["id"]: e for e in entries}
     gw_matches_active = [m for m in matches if m.get("event") == current_gw]
     top_wire_title = f"⚡ Matchday Intelligence • Gameweek {current_gw}"
     
