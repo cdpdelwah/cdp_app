@@ -3311,7 +3311,11 @@ if st.session_state.page == "Home":
     top_wire_title = f"⚡ Matchday Intelligence • Gameweek {current_gw}"
     
     wire_cards = []
-    if gw_matches_active:
+    if gw_matches_active and static_data:
+        pos_map_wire = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+        team_map_wire = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+        element_lookup_wire = {item["id"]: item for item in static_data.get("elements", [])}
+
         highest_scorer = None
         highest_score_val = -1
         tightest_match = None
@@ -3324,7 +3328,6 @@ if st.session_state.page == "Home":
         highest_card_penalty = 0
         best_escape = None
 
-        # Fetch live elements and picks to analyze bench, discipline, and in-play squeeze
         live_data_gw = fetch_live_event(current_gw)
         live_elements_gw = live_data_gw.get("elements", {}) if live_data_gw else {}
         club_mins_gw = {}
@@ -3333,7 +3336,7 @@ if st.session_state.page == "Home":
                 elem_int_id = int(elem_str_id)
             except (ValueError, TypeError):
                 continue
-            elem_obj = element_lookup.get(elem_int_id, {})
+            elem_obj = element_lookup_wire.get(elem_int_id, {})
             c_id = elem_obj.get("team")
             if c_id:
                 club_mins_gw[c_id] = club_mins_gw.get(c_id, 0) + e_info.get("stats", {}).get("minutes", 0)
@@ -3349,8 +3352,8 @@ if st.session_state.page == "Home":
             p1 = fetch_entry_event(e1.get("entry_id"), current_gw)
             p2 = fetch_entry_event(e2.get("entry_id"), current_gw)
 
-            t1_start, t1_b, t1_live, _, t1_inp, t1_ytp, t1_bp, _ = evaluate_lineup(p1, live_elements_gw, element_lookup, club_mins_gw, pos_map, team_map, current_gw, all_fixtures)
-            t2_start, t2_b, t2_live, _, t2_inp, t2_ytp, t2_bp, _ = evaluate_lineup(p2, live_elements_gw, element_lookup, club_mins_gw, pos_map, team_map, current_gw, all_fixtures)
+            t1_start, t1_b, t1_live, _, t1_inp, t1_ytp, t1_bp, _ = evaluate_lineup(p1, live_elements_gw, element_lookup_wire, club_mins_gw, pos_map_wire, team_map_wire, current_gw, all_fixtures)
+            t2_start, t2_b, t2_live, _, t2_inp, t2_ytp, t2_bp, _ = evaluate_lineup(p2, live_elements_gw, element_lookup_wire, club_mins_gw, pos_map_wire, team_map_wire, current_gw, all_fixtures)
 
             act_s1 = s1 if m.get("finished", False) else t1_live
             act_s2 = s2 if m.get("finished", False) else t2_live
@@ -3382,8 +3385,8 @@ if st.session_state.page == "Home":
                 worst_benched = (a2, t2_bp, a1, act_s2, act_s1)
 
             # 4. Card Carnage Tracker
-            t1_cards_lost = (int(t1_start["YC"].sum()) if not t1_start.empty else 0) + ((int(t1_start["RC"].sum()) if not t1_start.empty else 0) * 3)
-            t2_cards_lost = (int(t2_start["YC"].sum()) if not t2_start.empty else 0) + ((int(t2_start["RC"].sum()) if not t2_start.empty else 0) * 3)
+            t1_cards_lost = (int(t1_start["YC"].sum()) if not t1_start.empty and "YC" in t1_start.columns else 0) + ((int(t1_start["RC"].sum()) if not t1_start.empty and "RC" in t1_start.columns else 0) * 3)
+            t2_cards_lost = (int(t2_start["YC"].sum()) if not t2_start.empty and "YC" in t2_start.columns else 0) + ((int(t2_start["RC"].sum()) if not t2_start.empty and "RC" in t2_start.columns else 0) * 3)
             if t1_cards_lost > highest_card_penalty:
                 highest_card_penalty = t1_cards_lost
                 card_disaster = (a1, t1_cards_lost)
@@ -3391,7 +3394,7 @@ if st.session_state.page == "Home":
                 highest_card_penalty = t2_cards_lost
                 card_disaster = (a2, t2_cards_lost)
 
-            # 5. The Great Escape (Trailing score with players in play vs finished opponent)
+            # 5. The Great Escape (Trailing score with players left vs finished opponent)
             if (t1_inp + t1_ytp >= 2) and (t2_inp + t2_ytp == 0) and (act_s2 > act_s1):
                 best_escape = (a1, act_s2 - act_s1, t1_inp + t1_ytp, a2)
             elif (t2_inp + t2_ytp >= 2) and (t1_inp + t1_ytp == 0) and (act_s1 > act_s2):
