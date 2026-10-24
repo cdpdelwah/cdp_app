@@ -893,7 +893,12 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         if p_missed > 0:
             badges.append(f"{p_missed}❌" if p_missed > 1 else "❌")
 
-        pill_score_str = f"{proj:.1f} pts" if show_proj_pill else f"{pts} pts"
+        if show_proj_pill:
+            pill_score_str = f"{proj:.1f} pts"
+        elif state == "YTP":
+            pill_score_str = "⏳ YTP"
+        else:
+            pill_score_str = f"{pts} pts"
 
         return {
             "name": str(p.get("Player", "Unknown")),
@@ -1028,13 +1033,18 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             flex-direction: column;
             align-items: center;
             cursor: pointer;
-            transition: transform 0.15s ease;
+            transition: transform 0.15s ease, opacity 0.2s ease;
             position: relative;
             text-align: center;
         }}
 
         .player-card:hover, .player-card:active {{
             transform: scale(1.12);
+            opacity: 1.0 !important;
+        }}
+
+        .player-card.state-ytp {{
+            opacity: 0.62;
         }}
 
         .club-token {{
@@ -1053,6 +1063,10 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             position: relative;
         }}
 
+        .player-card.state-live .club-token {{
+            box-shadow: 0 0 12px #22c55e, 0 4px 10px rgba(0, 0, 0, 0.6);
+        }}
+
         .state-pulse {{
             position: absolute;
             top: -2px;
@@ -1062,6 +1076,12 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             border-radius: 50%;
             background-color: #22c55e;
             box-shadow: 0 0 8px #22c55e;
+            animation: liveGlow 1.4s infinite ease-in-out;
+        }}
+
+        @keyframes liveGlow {{
+            0%, 100% {{ transform: scale(1); opacity: 1; }}
+            50% {{ transform: scale(1.35); opacity: 0.65; }}
         }}
 
         .sub-tag-off {{
@@ -1128,6 +1148,17 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             margin-top: 1px;
             min-width: 28px;
             text-align: center;
+        }}
+
+        .player-card.state-live .player-pts-pill {{
+            border-color: #22c55e !important;
+            color: #22c55e !important;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+        }}
+
+        .player-card.state-ytp .player-pts-pill {{
+            border-color: #475569 !important;
+            color: #94a3b8 !important;
         }}
 
         .dugout-container {{
@@ -1288,6 +1319,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     for row_info in formation_rows:
         pitch_html += '<div class="pitch-row">\n'
         for p in row_info["players"]:
+            card_state_cls = "state-live" if p["state"] == "LIVE" else ("state-ytp" if p["state"] == "YTP" else "state-ft")
             pulse_html = '<div class="state-pulse"></div>' if p["state"] == "LIVE" else ''
             sub_tag = ''
             if p["sub_action"] == "Subbed On":
@@ -1299,7 +1331,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             opp_html = f'<div class="player-opp-pill">{p["opp"]}</div>' if p.get("opp") else ''
 
             pitch_html += f"""
-                <div class="player-card" onclick="showPlayerStats('{p['name']}')">
+                <div class="player-card {card_state_cls}" onclick="showPlayerStats('{p['name']}')">
                     <div class="club-token" style="background-color: {p['club_bg']}; color: {p['club_text']}; border-color: {p['club_border']};">
                         {p['club']}
                         {pulse_html}
@@ -1337,15 +1369,16 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         </div>
     </div>
 
-    <!-- Dugout Substitutes Tray -->
+    <!-- Subs Tray -->
     <div class="dugout-container">
         <div class="dugout-header">
-            <span>🛡️ Dugout Substitutes</span>
+            <span>🛡️ Subs</span>
         </div>
         <div class="dugout-row">
     """
 
     for bp in dugout_players:
+        card_state_cls = "state-live" if bp["state"] == "LIVE" else ("state-ytp" if bp["state"] == "YTP" else "state-ft")
         pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
         sub_tag = ''
         if bp["sub_action"] == "Subbed On":
@@ -1357,7 +1390,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         opp_html = f'<div class="player-opp-pill">{bp["opp"]}</div>' if bp.get("opp") else ''
 
         pitch_html += f"""
-            <div class="player-card" onclick="showPlayerStats('{bp['name']}')">
+            <div class="player-card {card_state_cls}" onclick="showPlayerStats('{bp['name']}')">
                 <div class="club-token" style="background-color: {bp['club_bg']}; color: {bp['club_text']}; border-color: {bp['club_border']};">
                     {bp['club']}
                     {pulse_html}
@@ -1420,7 +1453,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             }} else if (p.sub_action === 'Subbed Off') {{
                 subEl.innerHTML = '<span style="color:#ef4444;">▼ Replaced: Subbed Off (DNP)</span>';
             }} else if (p.is_bench) {{
-                subEl.textContent = 'Dugout substitute';
+                subEl.textContent = 'Subs';
             }} else {{
                 subEl.textContent = 'Starting XI';
             }}
@@ -1443,7 +1476,6 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     """
 
     components.html(pitch_html, height = 710)
-
 def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large, score = None):
     score_tag = f" ({score} pts)" if score is not None else ""
     st.markdown(f"### {alias}{score_tag}")
@@ -4398,7 +4430,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
         h_short = team_short_map.get(h_id, "H")
         a_short = team_short_map.get(a_id, "A")
         
-        is_finished = f.get("finished", False)
+        is_finished = f.get("finished", False) or f.get("finished_provisional", False)
         is_started = f.get("started", False)
         h_score = f.get("team_h_score")
         a_score = f.get("team_a_score")
