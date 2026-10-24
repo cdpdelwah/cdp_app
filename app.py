@@ -1892,7 +1892,6 @@ def fetch_epl_fixtures(event):
         return []
     return resp.json()
 
-
 @st.cache_data(ttl = 60)
 def fetch_all_epl_fixtures():
     url = "https://fantasy.premierleague.com/api/fixtures/"
@@ -1902,40 +1901,11 @@ def fetch_all_epl_fixtures():
     return resp.json()
 
 @st.cache_data(ttl = 45)
-@st.cache_data(ttl = 300)
-def get_pulselive_match_id(event_num, home_short, away_short):
-    url = "https://footballapi.pulselive.com/football/fixtures?comps=1&pageSize=400"
-    headers = {
-        "Origin": "https://www.premierleague.com",
-        "Referer": "https://www.premierleague.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "account": "premierleague"
-    }
-    try:
-        resp = requests.get(url, headers=headers, timeout=6)
-        if resp.status_code == 200:
-            data = resp.json()
-            for fix in data.get("content", []):
-                gw = fix.get("gameweek", {}).get("id")
-                if gw == event_num:
-                    teams = fix.get("teams", [])
-                    if len(teams) == 2:
-                        t0_short = teams[0].get("team", {}).get("shortName", "").upper()
-                        t1_short = teams[1].get("team", {}).get("shortName", "").upper()
-                        if {t0_short, t1_short} == {str(home_short).upper(), str(away_short).upper()}:
-                            return fix.get("id")
-    except Exception:
-        pass
-    return None
-
 @st.cache_data(ttl = 45)
-def fetch_premier_league_match_lineup(fpl_fixture_code, event_num, home_short, away_short):
-    pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
+def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90):
+    pos_order_map = {"GKP": 1, "GK": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
 
-    pulse_id = get_pulselive_match_id(event_num, home_short, away_short)
-    if not pulse_id:
-        pulse_id = fpl_fixture_code
-
+    # 1. Official Premier League Pulse team sheet
     if pulse_id:
         url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
         headers = {
@@ -2007,9 +1977,7 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, event_num, home_short, a
         except Exception:
             pass
 
-    return {"has_lineups": False}
-
-    # 2. Live FPL Matchday Fallback (Only active once match starts and minutes > 0)
+    # 2. Live FPL Matchday Parser: Only runs if players have actually played minutes
     if live_elements and element_lookup and home_team_id and away_team_id:
         def extract_club_lineup(target_club_id):
             club_players = []
@@ -2035,9 +2003,13 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, event_num, home_short, a
                         "pts": pts
                     })
 
+            if not club_players:
+                return [], [], []
+
             played = [p for p in club_players if p["mins"] > 0]
             unplayed = [p for p in club_players if p["mins"] == 0]
 
+            # If no one has played yet, the match hasn't started and no team sheet is available
             if not played:
                 return [], [], []
 
@@ -4590,15 +4562,9 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                         if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
                             st.caption("No registered match events yet.")
 
-                    bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
-                    if bonus_list:
-                        st.divider()
-                        bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
-                        bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
-                        st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
-
                 with tab_sheets:
-                    sheet_data = fetch_premier_league_match_lineup(pulse_code, selected_epl_gw, h_short, a_short)
+                    curr_match_mins = f.get("minutes", 90 if is_finished else 45)
+                    sheet_data = fetch_premier_league_match_lineup(pulse_code, h_id, a_id, live_elements, element_lookup, curr_match_mins)
                     
                     if sheet_data and sheet_data.get("has_lineups"):
                         col_h_team, col_a_team = st.columns(2)
@@ -4657,6 +4623,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                     if bps_list:
                         bps_sorted = sorted(bps_list, key = lambda x: x["BPS"], reverse = True)
                         
+                        # Calculate official projected bonus points (+3, +2, +1) with ties
                         unique_scores = sorted(list({p["BPS"] for p in bps_sorted}), reverse = True)
                         bonus_award = {}
                         if len(unique_scores) >= 1:
