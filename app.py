@@ -818,20 +818,26 @@ st.markdown(f"""
             padding: 8px 10px !important;
         }}
 
-        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) {{
+        /* Strictly target ONLY the 4-division showcase on mobile: Desktop remains 4-in-a-row, Mobile becomes 2x2 */
+        div[data-testid="stVerticalBlock"]:has(#division-showcase) > div[data-testid="stHorizontalBlock"] {{
             display: flex !important;
+            flex-direction: row !important;
             flex-wrap: wrap !important;
             gap: 8px !important;
         }}
 
-        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) > div[data-testid="stColumn"] {{
+        div[data-testid="stVerticalBlock"]:has(#division-showcase) > div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
             flex: 1 1 calc(50% - 6px) !important;
             min-width: calc(50% - 6px) !important;
             max-width: calc(50% - 6px) !important;
         }}
 
-        div[data-testid="stHorizontalBlock"]:has(button[key^="btn_enter_"]) button {{
-            padding: 6px 4px !important;
+        div[data-testid="stVerticalBlock"]:has(#division-showcase) div[data-testid="stVerticalBlockBorderWrapper"] {{
+            padding: 6px 6px !important;
+        }}
+
+        div[data-testid="stVerticalBlock"]:has(#division-showcase) button {{
+            padding: 5px 3px !important;
             font-size: 0.82rem !important;
         }}
     }}
@@ -3489,33 +3495,36 @@ if st.session_state.page == "Home":
                 </div>
                 """, unsafe_allow_html = True)
     # ----------------- COMPACT 4-DIVISION SHOWCASE -----------------
-    crest_map = {
-        "CDP (Crème Dellar Prem)": assets_folder / "CDP_Crest.jpg",
-        "SDM (Segundo Del Mundo)": assets_folder / "SDM_Crest.jpg",
-        "BDR (Best De La Rest)": assets_folder / "BDR_Crest.jpg",
-        "LDE (Liger Del Eager)": assets_folder / "LDE_Crest.jpg"
-    }
+    with st.container():
+        st.markdown("<div id='division-showcase'></div>", unsafe_allow_html = True)
+        
+        crest_map = {
+            "CDP (Crème Dellar Prem)": assets_folder / "CDP_Crest.jpg",
+            "SDM (Segundo Del Mundo)": assets_folder / "SDM_Crest.jpg",
+            "BDR (Best De La Rest)": assets_folder / "BDR_Crest.jpg",
+            "LDE (Liger Del Eager)": assets_folder / "LDE_Crest.jpg"
+        }
 
-    div_cols = st.columns(4)
-    for idx, (l_key, l_theme) in enumerate(LEAGUE_THEMES.items()):
-        short_code = l_key.split(" ")[0]
-        crest_file = crest_map.get(l_key)
-        is_current_active = (selected_league_key == l_key)
+        div_cols = st.columns(4)
+        for idx, (l_key, l_theme) in enumerate(LEAGUE_THEMES.items()):
+            short_code = l_key.split(" ")[0]
+            crest_file = crest_map.get(l_key)
+            is_current_active = (selected_league_key == l_key)
 
-        with div_cols[idx]:
-            with st.container(border = True):
-                if crest_file and crest_file.exists():
-                    st.image(str(crest_file), use_container_width = True)
-                else:
-                    st.markdown(f"<div style='height:80px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:1.5rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
-                
-                st.markdown(f"<p style='text-align:center; font-weight:900; color:{l_theme['accent']}; margin:4px 0 0 0; font-size:1.0rem;'>{short_code}</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:center; font-size:0.75rem; color:#ffffff; margin:0 0 6px 0; font-weight:700;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
-                
-                if st.button(f"Enter {short_code}", key = f"btn_enter_{short_code}", use_container_width = True, type = "primary" if is_current_active else "secondary"):
-                    st.session_state["active_competition"] = l_key
-                    st.session_state.page = "LIVE SCORES"
-                    st.rerun()
+            with div_cols[idx]:
+                with st.container(border = True):
+                    if crest_file and crest_file.exists():
+                        st.image(str(crest_file), use_container_width = True)
+                    else:
+                        st.markdown(f"<div style='height:80px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:1.5rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
+                    
+                    st.markdown(f"<p style='text-align:center; font-weight:900; color:{l_theme['accent']}; margin:4px 0 0 0; font-size:1.0rem;'>{short_code}</p>", unsafe_allow_html = True)
+                    st.markdown(f"<p style='text-align:center; font-size:0.75rem; color:#ffffff; margin:0 0 6px 0; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
+                    
+                    if st.button(f"Enter {short_code}", key = f"btn_enter_{short_code}", use_container_width = True, type = "primary" if is_current_active else "secondary"):
+                        st.session_state["active_competition"] = l_key
+                        st.session_state.page = "LIVE SCORES"
+                        st.rerun()
 
     # ----------------- STREAMLINED COMPACT LAUNCHPAD -----------------
     st.markdown("<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 10px 0 4px 0;'>Command Center Navigation</p>", unsafe_allow_html = True)
