@@ -2005,7 +2005,8 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
 
     return None
 
-def get_availability_multiplier(row):    status = row.get("status", "a")
+def get_availability_multiplier(row):
+    status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
     
     if status in ["i", "s", "u"]:
@@ -2022,7 +2023,6 @@ def get_availability_multiplier(row):    status = row.get("status", "a")
     if status == "d":
         return 0.6
     return 1.0
-
 def get_health_label(row):
     status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
