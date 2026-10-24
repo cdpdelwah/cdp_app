@@ -368,7 +368,7 @@ st.sidebar.link_button(
 NAV_ITEMS = [
     "Home",
     "LIVE SCORES",
-    "EPL Scores",
+    "EPL Scores & Lineups",
     "Results Analyser",
     "Cup & Bucket",
     "Squad Analyser",
@@ -1899,6 +1899,76 @@ def fetch_all_epl_fixtures():
     if resp.status_code != 200:
         return []
     return resp.json()
+
+@st.cache_data(ttl = 45)
+def fetch_premier_league_match_lineup(pulse_id):
+    if not pulse_id:
+        return None
+    url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
+    headers = {
+        "Origin": "https://www.premierleague.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code == 200:
+            data = resp.json()
+            team_lists = data.get("teamLists", [])
+            if len(team_lists) < 2:
+                return None
+
+            sub_events = {}
+            for ev in data.get("events", []):
+                if ev.get("type") in ["substitution", "sub"]:
+                    min_str = ev.get("time", {}).get("label", "")
+                    off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
+                    on_id = ev.get("subOn", {}).get("id")
+                    if off_id:
+                        sub_events[off_id] = ("OFF", min_str)
+                    if on_id:
+                        sub_events[on_id] = ("ON", min_str)
+
+            def format_team_sheet(team_data):
+                starters = []
+                for p in team_data.get("lineup", []):
+                    p_id = p.get("id")
+                    num = p.get("shirtNum", "-")
+                    name = p.get("name", {}).get("display", "Unknown")
+                    capt = " (C)" if p.get("captain", False) else ""
+                    pos = p.get("matchPosition", "")
+                    
+                    sub_tag = ""
+                    if p_id in sub_events and sub_events[p_id][0] == "OFF":
+                        sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>"
+                    
+                    starters.append(f"#{num} **{name}**{capt} • *{pos}*{sub_tag}")
+
+                subs = []
+                for p in team_data.get("substitutes", []):
+                    p_id = p.get("id")
+                    num = p.get("shirtNum", "-")
+                    name = p.get("name", {}).get("display", "Unknown")
+                    
+                    sub_tag = ""
+                    if p_id in sub_events and sub_events[p_id][0] == "ON":
+                        sub_tag = f" <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>"
+
+                    subs.append(f"#{num} {name}{sub_tag}")
+
+                return starters, subs
+
+            home_starters, home_subs = format_team_sheet(team_lists[0])
+            away_starters, away_subs = format_team_sheet(team_lists[1])
+
+            return {
+                "home_starters": home_starters,
+                "home_subs": home_subs,
+                "away_starters": away_starters,
+                "away_subs": away_subs
+            }
+    except Exception:
+        pass
+    return None
 
 def get_availability_multiplier(row):
     status = row.get("status", "a")
@@ -3533,7 +3603,7 @@ if st.session_state.page == "Home":
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
     with r1_c2:
-        st.button("⚽ EPL Scores", on_click = set_page, args = ("EPL Scores",), use_container_width = True)
+        st.button("⚽ EPL Scores & Lineups", on_click = set_page, args = ("EPL Scores & Lineups",), use_container_width = True)
     with r1_c3:
         st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
     with r1_c4:
@@ -4180,9 +4250,9 @@ elif st.session_state.page == "Cup & Bucket":
                     large_mode,
                     score = c_s2
                 )
-# ----------------- 4. EPL SCORES SECTION -----------------
-elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
-    st.title("⚽ EPL Scores")
+# ----------------- 4. EPL SCORES & LINEUPS SECTION -----------------
+elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups"]:
+    st.title("⚽ EPL Scores & Lineups")
     
     static_data = fetch_fpl_static()
     league_details, _ = fetch_league_data(active_league_id)
@@ -4202,16 +4272,12 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
     if unplayed_events:
         default_epl_gw = unplayed_events[0]
     else:
-        curr_from_static = None
-        for ev in static_data.get("events", {}).get("data", []):
-            if ev.get("is_current"):
-                curr_from_static = ev.get("id")
-                break
+        curr_from_static = next((ev.get("id") for ev in static_data.get("events", []) if ev.get("is_current")), 1)
         default_epl_gw = curr_from_static if curr_from_static else (all_gws[-1] if all_gws else 1)
 
     top_e1, top_e2, top_e3 = st.columns([3, 2, 1])
     with top_e1:
-        st.caption("Official Premier League matchday results, goalscorers, assists, DEFCON scores and defensive metrics")
+        st.caption("Official team sheets published 60–75m before kickoff • Live matchday scores, active subs, goals and DEFCON metrics")
     with top_e2:
         selected_epl_gw = st.selectbox(
             "Select EPL Gameweek",
@@ -4223,6 +4289,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
         if st.button("🔄 Refresh EPL", use_container_width = True):
             fetch_epl_fixtures.clear()
             fetch_live_event.clear()
+            fetch_premier_league_match_lineup.clear()
             st.rerun()
 
     fixtures = fetch_epl_fixtures(selected_epl_gw)
@@ -4233,7 +4300,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
         st.info("No fixtures available for Gameweek " + str(selected_epl_gw) + ".")
         st.stop()
 
-    st.subheader("Premier League Matches (GW " + str(selected_epl_gw) + ")")
+    st.subheader(f"Premier League Matches • GW {selected_epl_gw}")
 
     for f in fixtures:
         h_id = f.get("team_h")
@@ -4247,6 +4314,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
         is_started = f.get("started", False)
         h_score = f.get("team_h_score")
         a_score = f.get("team_a_score")
+        pulse_code = f.get("code")
         
         if is_finished:
             status_text = "FT"
@@ -4269,150 +4337,177 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES"]:
 
         with st.container(border = True):
             f_col1, f_col2, f_col3 = st.columns([4, 3, 4])
-            
             with f_col1:
                 st.markdown(f"<div class='card-mgr-title'>{h_name} <span class='card-div-tag'>({h_short})</span></div>", unsafe_allow_html = True)
-                
             with f_col2:
                 if is_started or is_finished:
                     st.markdown(f"<div class='card-score-center'>{h_score} {dash} {a_score}</div>", unsafe_allow_html = True)
                 else:
                     st.markdown("<div class='card-vs-text'>vs</div>", unsafe_allow_html = True)
                 st.markdown(f"<p class='card-status-badge' style='text-align: center; color: {status_color};'>{status_text}</p>", unsafe_allow_html = True)
-                
             with f_col3:
                 st.markdown(f"<div class='card-mgr-title' style='text-align: right;'><span class='card-div-tag'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
-            with st.expander("Match Breakdown"):
-                stats_raw = f.get("stats", [])
-                stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
+            with st.expander("📋 Confirmed Team Sheets & Match Events"):
+                sheet_data = fetch_premier_league_match_lineup(pulse_code)
+                
+                tab_sheets, tab_events = st.tabs(["👥 Lineups & Subs", "⚡ Goals & Match Stats"])
+                
+                with tab_sheets:
+                    if sheet_data:
+                        col_h_team, col_a_team = st.columns(2)
+                        
+                        with col_h_team:
+                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; margin-bottom:4px;'>{h_name} Starting XI</p>", unsafe_allow_html = True)
+                            h_starters = sheet_data.get("home_starters", [])
+                            st.markdown("\n\n".join(h_starters) if h_starters else "Lineup not yet available.", unsafe_allow_html = True)
+                            
+                            st.divider()
+                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{h_name} Subs</p>", unsafe_allow_html = True)
+                            h_subs = sheet_data.get("home_subs", [])
+                            st.markdown(", ".join(h_subs) if h_subs else "No subs announced yet.", unsafe_allow_html = True)
 
-                def get_stat_entries(ident, side):
-                    raw_list = stats_dict.get(ident, {}).get(side, [])
-                    items = []
-                    for entry in raw_list:
-                        p_elem = element_lookup.get(entry["element"], {})
-                        p_name = p_elem.get("web_name", "Unknown")
-                        val = entry.get("value", 1)
-                        items.append((p_name, val))
-                    return items
+                        with col_a_team:
+                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; margin-bottom:4px;'>{a_name} Starting XI</p>", unsafe_allow_html = True)
+                            a_starters = sheet_data.get("away_starters", [])
+                            st.markdown("\n\n".join(a_starters) if a_starters else "Lineup not yet available.", unsafe_allow_html = True)
+                            
+                            st.divider()
+                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{a_name} Subs</p>", unsafe_allow_html = True)
+                            a_subs = sheet_data.get("away_subs", [])
+                            st.markdown(", ".join(a_subs) if a_subs else "No subs announced yet.", unsafe_allow_html = True)
+                    else:
+                        st.info("🕒 Official team sheets drop 60–75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.")
 
-                h_goals = get_stat_entries("goals_scored", "h")
-                h_assists = get_stat_entries("assists", "h")
-                h_saves = get_stat_entries("saves", "h")
-                h_og = get_stat_entries("own_goals", "h")
-                h_pmiss = get_stat_entries("penalties_missed", "h")
-                h_psaved = get_stat_entries("penalties_saved", "h")
+                with tab_events:
+                    stats_raw = f.get("stats", [])
+                    stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
 
-                a_goals = get_stat_entries("goals_scored", "a")
-                a_assists = get_stat_entries("assists", "a")
-                a_saves = get_stat_entries("saves", "a")
-                a_og = get_stat_entries("own_goals", "a")
-                a_pmiss = get_stat_entries("penalties_missed", "a")
-                a_psaved = get_stat_entries("penalties_saved", "a")
-
-                h_cs_players = []
-                a_cs_players = []
-                if is_started and live_elements:
-                    if a_score == 0:
-                        for elem_id_str, e_data in live_elements.items():
-                            elem_obj = element_lookup.get(int(elem_id_str), {})
-                            if elem_obj.get("team") == h_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
-                                h_cs_players.append(elem_obj.get("web_name", "Unknown"))
-                    if h_score == 0:
-                        for elem_id_str, e_data in live_elements.items():
-                            elem_obj = element_lookup.get(int(elem_id_str), {})
-                            if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
-                                a_cs_players.append(elem_obj.get("web_name", "Unknown"))
-
-                def resolve_defcon_achieved(side, team_id):
-                    achieved = []
-                    dc_items = stats_dict.get("defensive_contributions", {}).get(side, [])
-                    if not dc_items:
-                        dc_items = stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
-                    for itm in dc_items:
-                        if isinstance(itm, dict):
-                            p_elem = element_lookup.get(itm.get("element"), {})
+                    def get_stat_entries(ident, side):
+                        raw_list = stats_dict.get(ident, {}).get(side, [])
+                        items = []
+                        for entry in raw_list:
+                            p_elem = element_lookup.get(entry["element"], {})
                             p_name = p_elem.get("web_name", "Unknown")
-                            p_pos = p_elem.get("element_type", 1)
-                            val = itm.get("value", 0)
-                            if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12) or val >= 10:
-                                achieved.append((p_name, val))
+                            val = entry.get("value", 1)
+                            items.append((p_name, val))
+                        return items
 
-                    if live_elements:
-                        for elem_str_id, e_data in live_elements.items():
-                            if not isinstance(e_data, dict):
-                                continue
-                            try:
-                                elem_id_int = int(elem_str_id)
-                            except (ValueError, TypeError):
-                                continue
-                            elem_obj = element_lookup.get(elem_id_int, {})
-                            if elem_obj.get("team") == team_id:
-                                p_name = elem_obj.get("web_name", "Unknown")
-                                p_pos = elem_obj.get("element_type", 1)
-                                e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
-                                explain_raw = e_data.get("explain", [])
-                                
-                                if extract_defcon_achieved_flag(e_stats, explain_raw, p_pos):
-                                    if not any(x[0] == p_name for x in achieved):
-                                        achieved.append((p_name, 10 if p_pos == 2 else 12))
-                    return achieved
+                    h_goals = get_stat_entries("goals_scored", "h")
+                    h_assists = get_stat_entries("assists", "h")
+                    h_saves = get_stat_entries("saves", "h")
+                    h_og = get_stat_entries("own_goals", "h")
+                    h_pmiss = get_stat_entries("penalties_missed", "h")
+                    h_psaved = get_stat_entries("penalties_saved", "h")
 
-                h_defcon = resolve_defcon_achieved("h", h_id)
-                a_defcon = resolve_defcon_achieved("a", a_id)
+                    a_goals = get_stat_entries("goals_scored", "a")
+                    a_assists = get_stat_entries("assists", "a")
+                    a_saves = get_stat_entries("saves", "a")
+                    a_og = get_stat_entries("own_goals", "a")
+                    a_pmiss = get_stat_entries("penalties_missed", "a")
+                    a_psaved = get_stat_entries("penalties_saved", "a")
 
-                b_col1, b_col2 = st.columns(2)
+                    h_cs_players = []
+                    a_cs_players = []
+                    if is_started and live_elements:
+                        if a_score == 0:
+                            for elem_id_str, e_data in live_elements.items():
+                                elem_obj = element_lookup.get(int(elem_id_str), {})
+                                if elem_obj.get("team") == h_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
+                                    h_cs_players.append(elem_obj.get("web_name", "Unknown"))
+                        if h_score == 0:
+                            for elem_id_str, e_data in live_elements.items():
+                                elem_obj = element_lookup.get(int(elem_id_str), {})
+                                if elem_obj.get("team") == a_id and e_data.get("stats", {}).get("clean_sheets", 0) > 0:
+                                    a_cs_players.append(elem_obj.get("web_name", "Unknown"))
 
-                with b_col1:
-                    st.markdown(f"**{h_name}**")
-                    if h_goals:
-                        st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_goals]))
-                    if h_assists:
-                        st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_assists]))
-                    if h_defcon:
-                        st.markdown("<span style='color: #22c55e;'>🔰 <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n}" for n, _ in h_defcon]) + "</span>", unsafe_allow_html = True)
-                    if h_cs_players:
-                        st.markdown("🛡️ **Clean Sheets:** " + ", ".join(h_cs_players))
-                    if h_saves:
-                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in h_saves]))
-                    if h_og:
-                        st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_og]) + "</span>", unsafe_allow_html = True)
-                    if h_pmiss:
-                        st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_pmiss]) + "</span>", unsafe_allow_html = True)
-                    if h_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
-                    if not (h_goals or h_assists or h_defcon or h_saves or h_cs_players or h_og or h_pmiss or h_psaved):
-                        st.caption("No registered match events yet.")
+                    def resolve_defcon_achieved(side, team_id):
+                        achieved = []
+                        dc_items = stats_dict.get("defensive_contributions", {}).get(side, [])
+                        if not dc_items:
+                            dc_items = stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
+                        for itm in dc_items:
+                            if isinstance(itm, dict):
+                                p_elem = element_lookup.get(itm.get("element"), {})
+                                p_name = p_elem.get("web_name", "Unknown")
+                                p_pos = p_elem.get("element_type", 1)
+                                val = itm.get("value", 0)
+                                if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12) or val >= 10:
+                                    achieved.append((p_name, val))
 
-                with b_col2:
-                    st.markdown(f"**{a_name}**")
-                    if a_goals:
-                        st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_goals]))
-                    if a_assists:
-                        st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_assists]))
-                    if a_defcon:
-                        st.markdown("<span style='color: #22c55e;'>🔰 <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n}" for n, _ in a_defcon]) + "</span>", unsafe_allow_html = True)
-                    if a_cs_players:
-                        st.markdown("🛡️ **Clean Sheets:** " + ", ".join(a_cs_players))
-                    if a_saves:
-                        st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in a_saves]))
-                    if a_og:
-                        st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
-                    if a_pmiss:
-                        st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
-                    if a_psaved:
-                        st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
-                    if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
-                        st.caption("No registered match events yet.")
+                        if live_elements:
+                            for elem_str_id, e_data in live_elements.items():
+                                if not isinstance(e_data, dict):
+                                    continue
+                                try:
+                                    elem_id_int = int(elem_str_id)
+                                except (ValueError, TypeError):
+                                    continue
+                                elem_obj = element_lookup.get(elem_id_int, {})
+                                if elem_obj.get("team") == team_id:
+                                    p_name = elem_obj.get("web_name", "Unknown")
+                                    p_pos = elem_obj.get("element_type", 1)
+                                    e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
+                                    explain_raw = e_data.get("explain", [])
+                                    
+                                    if extract_defcon_achieved_flag(e_stats, explain_raw, p_pos):
+                                        if not any(x[0] == p_name for x in achieved):
+                                            achieved.append((p_name, 10 if p_pos == 2 else 12))
+                        return achieved
 
-                bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
-                if bonus_list:
-                    st.divider()
-                    bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
-                    bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
-                    st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
+                    h_defcon = resolve_defcon_achieved("h", h_id)
+                    a_defcon = resolve_defcon_achieved("a", a_id)
 
+                    b_col1, b_col2 = st.columns(2)
+
+                    with b_col1:
+                        st.markdown(f"**{h_name} Events**")
+                        if h_goals:
+                            st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_goals]))
+                        if h_assists:
+                            st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_assists]))
+                        if h_defcon:
+                            st.markdown("<span style='color: #22c55e;'>🔰 <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n}" for n, _ in h_defcon]) + "</span>", unsafe_allow_html = True)
+                        if h_cs_players:
+                            st.markdown("🛡️ **Clean Sheets:** " + ", ".join(h_cs_players))
+                        if h_saves:
+                            st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in h_saves]))
+                        if h_og:
+                            st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_og]) + "</span>", unsafe_allow_html = True)
+                        if h_pmiss:
+                            st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_pmiss]) + "</span>", unsafe_allow_html = True)
+                        if h_psaved:
+                            st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in h_psaved]) + "</span>", unsafe_allow_html = True)
+                        if not (h_goals or h_assists or h_defcon or h_saves or h_cs_players or h_og or h_pmiss or h_psaved):
+                            st.caption("No registered match events yet.")
+
+                    with b_col2:
+                        st.markdown(f"**{a_name} Events**")
+                        if a_goals:
+                            st.markdown("⚽ **Goals:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_goals]))
+                        if a_assists:
+                            st.markdown("🎯 **Assists:** " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_assists]))
+                        if a_defcon:
+                            st.markdown("<span style='color: #22c55e;'>🔰 <b>DEFCON (+2 pts):</b> " + ", ".join([f"{n}" for n, _ in a_defcon]) + "</span>", unsafe_allow_html = True)
+                        if a_cs_players:
+                            st.markdown("🛡️ **Clean Sheets:** " + ", ".join(a_cs_players))
+                        if a_saves:
+                            st.markdown("🧤 **Saves:** " + ", ".join([f"{n} ({v} saves)" for n, v in a_saves]))
+                        if a_og:
+                            st.markdown("<span style='color: #ef4444;'>🛑 <b>Own Goals:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_og]) + "</span>", unsafe_allow_html = True)
+                        if a_pmiss:
+                            st.markdown("<span style='color: #ef4444;'>❌ <b>Penalties Missed:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_pmiss]) + "</span>", unsafe_allow_html = True)
+                        if a_psaved:
+                            st.markdown("<span style='color: #22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in a_psaved]) + "</span>", unsafe_allow_html = True)
+                        if not (a_goals or a_assists or a_defcon or a_saves or a_cs_players or a_og or a_pmiss or a_psaved):
+                            st.caption("No registered match events yet.")
+
+                    bonus_list = stats_dict.get("bonus", {}).get("h", []) + stats_dict.get("bonus", {}).get("a", [])
+                    if bonus_list:
+                        st.divider()
+                        bonus_list = sorted(bonus_list, key = lambda x: x.get("value", 0), reverse = True)
+                        bonus_formatted = [f"{element_lookup.get(b['element'], {}).get('web_name', 'Unknown')} ({b['value']} pts)" for b in bonus_list]
+                        st.markdown("⭐ **Bonus Points:** " + " | ".join(bonus_formatted))
 # ----------------- 5. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
