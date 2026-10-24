@@ -43,31 +43,30 @@ LEAGUE_PRESETS = {
     "LDE (Liger Del Eager)": 240
 }
 
-# Thematic identity colours extracted directly from the Season X league crests
-LEAGUE_THEMES = {
+# Thematic identity colours extracted directly from the Season X league crestsLEAGUE_THEMES = {
     "CDP (Crème Dellar Prem)": {
         "accent": "#f59e0b",
         "accent_glow": "rgba(245, 158, 11, 0.25)",
         "badge_bg": "#231804",
-        "tag": "PREMIER DIVISION"
+        "tag": "Crème Dellar Prem"
     },
     "SDM (Segundo Del Mundo)": {
         "accent": "#3b82f6",
         "accent_glow": "rgba(59, 130, 246, 0.25)",
         "badge_bg": "#06152d",
-        "tag": "SEGUNDO DIVISION"
+        "tag": "Segundo Del Mundo"
     },
     "BDR (Best De La Rest)": {
         "accent": "#f97316",
         "accent_glow": "rgba(249, 115, 22, 0.25)",
         "badge_bg": "#271004",
-        "tag": "DIVISION THREE"
+        "tag": "Best De La Rest"
     },
     "LDE (Liger Del Eager)": {
         "accent": "#22c55e",
         "accent_glow": "rgba(34, 197, 94, 0.25)",
         "badge_bg": "#052210",
-        "tag": "DIVISION FOUR"
+        "tag": "Liga Del Eager"
     }
 }
 
