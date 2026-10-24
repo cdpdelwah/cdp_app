@@ -1319,7 +1319,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     for row_info in formation_rows:
         pitch_html += '<div class="pitch-row">\n'
         for p in row_info["players"]:
-            card_state_cls = "state-live" if p["state"] == "LIVE" else ("state-ytp" if p["state"] == "YTP" else "state-ft")
+            card_state_cls = "state-ft" if show_proj_pill else ("state-live" if p["state"] == "LIVE" else ("state-ytp" if p["state"] == "YTP" else "state-ft"))
             pulse_html = '<div class="state-pulse"></div>' if p["state"] == "LIVE" else ''
             sub_tag = ''
             if p["sub_action"] == "Subbed On":
@@ -1378,7 +1378,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     """
 
     for bp in dugout_players:
-        card_state_cls = "state-live" if bp["state"] == "LIVE" else ("state-ytp" if bp["state"] == "YTP" else "state-ft")
+        card_state_cls = "state-ft" if show_proj_pill else ("state-live" if bp["state"] == "LIVE" else ("state-ytp" if bp["state"] == "YTP" else "state-ft"))
         pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
         sub_tag = ''
         if bp["sub_action"] == "Subbed On":
