@@ -859,7 +859,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             badges.append(f"{g}⚽" if g > 1 else "⚽")
         if a > 0:
             badges.append(f"{a}🎯" if a > 1 else "🎯")
-        if cs > 0 and p.get("Pos") in ["GKP", "DEF"]:
+        if cs > 0 and p.get("Pos") in ["GKP", "DEF", "MID"]:
             badges.append("🛡️")
         if defcon_hit:
             badges.append("🔰")
@@ -899,7 +899,6 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             "is_bench": is_bench
         }
 
-    # Dynamic swap: Subbed On bench players move to pitch; Subbed Off starters move to dugout
     pitch_players = []
     dugout_players = []
 
@@ -915,10 +914,8 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         else:
             dugout_players.append(prepare_player_dict(p, is_bench = True))
 
-    # Bench order left to right: GK then DEF then MID then FWD
     dugout_players = sorted(dugout_players, key = lambda x: POS_ORDER.get(x["pos"], 99))
 
-    # Group active pitch players into standard positional lines: GKP, DEF, MID and FWD
     gks = [p for p in pitch_players if p["pos"] == "GKP"]
     defs = [p for p in pitch_players if p["pos"] == "DEF"]
     mids = [p for p in pitch_players if p["pos"] == "MID"]
@@ -1001,7 +998,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             margin: 2px 0;
         }}
 
-        .player-card {
+        .player-card {{
             flex: 1 1 0;
             min-width: 0;
             display: flex;
@@ -1011,7 +1008,11 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             transition: transform 0.15s ease;
             position: relative;
             text-align: center;
-        }
+        }}
+
+        .player-card:hover, .player-card:active {{
+            transform: scale(1.12);
+        }}
 
         .club-token {{
             width: {token_size};
@@ -1368,7 +1369,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             gridHtml += '<div class="stat-item"><span class="stat-label">Assists 🎯:</span><span class="stat-val">' + p.a + '</span></div>';
             gridHtml += '<div class="stat-item"><span class="stat-label">Bonus ⭐:</span><span class="stat-val">' + p.bonus + '</span></div>';
 
-            if (p.pos === 'GKP' || p.pos === 'DEF') {{
+            if (p.pos === 'GKP' || p.pos === 'DEF' || p.pos === 'MID') {{
                 gridHtml += '<div class="stat-item"><span class="stat-label">Clean Sheet 🛡️:</span><span class="stat-val">' + p.cs + '</span></div>';
                 gridHtml += '<div class="stat-item"><span class="stat-label">Conceded 🛑:</span><span class="stat-val">' + p.gc + '</span></div>';
             }}
