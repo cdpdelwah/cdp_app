@@ -2058,7 +2058,8 @@ def fetch_premier_league_match_lineup(pulse_id, home_team_id = None, away_team_i
                 "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
             }
 
-    return {"has_lineups": False}def get_availability_multiplier(row):
+    return {"has_lineups": False}
+def get_availability_multiplier(row):
     status = row.get("status", "a")
     chance = row.get("chance_of_playing_next_round")
     
