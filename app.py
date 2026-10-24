@@ -1434,45 +1434,53 @@ def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accen
         render_pitch_component(alias, starters_df, bench_df, accent_color, is_large, show_proj_pill = False)
 
     with p_tab_table:
-        def build_compact_lineup_rows(df):
+        st.markdown("""
+        <style>
+            div[data-baseweb="tab-panel"] table {
+                font-size: 0.82rem !important;
+            }
+            div[data-baseweb="tab-panel"] th, div[data-baseweb="tab-panel"] td {
+                padding: 4px 6px !important;
+                text-align: center !important;
+                white-space: nowrap !important;
+            }
+            div[data-baseweb="tab-panel"] th:first-child, div[data-baseweb="tab-panel"] td:first-child {
+                text-align: left !important;
+                font-weight: 700 !important;
+            }
+        </style>
+        """, unsafe_allow_html = True)
+
+        def build_clean_table(df):
             if df is None or df.empty:
                 return pd.DataFrame()
             rows = []
             for _, r in df.iterrows():
-                actions = []
-                g = int(r.get("G", 0))
-                a = int(r.get("A", 0))
-                cs = int(r.get("CS", 0))
-                b = int(r.get("Bonus", 0))
-                if g > 0: actions.append(f"{g}⚽" if g > 1 else "⚽")
-                if a > 0: actions.append(f"{a}🎯" if a > 1 else "🎯")
-                if cs > 0 and r.get("Pos") in ["GKP", "DEF"]: actions.append("🛡️")
-                act_str = " ".join(actions) if actions else "-"
-                
                 rows.append({
                     "Player": str(r.get("Player", "")),
                     "Pos": str(r.get("Pos", "")),
-                    "Club": str(r.get("Club", "")),
-                    "Opp": str(r.get("Opp", "")).replace(" (H)", " [H]").replace(" (A)", " [A]"),
-                    "Mins": f"{int(r.get('Mins', 0))}'",
-                    "Events": act_str,
-                    "⭐": b if b > 0 else "-",
+                    "Opp": str(r.get("Opp", "-")).replace(" (H)", " [H]").replace(" (A)", " [A]"),
+                    "Mins": int(r.get("Mins", 0)),
+                    "G": int(r.get("G", 0)),
+                    "A": int(r.get("A", 0)),
+                    "CS": int(r.get("CS", 0)) if r.get("Pos") in ["GKP", "DEF"] else "-",
+                    "Bonus": int(r.get("Bonus", 0)),
                     "Pts": int(r.get("Pts", 0))
                 })
             return pd.DataFrame(rows)
 
         if starters_df is not None and not starters_df.empty:
-            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:{accent_color}; text-transform:uppercase; margin-bottom:4px;'>Starting XI</p>", unsafe_allow_html = True)
-            s_compact = build_compact_lineup_rows(starters_df)
-            st.table(s_compact.set_index("Player"))
+            st.markdown(f"<p style='font-size:0.82rem; font-weight:800; color:{accent_color}; text-transform:uppercase; margin-bottom:2px;'>Starting XI</p>", unsafe_allow_html = True)
+            s_clean = build_clean_table(starters_df)
+            st.table(s_clean.set_index("Player"))
 
             if bench_df is not None and not bench_df.empty:
                 b_work = bench_df.copy()
                 b_work["pos_order"] = b_work["Pos"].map(POS_ORDER).fillna(99)
                 b_work = b_work.sort_values(by = "pos_order", ascending = True).drop(columns = ["pos_order"])
-                st.markdown("<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin:8px 0 4px 0;'>Dugout Substitutes</p>", unsafe_allow_html = True)
-                b_compact = build_compact_lineup_rows(b_work)
-                st.table(b_compact.set_index("Player"))
+                st.markdown("<p style='font-size:0.82rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin:6px 0 2px 0;'>Dugout Substitutes</p>", unsafe_allow_html = True)
+                b_clean = build_clean_table(b_work)
+                st.table(b_clean.set_index("Player"))
         else:
             st.info("Lineup selections not yet available.")
 def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
@@ -3294,13 +3302,82 @@ if st.session_state.page == "Home":
     </body>
     </html>
     """
-    components.html(countdown_html, height = 165)
+    components.html(countdown_html, height = 125)
 
-    # ----------------- DIVISION SHOWCASE WITH EMBEDDED CRESTS -----------------
-    st.write("")
-    st.markdown("<h3 style='margin-bottom: 2px;'>🏆 The Four Divisions</h3>", unsafe_allow_html = True)
-    st.caption("Season X Championship Tiers • Select any league to set active focus")
+    # ----------------- DYNAMIC MATCHDAY NEWS & WIRE -----------------
+    gw_matches_active = [m for m in matches if m.get("event") == current_gw]
+    top_wire_title = f"⚡ Matchday Intelligence • Gameweek {current_gw}"
+    
+    # Calculate live wire stories from current gameweek data if available
+    wire_cards = []
+    if gw_matches_active:
+        highest_scorer = None
+        highest_score_val = -1
+        tightest_match = None
+        tightest_margin = 999
+        biggest_blowout = None
+        biggest_margin = -1
 
+        for m in gw_matches_active:
+            s1 = m.get("league_entry_1_points", 0)
+            s2 = m.get("league_entry_2_points", 0)
+            e1 = lentry_map.get(m.get("league_entry_1"), {})
+            e2 = lentry_map.get(m.get("league_entry_2"), {})
+            a1 = get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+            a2 = get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
+
+            if s1 > highest_score_val:
+                highest_score_val = s1
+                highest_scorer = (a1, s1)
+            if s2 > highest_score_val:
+                highest_score_val = s2
+                highest_scorer = (a2, s2)
+
+            margin = abs(s1 - s2)
+            if s1 > 0 or s2 > 0:
+                if margin < tightest_margin:
+                    tightest_margin = margin
+                    tightest_match = (a1, s1, a2, s2, margin)
+                if margin > biggest_margin:
+                    biggest_margin = margin
+                    biggest_blowout = (a1 if s1 >= s2 else a2, max(s1, s2), a2 if s1 >= s2 else a1, min(s1, s2), margin)
+
+        if tightest_match:
+            wire_cards.append({
+                "tag": "🔥 ON A KNIFE EDGE",
+                "color": "#f59e0b",
+                "headline": f"{tightest_match[0]} vs {tightest_match[2]}",
+                "detail": f"Deadlocked at {tightest_match[1]}–{tightest_match[3]} ({tightest_match[4]} pt margin)."
+            })
+        if biggest_blowout and biggest_blowout[4] > 5:
+            wire_cards.append({
+                "tag": "🔨 DEMOLITION JOB",
+                "color": "#ef4444",
+                "headline": f"{biggest_blowout[0]} leads {biggest_blowout[2]}",
+                "detail": f"Cruising {biggest_blowout[1]}–{biggest_blowout[3]} (+{biggest_blowout[4]} pt cushion)."
+            })
+        if highest_scorer and highest_scorer[1] > 0:
+            wire_cards.append({
+                "tag": "👑 BENCHMARK HAUL",
+                "color": "#22c55e",
+                "headline": f"{highest_scorer[0]} ({highest_scorer[1]} pts)",
+                "detail": f"Division high score for Gameweek {current_gw} so far."
+            })
+
+    if wire_cards:
+        st.markdown(f"<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 6px 0 4px 0;'>{top_wire_title}</p>", unsafe_allow_html = True)
+        wire_cols = st.columns(len(wire_cards))
+        for w_idx, card in enumerate(wire_cards):
+            with wire_cols[w_idx]:
+                st.markdown(f"""
+                <div style="background-color: #0b0f19; border: 1px solid #1c2638; border-left: 3px solid {card['color']}; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px;">
+                    <span style="font-size:0.68rem; font-weight:900; color:{card['color']}; letter-spacing:0.5px;">{card['tag']}</span>
+                    <div style="font-size:0.92rem; font-weight:800; color:#ffffff; margin: 1px 0;">{card['headline']}</div>
+                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:500;">{card['detail']}</div>
+                </div>
+                """, unsafe_allow_html = True)
+
+    # ----------------- COMPACT 4-DIVISION SHOWCASE -----------------
     crest_map = {
         "CDP (Crème Dellar Prem)": assets_folder / "CDP_Crest.jpg",
         "SDM (Segundo Del Mundo)": assets_folder / "SDM_Crest.jpg",
@@ -3319,22 +3396,20 @@ if st.session_state.page == "Home":
                 if crest_file and crest_file.exists():
                     st.image(str(crest_file), use_container_width = True)
                 else:
-                    st.markdown(f"<div style='height:140px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:2rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
+                    st.markdown(f"<div style='height:100px; display:flex; align-items:center; justify-content:center; background:#06080d; font-size:1.8rem; font-weight:900; color:{l_theme['accent']};'>{short_code}</div>", unsafe_allow_html = True)
                 
-                st.markdown(f"<p style='text-align:center; font-weight:800; color:{l_theme['accent']}; margin:4px 0 0 0; font-size:1.05rem;'>{short_code}</p>", unsafe_allow_html = True)
-                st.markdown(f"<p style='text-align:center; font-size:0.75rem; color:#94a3b8; margin:0 0 8px 0; font-weight:600;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:center; font-weight:900; color:{l_theme['accent']}; margin:2px 0 0 0; font-size:0.95rem;'>{short_code}</p>", unsafe_allow_html = True)
+                st.markdown(f"<p style='text-align:center; font-size:0.7rem; color:#94a3b8; margin:0 0 6px 0; font-weight:600;'>{l_theme['tag']}</p>", unsafe_allow_html = True)
                 
                 if st.button(f"Enter {short_code}", key = f"btn_enter_{short_code}", use_container_width = True, type = "primary" if is_current_active else "secondary"):
                     st.session_state["active_competition"] = l_key
                     st.session_state.page = "LIVE SCORES"
                     st.rerun()
 
-    st.divider()
-
-    # ----------------- QUICK LAUNCHPAD -----------------
-    st.markdown("<h3>⚡ Command Launchpad</h3>", unsafe_allow_html = True)
+    # ----------------- STREAMLINED COMPACT LAUNCHPAD -----------------
+    st.markdown("<p style='font-size:0.85rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 10px 0 4px 0;'>Command Center Navigation</p>", unsafe_allow_html = True)
     
-    r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
+    r1_c1, r1_c2, r1_c3, r1_c4, r1_c5 = st.columns(5)
     with r1_c1:
         st.button("🔴 LIVE SCORES", on_click = set_page, args = ("LIVE SCORES",), type = "primary", use_container_width = True)
     with r1_c2:
@@ -3343,9 +3418,10 @@ if st.session_state.page == "Home":
         st.button("Results Analyser", on_click = set_page, args = ("Results Analyser",), use_container_width = True)
     with r1_c4:
         st.button("Cup & Bucket", on_click = set_page, args = ("Cup & Bucket",), use_container_width = True)
+    with r1_c5:
+        st.button("📜 Asterisk*", on_click = set_page, args = ("Asterisk*",), use_container_width = True)
 
-    st.write("")
-    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6 = st.columns(6)
+    r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
     with r2_c1:
         st.button("Squad Analyser", on_click = set_page, args = ("Squad Analyser",), use_container_width = True)
     with r2_c2:
@@ -3356,8 +3432,6 @@ if st.session_state.page == "Home":
         st.button("🟨🟥 Disciplinary", on_click = set_page, args = ("Disciplinary",), use_container_width = True)
     with r2_c5:
         st.button("Standings", on_click = set_page, args = ("Standings",), use_container_width = True)
-    with r2_c6:
-        st.button("📜 Asterisk*", on_click = set_page, args = ("Asterisk*",), use_container_width = True)
 # ----------------- 2. LIVE SCORES (MATCHDAY COMMAND CENTER) -----------------
 elif st.session_state.page == "LIVE SCORES":
     st.title("🔴 LIVE SCORES" + dash + selected_league_key)
@@ -3506,12 +3580,14 @@ elif st.session_state.page == "LIVE SCORES":
 
                         sc_col1, sc_col2, sc_col3 = st.columns([5, 1, 5])
                         with sc_col1:
+                            st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; text-transform:uppercase; letter-spacing:0.5px;'>{alias1}</div>", unsafe_allow_html = True)
                             st.markdown(f"<div class='card-score-left'>{item['t1_score']}</div>", unsafe_allow_html = True)
                             st.markdown(f"<p class='card-proj-sub'>Proj: {item['t1_proj']:.1f} ({t1_rem_text})</p>", unsafe_allow_html = True)
                             st.markdown(f"<p class='card-bench-sub'>Bench: {item['t1_bp']} pts | Opt: {item['t1_opt']} pts</p>", unsafe_allow_html = True)
                         with sc_col2:
-                            st.markdown("<div class='card-vs-text'>vs</div>", unsafe_allow_html = True)
+                            st.markdown("<div class='card-vs-text' style='margin-top:22px !important;'>vs</div>", unsafe_allow_html = True)
                         with sc_col3:
+                            st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.5px; text-align:right;'>{alias2}</div>", unsafe_allow_html = True)
                             st.markdown(f"<div class='card-score-right'>{item['t2_score']}</div>", unsafe_allow_html = True)
                             st.markdown(f"<p class='card-proj-sub' style='text-align: right;'>Proj: {item['t2_proj']:.1f} ({t2_rem_text})</p>", unsafe_allow_html = True)
                             st.markdown(f"<p class='card-bench-sub' style='text-align: right;'>Bench: {item['t2_bp']} pts | Opt: {item['t2_opt']} pts</p>", unsafe_allow_html = True)
@@ -3738,12 +3814,14 @@ elif st.session_state.page == "Cup & Bucket":
 
                             sc1, sc2, sc3 = st.columns([5, 1, 5])
                             with sc1:
+                                st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; text-transform:uppercase; letter-spacing:0.5px;'>{card['m1']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<div class='card-score-left'>{card['s1']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<p class='card-proj-sub'>{rem1}</p>", unsafe_allow_html = True)
                                 st.markdown(f"<p class='card-bench-sub'>Bench: {card['bp1']} pts | Opt: {card['opt1']} pts</p>", unsafe_allow_html = True)
                             with sc2:
-                                st.markdown("<div class='card-vs-text'>vs</div>", unsafe_allow_html = True)
+                                st.markdown("<div class='card-vs-text' style='margin-top:22px !important;'>vs</div>", unsafe_allow_html = True)
                             with sc3:
+                                st.markdown(f"<div style='font-size:0.95rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.5px; text-align:right;'>{card['m2']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<div class='card-score-right'>{card['s2']}</div>", unsafe_allow_html = True)
                                 st.markdown(f"<p class='card-proj-sub' style='text-align: right;'>{rem2}</p>", unsafe_allow_html = True)
                                 st.markdown(f"<p class='card-bench-sub' style='text-align: right;'>Bench: {card['bp2']} pts | Opt: {card['opt2']} pts</p>", unsafe_allow_html = True)
