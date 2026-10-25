@@ -2008,29 +2008,59 @@ def calculate_cbwcbw_tracker(gw_num):
                     has_positive_return = True
                     break
 
-        # Bench look-ahead: If a starter did not play and an eligible sub returned points, release manager from danger
-        if not has_positive_return and not bench_df.empty:
-            starters_out = starters_df[
-                (starters_df["State"] == "DNP") | 
-                (starters_df["sub_action"] == "Subbed Off")
-            ]
-            if not starters_out.empty:
-                for _, bp in bench_df.iterrows():
-                    if bp.get("State") in ["FT", "LIVE"]:
-                        bg = int(bp.get("G", 0))
-                        ba = int(bp.get("A", 0))
-                        b_bonus = int(bp.get("Bonus", 0))
-                        b_saves = int(bp.get("Saves", 0))
-                        b_psaved = int(bp.get("Penalties_Saved", 0))
-                        b_defcon = bool(bp.get("DEFCON_Achieved", False))
-                        b_cs = int(bp.get("CS", 0))
-                        b_pos = str(bp.get("Pos", "")).upper()
+        has_positive_return = False
+        if not final_xi.empty:
+            for _, p in final_xi.iterrows():
+                g = int(p.get("G", 0))
+                a = int(p.get("A", 0))
+                bonus = int(p.get("Bonus", 0))
+                saves = int(p.get("Saves", 0))
+                p_saved = int(p.get("Penalties_Saved", 0))
+                defcon = bool(p.get("DEFCON_Achieved", False))
+                cs = int(p.get("CS", 0))
+                pos = str(p.get("Pos", "")).upper()
+                
+                if (g > 0 or a > 0 or bonus > 0 or p_saved > 0 or defcon or 
+                    (cs > 0 and pos in ["GKP", "DEF", "MID"]) or 
+                    (saves >= 3 and pos == "GKP")):
+                    has_positive_return = True
+                    break
 
-                        if (bg > 0 or ba > 0 or b_bonus > 0 or b_psaved > 0 or b_defcon or 
-                            (b_cs > 0 and b_pos in ["GKP", "DEF", "MID"]) or 
-                            (b_saves >= 3 and b_pos == "GKP")):
-                            has_positive_return = True
-                            break
+        # Position-strict bench check: only count subs that are ACTUALLY eligible to come on
+        if not has_positive_return and not bench_df.empty:
+            gk_starter = starters_df[starters_df["Pos"] == "GKP"]
+            gk_starter_dnp = (
+                not gk_starter.empty and 
+                (gk_starter.iloc[0].get("State") == "DNP" or gk_starter.iloc[0].get("sub_action") == "Subbed Off")
+            )
+
+            for _, bp in bench_df.iterrows():
+                if bp.get("State") not in ["FT", "LIVE"]:
+                    continue
+
+                b_pos = str(bp.get("Pos", "")).upper()
+
+                # A bench GK can ONLY come on if the starting GK did not play
+                if b_pos == "GKP" and not gk_starter_dnp:
+                    continue
+
+                # An outfield sub can only count if they were actually subbed on into the lineup
+                if b_pos != "GKP" and bp.get("sub_action") != "Subbed On":
+                    continue
+
+                bg = int(bp.get("G", 0))
+                ba = int(bp.get("A", 0))
+                b_bonus = int(bp.get("Bonus", 0))
+                b_saves = int(bp.get("Saves", 0))
+                b_psaved = int(bp.get("Penalties_Saved", 0))
+                b_defcon = bool(bp.get("DEFCON_Achieved", False))
+                b_cs = int(bp.get("CS", 0))
+
+                if (bg > 0 or ba > 0 or b_bonus > 0 or b_psaved > 0 or b_defcon or 
+                    (b_cs > 0 and b_pos in ["GKP", "DEF", "MID"]) or 
+                    (b_saves >= 3 and b_pos == "GKP")):
+                    has_positive_return = True
+                    break
 
         if not has_positive_return:
             rem_players = in_play + ytp
