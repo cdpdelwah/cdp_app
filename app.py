@@ -2216,6 +2216,36 @@ def get_pulse_fixture_id(home_short, away_short, event_num = None):
 
 @st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None):
+# --- IMMEDIATE DIAGNOSTIC CHECK ---
+    # Call the Premier League fixture endpoint directly using the official match code
+    test_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=40"
+    headers = {
+        "Origin": "https://www.premierleague.com",
+        "Referer": "https://www.premierleague.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "account": "premierleague"
+    }
+    
+    pulse_id = None
+    debug_status = "Not run"
+    try:
+        r = requests.get(test_url, headers=headers, timeout=5)
+        debug_status = f"Status: {r.status_code}"
+        if r.status_code == 200:
+            items = r.json().get("content", [])
+            for fix in items:
+                teams = fix.get("teams", [])
+                if len(teams) == 2:
+                    t0 = teams[0].get("team", {}).get("club", {}).get("abbr", "")
+                    t1 = teams[1].get("team", {}).get("club", {}).get("abbr", "")
+                    if (home_short in t0 or t0 in home_short) and (away_short in t1 or t1 in away_short):
+                        pulse_id = fix.get("id")
+                        break
+    except Exception as e:
+        debug_status = f"Request Failed: {str(e)}"
+
+    st.write(f"🔍 DEBUG [{home_short} v {away_short}]: Pulse ID={pulse_id} | {debug_status}")
+    # -----------------------------------
     pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
 
     # 1. Resolve PulseLive Match ID
