@@ -3735,26 +3735,28 @@ if st.session_state.page == "Home":
             else:
                 badge = "<span style='color:#94a3b8;'>0 to play</span>"
                 
-            chip = f"""
-            <div style="display: inline-flex; align-items: center; gap: 6px; background: #0c101a; border: 1px solid #202b3d; border-radius: 6px; padding: 3px 8px; font-size: 0.78rem;">
-                <span style="color: #ffffff; font-weight: 800;">{item['alias']}</span>
-                <span style="color: #64748b; font-size: 0.70rem; font-weight: 700;">({item['div']})</span>
-                {badge}
-            </div>
-            """
+            chip = (
+                f"<div style='display:inline-flex; align-items:center; gap:6px; background:#0c101a; "
+                f"border:1px solid #202b3d; border-radius:6px; padding:3px 8px; font-size:0.78rem;'>"
+                f"<span style='color:#ffffff; font-weight:800;'>{item['alias']}</span>"
+                f"<span style='color:#64748b; font-size:0.70rem; font-weight:700;'>({item['div']})</span>"
+                f"{badge}"
+                f"</div>"
+            )
             chips_html.append(chip)
             
-        st.markdown(f"""
-        <div style="background: #090c13; border: 1px solid #ef4444; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px;">
-            <div style="font-size: 0.72rem; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
-                ⚠️ CBWCBW Danger Zone (Zero returns registered across active Starting XI)
-            </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                {''.join(chips_html)}
-            </div>
-        </div>
-        """, unsafe_allow_html = True)
-    elif cbw_count == 0:
+        chips_joined = "".join(chips_html)
+        container_html = (
+            f"<div style='background:#090c13; border:1px solid #ef4444; border-radius:8px; padding:8px 12px; margin-bottom:8px;'>"
+            f"<div style='font-size:0.72rem; font-weight:800; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;'>"
+            f"⚠️ CBWCBW Danger Zone (Zero returns registered across active Starting XI)"
+            f"</div>"
+            f"<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
+            f"{chips_joined}"
+            f"</div>"
+            f"</div>"
+        )
+        st.markdown(container_html, unsafe_allow_html = True)
         st.markdown("""
         <div style="background: #052210; border: 1px solid #22c55e; border-radius: 6px; padding: 5px 10px; margin-bottom: 8px; text-align: center; font-size: 0.78rem; font-weight: 700; color: #22c55e;">
             🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
