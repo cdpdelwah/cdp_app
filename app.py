@@ -2216,46 +2216,60 @@ def get_pulse_fixture_id(home_short, away_short, event_num = None):
 
 @st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None):
-# --- IMMEDIATE DIAGNOSTIC CHECK ---
-    # Call the Premier League fixture endpoint directly using the official match code
-    test_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=40"
+    pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
+
+    # 1. Resolve PulseLive Match ID directly using modern active fixtures
+    pulse_id = None
+    h_s = str(home_short).strip().upper() if home_short else ""
+    a_s = str(away_short).strip().upper() if away_short else ""
+
     headers = {
         "Origin": "https://www.premierleague.com",
         "Referer": "https://www.premierleague.com/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
         "account": "premierleague"
     }
-    
-    pulse_id = None
-    debug_status = "Not run"
+
+    # Query latest fixtures sorted in reverse chronological order (descending) so current Gameweek is always on page 0
     try:
-        r = requests.get(test_url, headers=headers, timeout=5)
-        debug_status = f"Status: {r.status_code}"
+        url_search = "https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=40&sort=desc"
+        r = requests.get(url_search, headers = headers, timeout = 5)
         if r.status_code == 200:
-            items = r.json().get("content", [])
-            for fix in items:
+            content = r.json().get("content", [])
+            for fix in content:
                 teams = fix.get("teams", [])
                 if len(teams) == 2:
-                    t0 = teams[0].get("team", {}).get("club", {}).get("abbr", "")
-                    t1 = teams[1].get("team", {}).get("club", {}).get("abbr", "")
-                    if (home_short in t0 or t0 in home_short) and (away_short in t1 or t1 in away_short):
+                    t0 = teams[0].get("team", {})
+                    t1 = teams[1].get("team", {})
+                    
+                    # Extract abbr, shortName, and name across both teams
+                    c0_variants = {
+                        str(t0.get("club", {}).get("abbr") or "").upper(),
+                        str(t0.get("shortName") or "").upper(),
+                        str(t0.get("name") or "").upper()
+                    } - {""}
+                    
+                    c1_variants = {
+                        str(t1.get("club", {}).get("abbr") or "").upper(),
+                        str(t1.get("shortName") or "").upper(),
+                        str(t1.get("name") or "").upper()
+                    } - {""}
+
+                    h_match = any(h_s in v or v in h_s for v in c0_variants)
+                    a_match = any(a_s in v or v in a_s for v in c1_variants)
+
+                    if h_match and a_match:
                         pulse_id = fix.get("id")
                         break
-    except Exception as e:
-        debug_status = f"Request Failed: {str(e)}"
-
-    st.write(f"🔍 DEBUG [{home_short} v {away_short}]: Pulse ID={pulse_id} | {debug_status}")
-    # -----------------------------------
-    pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
-
-    # 1. Resolve PulseLive Match ID
-    pulse_id = get_pulse_fixture_id(home_short, away_short, event_num)
+    except Exception:
+        pass
 
     # 2. Query Official Premier League Team Sheet
     if pulse_id:
         url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
         try:
-            resp = requests.get(url, headers = PULSE_HEADERS, timeout = 5)
+            resp = requests.get(url, headers = headers, timeout = 5)
             if resp.status_code == 200:
                 data = resp.json()
                 team_lists = data.get("teamLists", [])
@@ -2264,8 +2278,8 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                     h_sheet = team_lists[0]
                     a_sheet = team_lists[1]
                     
-                    # Verified published sheet once clubs submit starting XIs
-                    if len(h_sheet.get("lineup", [])) >= 11 and len(a_sheet.get("lineup", [])) >= 11:
+                    # Verified published sheet once clubs submit starting XIs (at least 11 players)
+                    if len(h_sheet.get("lineup", [])) >= 11 or len(a_sheet.get("lineup", [])) >= 11:
                         sub_events = {}
                         for ev in data.get("events", []):
                             if ev.get("type") in ["substitution", "sub"]:
