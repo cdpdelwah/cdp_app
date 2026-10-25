@@ -1943,6 +1943,82 @@ def get_all_32_teams_registry():
                 registry[e.get("entry_name", "").strip().lower()] = info
     return registry
 
+# ==============================================================================
+# CBWCBW (COULD BE WORSE, COULD BE WILL) CALCULATION ENGINE
+# ==============================================================================
+@st.cache_data(ttl = 60)
+def calculate_cbwcbw_tracker(gw_num):
+    teams_reg = get_all_32_teams_registry()
+    static_data = fetch_fpl_static()
+    all_fixtures = fetch_all_epl_fixtures()
+    live_data = fetch_live_event(gw_num)
+    
+    if not static_data or not teams_reg:
+        return 32, []
+        
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+    element_lookup = {item["id"]: item for item in static_data.get("elements", [])}
+    live_elements = live_data.get("elements", {}) if live_data else {}
+    
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        try:
+            elem_int_id = int(elem_str_id)
+        except (ValueError, TypeError):
+            continue
+        elem_obj = element_lookup.get(elem_int_id, {})
+        c_id = elem_obj.get("team")
+        if c_id:
+            m_val = e_info.get("stats", {}).get("minutes", 0)
+            club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+            
+    unique_teams = {}
+    for alias_key, info in teams_reg.items():
+        if info.get("entry_id") and info.get("alias") not in unique_teams:
+            unique_teams[info.get("alias")] = info
+            
+    at_risk_list = []
+    
+    for alias, info in unique_teams.items():
+        picks = fetch_entry_event(info.get("entry_id"), gw_num)
+        starters_df, bench_df, _, _, in_play, ytp, _, _ = evaluate_lineup(
+            picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
+        )
+        
+        active_starters = starters_df[starters_df["sub_action"] != "Subbed Off"] if not starters_df.empty else pd.DataFrame()
+        active_bench = bench_df[bench_df["sub_action"] == "Subbed On"] if not bench_df.empty else pd.DataFrame()
+        final_xi = pd.concat([active_starters, active_bench], ignore_index = True)
+        
+        has_positive_return = False
+        if not final_xi.empty:
+            for _, p in final_xi.iterrows():
+                g = int(p.get("G", 0))
+                a = int(p.get("A", 0))
+                bonus = int(p.get("Bonus", 0))
+                saves = int(p.get("Saves", 0))
+                p_saved = int(p.get("Penalties_Saved", 0))
+                defcon = bool(p.get("DEFCON_Achieved", False))
+                cs = int(p.get("CS", 0))
+                pos = str(p.get("Pos", "")).upper()
+                
+                if (g > 0 or a > 0 or bonus > 0 or p_saved > 0 or defcon or 
+                    (cs > 0 and pos in ["GKP", "DEF", "MID"]) or 
+                    (saves >= 3 and pos == "GKP")):
+                    has_positive_return = True
+                    break
+                    
+        if not has_positive_return:
+            rem_players = in_play + ytp
+            at_risk_list.append({
+                "alias": alias,
+                "div": str(info.get("league_key", "")).split(" ")[0],
+                "rem": rem_players,
+                "is_locked": (rem_players == 0 and not final_xi.empty and any(int(p.get("Mins", 0)) > 0 for _, p in final_xi.iterrows()))
+            })
+            
+    at_risk_list = sorted(at_risk_list, key = lambda x: (not x["is_locked"], x["rem"], x["alias"].lower()))
+    return len(at_risk_list), at_risk_list
 @st.cache_data(ttl = 45)
 def fetch_entry_event(entry_id, event):
     url = "https://draft.premierleague.com/api/entry/" + str(entry_id) + "/event/" + str(event)
@@ -3630,6 +3706,60 @@ if st.session_state.page == "Home":
     </html>
     """
     components.html(countdown_html, height = 135)
+# ----------------- COULD BE WORSE, COULD BE WILL TRACKER -----------------
+    cbw_count, cbw_at_risk = calculate_cbwcbw_tracker(current_gw)
+
+    banner_bg = "#1f1305" if cbw_count > 10 else ("#2a0d0d" if cbw_count > 0 else "#052210")
+    banner_border = "#f59e0b" if cbw_count > 10 else ("#ef4444" if cbw_count > 0 else "#22c55e")
+    banner_text_col = "#f59e0b" if cbw_count > 10 else ("#ef4444" if cbw_count > 0 else "#22c55e")
+    
+    st.markdown(f"""
+    <div style="background-color: {banner_bg}; border: 1px solid {banner_border}; border-radius: 8px; padding: 7px 14px; margin: 8px 0 6px 0; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 0.86rem; font-weight: 800; color: #ffffff; letter-spacing: -0.2px;">
+            🚨 Could be worse, could be Will - Tracker:
+        </div>
+        <div style="font-size: 1.05rem; font-weight: 900; color: {banner_text_col}; font-family: monospace;">
+            {cbw_count} / 32 In Danger
+        </div>
+    </div>
+    """, unsafe_allow_html = True)
+
+    # Floating danger box appears only when 10 or fewer teams remain
+    if 0 < cbw_count <= 10:
+        chips_html = []
+        for item in cbw_at_risk:
+            if item["is_locked"]:
+                badge = "<span style='color:#ef4444; font-weight:900;'>💀 LOCKED IN</span>"
+            elif item["rem"] > 0:
+                badge = f"<span style='color:#f59e0b; font-weight:700;'>⏳ {item['rem']} to play</span>"
+            else:
+                badge = "<span style='color:#94a3b8;'>0 to play</span>"
+                
+            chip = f"""
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: #0c101a; border: 1px solid #202b3d; border-radius: 6px; padding: 3px 8px; font-size: 0.78rem;">
+                <span style="color: #ffffff; font-weight: 800;">{item['alias']}</span>
+                <span style="color: #64748b; font-size: 0.70rem; font-weight: 700;">({item['div']})</span>
+                {badge}
+            </div>
+            """
+            chips_html.append(chip)
+            
+        st.markdown(f"""
+        <div style="background: #090c13; border: 1px solid #ef4444; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px;">
+            <div style="font-size: 0.72rem; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+                ⚠️ CBWCBW Danger Zone (Zero returns registered across active Starting XI)
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                {''.join(chips_html)}
+            </div>
+        </div>
+        """, unsafe_allow_html = True)
+    elif cbw_count == 0:
+        st.markdown("""
+        <div style="background: #052210; border: 1px solid #22c55e; border-radius: 6px; padding: 5px 10px; margin-bottom: 8px; text-align: center; font-size: 0.78rem; font-weight: 700; color: #22c55e;">
+            🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
+        </div>
+        """, unsafe_allow_html = True)
 
     # Scoped Home Page Scroll Indicator
     st.markdown(
