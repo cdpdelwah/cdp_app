@@ -2366,7 +2366,8 @@ def _fetch_espn_lineup_backup(home_short, away_short):
             for entry in r_obj.get("roster", []):
                 ath = entry.get("athlete", {})
                 name = ath.get("displayName") or ath.get("shortName") or "Unknown"
-                num = entry.get("jersey", "-")
+                raw_num = entry.get("jersey") or ath.get("jersey")
+                num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
                 pos_raw = str(entry.get("position", {}).get("abbreviation", "M")).upper()
                 clean_pos = "GKP" if "G" in pos_raw else ("DEF" if "D" in pos_raw else ("FWD" if "F" in pos_raw else "MID"))
                 capt = " (C)" if entry.get("captain", False) else ""
@@ -2376,12 +2377,12 @@ def _fetch_espn_lineup_backup(home_short, away_short):
 
                 if entry.get("starter", False):
                     sub_tag = " <span style='color:#f43f5e; font-weight:700;'>▼</span>" if is_subbed_out else ""
-                    starters.append((pos_order_map.get(clean_pos, 3), f"#{num} **{name}**{capt} • *{clean_pos}*{sub_tag}"))
+                    starters.append((pos_order_map.get(clean_pos, 3), f"{num_str}**{name}**{capt} • *{clean_pos}*{sub_tag}"))
                 else:
                     if is_subbed_in:
-                        subs_used.append(f"#{num} **{name}** • *{clean_pos}* <span style='color:#22c55e; font-weight:800;'>▲</span>")
+                        subs_used.append(f"{num_str}**{name}** • *{clean_pos}* <span style='color:#22c55e; font-weight:800;'>▲</span>")
                     else:
-                        subs_unused.append(f"#{num} {name} ({clean_pos})")
+                        subs_unused.append(f"{num_str}{name} ({clean_pos})")
 
             sorted_starters = [s[1] for s in sorted(starters, key = lambda x: x[0])]
             return sorted_starters, subs_used, subs_unused
@@ -2435,7 +2436,8 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                             starters = []
                             for p in sheet.get("lineup", []):
                                 p_id = p.get("id")
-                                num = p.get("shirtNum", "-")
+                                raw_num = p.get("matchShirtNumber") or p.get("shirtNum")
+                                num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
                                 name = p.get("name", {}).get("display", "Unknown")
                                 capt = " (C)" if p.get("captain", False) else ""
                                 raw_pos = str(p.get("matchPosition", "MID")).upper()
@@ -2447,7 +2449,7 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
 
                                 starters.append({
                                     "rank": pos_order_map.get(clean_pos, 3),
-                                    "text": f"#{num} **{name}**{capt} • *{clean_pos}*{sub_tag}"
+                                    "text": f"{num_str}**{name}**{capt} • *{clean_pos}*{sub_tag}"
                                 })
 
                             sorted_starters = [s["text"] for s in sorted(starters, key = lambda x: x["rank"])]
@@ -2456,12 +2458,13 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                             subs_unused = []
                             for p in sheet.get("substitutes", []):
                                 p_id = p.get("id")
-                                num = p.get("shirtNum", "-")
+                                raw_num = p.get("matchShirtNumber") or p.get("shirtNum")
+                                num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
                                 name = p.get("name", {}).get("display", "Unknown")
                                 if p_id in sub_events and sub_events[p_id][0] == "ON":
-                                    subs_used.append(f"#{num} **{name}** <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>")
+                                    subs_used.append(f"{num_str}**{name}** <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>")
                                 else:
-                                    subs_unused.append(f"#{num} {name}")
+                                    subs_unused.append(f"{num_str}{name}")
 
                             return sorted_starters, subs_used, subs_unused
 
@@ -5138,7 +5141,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                 st.markdown(f"<div class='card-mgr-title' style='text-align: right;'><span class='card-div-tag'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
             with st.expander("📋 Match Events & Confirmed Lineups"):
-                tab_events, tab_sheets, tab_bps = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs", "⭐ BPS & Bonus"])
+                tab_events, tab_sheets, tab_bps, tab_defcon = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs", "⭐ BPS & Bonus", "🔰 DefCon"])
 
                 with tab_events:
                     stats_raw = f.get("stats", [])
@@ -5379,6 +5382,110 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                         st.markdown(bps_df.to_html(escape = False), unsafe_allow_html = True)
                     else:
                         st.info("No BPS data registered for this fixture yet.")
+                with tab_defcon:
+                    defcon_map = {}
+
+                    # 1. Check fixture stats payload for defensive contributions
+                    for key_name in ["defensive_contributions", "cbit", "defcon"]:
+                        entries_dc = stats_dict.get(key_name, {}).get("h", []) + stats_dict.get(key_name, {}).get("a", [])
+                        for item in entries_dc:
+                            if isinstance(item, dict) and item.get("element"):
+                                eid = int(item["element"])
+                                val = int(item.get("value", 0))
+                                defcon_map[eid] = max(defcon_map.get(eid, 0), val)
+
+                    # 2. Check live elements stats and explain breakdown for both clubs
+                    if live_elements:
+                        for elem_str_id, e_data in live_elements.items():
+                            if not isinstance(e_data, dict):
+                                continue
+                            try:
+                                eid = int(elem_str_id)
+                            except (ValueError, TypeError):
+                                continue
+
+                            p_elem = element_lookup.get(eid, {})
+                            if p_elem.get("team") not in (h_id, a_id):
+                                continue
+
+                            e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
+                            cbi = int(e_stats.get("clearances_blocks_interceptions", 0) or e_stats.get("cbi", 0))
+                            tackles = int(e_stats.get("tackles", 0))
+                            dc_direct = int(e_stats.get("defensive_contributions", 0) or e_stats.get("defcon", 0) or e_stats.get("cbit", 0))
+                            calc_val = dc_direct if dc_direct > 0 else (cbi + tackles)
+
+                            explain_val = 0
+                            explain_raw = e_data.get("explain", [])
+                            stat_items = []
+                            if isinstance(explain_raw, list):
+                                for exp_item in explain_raw:
+                                    if isinstance(exp_item, dict):
+                                        if "stats" in exp_item and isinstance(exp_item["stats"], list):
+                                            stat_items.extend(exp_item["stats"])
+                                        else:
+                                            stat_items.append(exp_item)
+                                    elif isinstance(exp_item, list):
+                                        for sub in exp_item:
+                                            if isinstance(sub, dict):
+                                                stat_items.append(sub)
+
+                            for s_item in stat_items:
+                                if isinstance(s_item, dict):
+                                    ident = str(s_item.get("identifier", "")).lower()
+                                    if ident in ["defensive_contributions", "defcon", "cbit", "cbi"]:
+                                        explain_val = max(explain_val, int(s_item.get("value", 0)))
+
+                            best_val = max(calc_val, explain_val)
+                            if best_val > 0:
+                                defcon_map[eid] = max(defcon_map.get(eid, 0), best_val)
+
+                    defcon_list = []
+                    for eid, dc_val in defcon_map.items():
+                        if dc_val <= 0:
+                            continue
+                        p_elem = element_lookup.get(eid, {})
+                        pos_num = p_elem.get("element_type", 1)
+                        if pos_num == 1:
+                            continue
+                        c_id = p_elem.get("team")
+                        c_code = team_short_map.get(c_id, "")
+                        pos_str = {2: "DEF", 3: "MID", 4: "FWD"}.get(pos_num, "MID")
+                        target_val = 10 if pos_num == 2 else 12
+                        is_hit = dc_val >= target_val
+
+                        defcon_list.append({
+                            "Player": p_elem.get("web_name", "Unknown"),
+                            "Club": c_code,
+                            "Pos": pos_str,
+                            "DefCon": dc_val,
+                            "Target": target_val,
+                            "is_hit": is_hit
+                        })
+
+                    if defcon_list:
+                        defcon_sorted = sorted(defcon_list, key = lambda x: (x["DefCon"], x["is_hit"]), reverse = True)
+                        dc_rows = []
+                        for rank, p in enumerate(defcon_sorted, 1):
+                            if p["is_hit"]:
+                                status_html = "<span style='color:#22c55e; font-weight:800;'>+2 pts ✅</span>"
+                            else:
+                                diff = p["Target"] - p["DefCon"]
+                                status_html = f"<span style='color:#94a3b8;'>{diff} away</span>"
+
+                            dc_rows.append({
+                                "Rank": rank,
+                                "Player": p["Player"],
+                                "Club": p["Club"],
+                                "Pos": p["Pos"],
+                                "DefCon": f"{p['DefCon']} / {p['Target']}",
+                                "DefCon Bonus": status_html
+                            })
+
+                        dc_df = pd.DataFrame(dc_rows).set_index("Rank")
+                        st.caption("Live Defensive Contributions (Tackles, Interceptions, Blocks and Clearances) • Threshold: 10 for DEF, 12 for MID and FWD (+2 pts)")
+                        st.markdown(dc_df.to_html(escape = False), unsafe_allow_html = True)
+                    else:
+                        st.info("No defensive contributions registered for this fixture yet.")
 # ----------------- 5. RESULTS ANALYSER SECTION (HISTORICAL ARCHIVES) -----------------
 elif st.session_state.page == "Results Analyser":
     st.title("Results Analyser" + dash + selected_league_key)
