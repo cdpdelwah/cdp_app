@@ -2142,7 +2142,21 @@ def fetch_live_event(event):
     if resp.status_code != 200:
         return None
     return resp.json()
+@st.cache_data(ttl = 60)
+def fetch_epl_fixtures(event):
+    url = "https://fantasy.premierleague.com/api/fixtures/?event=" + str(event)
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return []
+    return resp.json()
 
+@st.cache_data(ttl = 60)
+def fetch_all_epl_fixtures():
+    url = "https://fantasy.premierleague.com/api/fixtures/"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return []
+    return resp.json()
 PULSE_HEADERS = {
     "Origin": "https://www.premierleague.com",
     "Referer": "https://www.premierleague.com/",
