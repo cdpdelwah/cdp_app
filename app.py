@@ -2214,7 +2214,6 @@ def get_pulse_fixture_id(home_short, away_short, event_num = None):
         pass
     return None
 
-@st.cache_data(ttl = 45)
 PULSE_HEADERS = {
     "Origin": "https://www.premierleague.com",
     "Referer": "https://www.premierleague.com/",
