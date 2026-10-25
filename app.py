@@ -1636,9 +1636,15 @@ def extract_defcon_achieved_flag(elem_stats, elem_explain, pos_type):
         return False
     cbi = elem_stats.get("clearances_blocks_interceptions", 0) or elem_stats.get("cbi", 0)
     tackles = elem_stats.get("tackles", 0)
+    recoveries = elem_stats.get("recoveries", 0) or elem_stats.get("ball_recoveries", 0)
     dc_direct = elem_stats.get("defensive_contributions", 0) or elem_stats.get("defcon", 0) or elem_stats.get("cbit", 0)
-    calc_val = dc_direct if dc_direct > 0 else (cbi + tackles)
     
+    if dc_direct > 0:
+        calc_val = dc_direct
+    else:
+        base_cbit = cbi + tackles
+        calc_val = base_cbit + recoveries if pos_type in [3, 4] else base_cbit
+
     is_hit = False
     explain_val = 0
     stat_items = []
@@ -5385,7 +5391,6 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                 with tab_defcon:
                     defcon_map = {}
 
-                    # 1. Check fixture stats payload for defensive contributions
                     for key_name in ["defensive_contributions", "cbit", "defcon"]:
                         entries_dc = stats_dict.get(key_name, {}).get("h", []) + stats_dict.get(key_name, {}).get("a", [])
                         for item in entries_dc:
@@ -5394,7 +5399,6 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                                 val = int(item.get("value", 0))
                                 defcon_map[eid] = max(defcon_map.get(eid, 0), val)
 
-                    # 2. Check live elements stats and explain breakdown for both clubs
                     if live_elements:
                         for elem_str_id, e_data in live_elements.items():
                             if not isinstance(e_data, dict):
@@ -5408,11 +5412,22 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                             if p_elem.get("team") not in (h_id, a_id):
                                 continue
 
+                            pos_num = p_elem.get("element_type", 1)
+                            if pos_num == 1:
+                                continue
+
                             e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
                             cbi = int(e_stats.get("clearances_blocks_interceptions", 0) or e_stats.get("cbi", 0))
                             tackles = int(e_stats.get("tackles", 0))
+                            recoveries = int(e_stats.get("recoveries", 0) or e_stats.get("ball_recoveries", 0))
+                            
                             dc_direct = int(e_stats.get("defensive_contributions", 0) or e_stats.get("defcon", 0) or e_stats.get("cbit", 0))
-                            calc_val = dc_direct if dc_direct > 0 else (cbi + tackles)
+                            
+                            if dc_direct > 0:
+                                calc_val = dc_direct
+                            else:
+                                base_cbit = cbi + tackles
+                                calc_val = base_cbit + recoveries if pos_num in [3, 4] else base_cbit
 
                             explain_val = 0
                             explain_raw = e_data.get("explain", [])
@@ -5482,7 +5497,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                             })
 
                         dc_df = pd.DataFrame(dc_rows).set_index("Rank")
-                        st.caption("Live Defensive Contributions (Tackles, Interceptions, Blocks and Clearances) • Threshold: 10 for DEF, 12 for MID and FWD (+2 pts)")
+                        st.caption("Live Defensive Contributions (CBIT for Defenders; CBIT + Recoveries for Midfielders & Forwards) • Threshold: 10 for DEF, 12 for MID and FWD (+2 pts)")
                         st.markdown(dc_df.to_html(escape = False), unsafe_allow_html = True)
                     else:
                         st.info("No defensive contributions registered for this fixture yet.")
