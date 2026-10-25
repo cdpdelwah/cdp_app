@@ -5141,7 +5141,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                 st.markdown(f"<div class='card-mgr-title' style='text-align: right;'><span class='card-div-tag'>({a_short})</span> {a_name}</div>", unsafe_allow_html = True)
 
             with st.expander("📋 Match Events & Confirmed Lineups"):
-                tab_events, tab_sheets, tab_bps, tab_defcon = st.tabs(["⚡ Goals & Match Stats", "👥 Lineups & Subs", "⭐ BPS & Bonus", "🔰 DefCon"])
+                tab_events, tab_sheets, tab_bps, tab_defcon = st.tabs(["⚡ Match Stats", "👥 Lineups & Subs", "⭐ BPS & Bonus", "🔰 DefCon"])
 
                 with tab_events:
                     stats_raw = f.get("stats", [])
