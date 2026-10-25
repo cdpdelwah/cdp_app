@@ -2007,7 +2007,31 @@ def calculate_cbwcbw_tracker(gw_num):
                     (saves >= 3 and pos == "GKP")):
                     has_positive_return = True
                     break
-                    
+
+        # Bench look-ahead: If a starter did not play and an eligible sub returned points, release manager from danger
+        if not has_positive_return and not bench_df.empty:
+            starters_out = starters_df[
+                (starters_df["State"] == "DNP") | 
+                (starters_df["sub_action"] == "Subbed Off")
+            ]
+            if not starters_out.empty:
+                for _, bp in bench_df.iterrows():
+                    if bp.get("State") in ["FT", "LIVE"]:
+                        bg = int(bp.get("G", 0))
+                        ba = int(bp.get("A", 0))
+                        b_bonus = int(bp.get("Bonus", 0))
+                        b_saves = int(bp.get("Saves", 0))
+                        b_psaved = int(bp.get("Penalties_Saved", 0))
+                        b_defcon = bool(bp.get("DEFCON_Achieved", False))
+                        b_cs = int(bp.get("CS", 0))
+                        b_pos = str(bp.get("Pos", "")).upper()
+
+                        if (bg > 0 or ba > 0 or b_bonus > 0 or b_psaved > 0 or b_defcon or 
+                            (b_cs > 0 and b_pos in ["GKP", "DEF", "MID"]) or 
+                            (b_saves >= 3 and b_pos == "GKP")):
+                            has_positive_return = True
+                            break
+
         if not has_positive_return:
             rem_players = in_play + ytp
             at_risk_list.append({
@@ -6379,7 +6403,7 @@ elif st.session_state.page == "Asterisk*":
 
         with ast_tabs[2]:
             st.subheader("All-Time Streaks & Form Records")
-            streaks_df = valid_sheets.get("qLeagueStreaks")
+            streaks_df = valid_sheets.get("qLeaguehas_positive_return = FalseStreaks")
             if streaks_df is not None:
                 st.table(format_table_floats(streaks_df.fillna("")))
             else:
