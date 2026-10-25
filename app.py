@@ -3810,12 +3810,36 @@ if st.session_state.page == "Home":
                 </div>
                 """, unsafe_allow_html = True)
 # ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES - STACKED) -----------------
+    st.markdown("""
+    <style>
+    /* Keep prediction buttons side by side on mobile instead of stacking vertically */
+    div[data-testid="stHorizontalBlock"]:has(button[key*="btn_pred_"]) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(button[key*="btn_pred_"]) > div[data-testid="stColumn"] {
+        width: auto !important;
+        min-width: 0 !important;
+        flex: 1 1 0 !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(button[key*="btn_pred_"]) > div[data-testid="stColumn"]:nth-child(2) {
+        flex: 0 0 24px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(button[key*="btn_pred_"]) button {
+        padding: 4px 6px !important;
+        font-size: 0.85rem !important;
+    }
+    </style>
+    """, unsafe_allow_html = True)
+
     st.markdown(
         f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 16px 0 8px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
         unsafe_allow_html = True
     )
 
-    # Ensure valid logged-in identifier
     current_voter = st.session_state.get("username") or logged_username or "guest"
     all_draft_preds = load_draft_predictions()
 
@@ -3873,7 +3897,7 @@ if st.session_state.page == "Home":
                                 load_draft_predictions.clear() if hasattr(load_draft_predictions, "clear") else None
                                 st.rerun()
                         with b_mid:
-                            st.markdown("<p style='text-align:center; color:#64748b; font-weight:800; font-size:0.75rem; margin-top:8px;'>vs</p>", unsafe_allow_html = True)
+                            st.markdown("<p style='text-align:center; color:#64748b; font-weight:800; font-size:0.75rem; margin:6px 0 0 0;'>vs</p>", unsafe_allow_html = True)
                         with b_r:
                             btn_t2_type = "primary" if my_vote == "2" else "secondary"
                             if st.button(alias2, key = f"btn_pred_{l_id}_{current_gw}_{m_id}_2", use_container_width = True, type = btn_t2_type):
@@ -3884,12 +3908,17 @@ if st.session_state.page == "Home":
                         col1_style = "#22c55e" if (valid_votes > 0 and pct_t1 > pct_t2) else ("#ffffff" if valid_votes > 0 else "#64748b")
                         col2_style = "#22c55e" if (valid_votes > 0 and pct_t2 > pct_t1) else ("#ffffff" if valid_votes > 0 else "#64748b")
 
+                        # Anchored name and percentage columns with vote count in the center
                         st.markdown(
-                            f"<div style='position:relative; width:100%; margin-top:6px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:600; color:#94a3b8; top:5px; pointer-events:none;'>{vote_label}</div>"
-                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
-                            f"    <span style='font-size:1.30rem; font-weight:900; color:{col1_style};'>{pct_t1}%</span>"
-                            f"    <span style='font-size:1.30rem; font-weight:900; color:{col2_style};'>{pct_t2}%</span>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:flex-end; padding:6px 2px 0 2px;'>"
+                            f"  <div style='text-align:left;'>"
+                            f"    <div style='font-size:0.75rem; font-weight:800; color:#94a3b8; text-transform:uppercase;'>{alias1}</div>"
+                            f"    <div style='font-size:1.30rem; font-weight:900; color:{col1_style}; line-height:1.1;'>{pct_t1}%</div>"
+                            f"  </div>"
+                            f"  <div style='font-size:0.75rem; font-weight:600; color:#64748b; text-align:center; padding-bottom:2px;'>{vote_label}</div>"
+                            f"  <div style='text-align:right;'>"
+                            f"    <div style='font-size:0.75rem; font-weight:800; color:#94a3b8; text-transform:uppercase;'>{alias2}</div>"
+                            f"    <div style='font-size:1.30rem; font-weight:900; color:{col2_style}; line-height:1.1;'>{pct_t2}%</div>"
                             f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
@@ -3901,11 +3930,15 @@ if st.session_state.page == "Home":
                             f"  <span style='font-size:0.75rem; color:#475569; font-weight:800;'>vs</span>"
                             f"  <span>{alias2}</span>"
                             f"</div>"
-                            f"<div style='position:relative; width:100%; margin-top:2px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:700; color:#64748b; top:3px; pointer-events:none;'>{vote_label} • FINAL</div>"
-                            f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
-                            f"    <span style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
-                            f"    <span style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:flex-end; padding:2px 2px 0 2px;'>"
+                            f"  <div style='text-align:left;'>"
+                            f"    <div style='font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase;'>{alias1}</div>"
+                            f"    <div style='font-size:1.15rem; font-weight:800; color:#94a3b8; line-height:1.1;'>{pct_t1}%</div>"
+                            f"  </div>"
+                            f"  <div style='font-size:0.74rem; font-weight:700; color:#64748b; text-align:center; padding-bottom:2px;'>{vote_label} • FINAL</div>"
+                            f"  <div style='text-align:right;'>"
+                            f"    <div style='font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase;'>{alias2}</div>"
+                            f"    <div style='font-size:1.15rem; font-weight:800; color:#94a3b8; line-height:1.1;'>{pct_t2}%</div>"
                             f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
