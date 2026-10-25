@@ -3749,7 +3749,7 @@ if st.session_state.page == "Home":
         container_html = (
             f"<div style='background:#090c13; border:1px solid #ef4444; border-radius:8px; padding:8px 12px; margin-bottom:8px;'>"
             f"<div style='font-size:0.72rem; font-weight:800; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;'>"
-            f"⚠️ CBWCBW Danger Zone (Zero returns registered across active Starting XI)"
+            f"⚠️ CBWCBW Danger Zone (Zero returns registered across Starting XI)"
             f"</div>"
             f"<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
             f"{chips_joined}"
