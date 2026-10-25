@@ -3427,13 +3427,16 @@ if st.session_state.page == "Home":
 
     col_brand, col_intro = st.columns([1, 4])
     with col_brand:
+        # Constrain crest size so it stays compact on mobile screens
+        st.markdown("<div style='max-width: 140px; margin: 0 auto 6px auto;'>", unsafe_allow_html = True)
         if logo_path.exists():
             st.image(str(logo_path), use_container_width = True)
+        st.markdown("</div>", unsafe_allow_html = True)
     with col_intro:
         st.markdown(f"""
-        <div style="margin-top: 5px;">
-            <h1 style="margin: 0.1rem 0 0.1rem 0;">CDP App {dash} Season X</h1>
-            <p style="color: #94a3b8; margin: 0; font-size: {font_body};">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
+        <div style="margin-top: 2px;">
+            <h1 style="margin: 0.1rem 0 0.1rem 0; font-size: 1.85rem; letter-spacing: -0.5px;">CDP App {dash} Season X</h1>
+            <p style="color: #94a3b8; margin: 0; font-size: 0.88rem; line-height: 1.35;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
         """, unsafe_allow_html = True)
 
@@ -3453,7 +3456,7 @@ if st.session_state.page == "Home":
         }}
         .container {{
             display: flex;
-            gap: 12px;
+            gap: 10px;
             width: 100%;
         }}
         .card {{
@@ -3461,7 +3464,7 @@ if st.session_state.page == "Home":
             background-color: #090c13;
             border: 1px solid #182030;
             border-radius: 8px;
-            padding: 12px 16px;
+            padding: 8px 12px;
             transition: border 0.2s ease;
         }}
         .card:hover {{
@@ -3471,50 +3474,50 @@ if st.session_state.page == "Home":
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
         }}
         .title {{
-            font-size: 0.88rem;
+            font-size: 0.80rem;
             font-weight: 700;
             color: #94a3b8;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }}
         .gw-tag {{
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 800;
             color: {active_theme['accent']};
             background-color: {active_theme['badge_bg']};
             border: 1px solid {active_theme['accent']};
-            padding: 2px 8px;
+            padding: 1px 6px;
             border-radius: 4px;
         }}
         .clock-row {{
             display: flex;
-            gap: 8px;
+            gap: 6px;
             align-items: baseline;
-            margin: 3px 0 4px 0;
+            margin: 2px 0;
         }}
         .num {{
             font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.7rem;
+            font-size: 1.45rem;
             font-weight: 800;
             color: #ffffff;
         }}
         .sec-num {{
             font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.7rem;
+            font-size: 1.45rem;
             font-weight: 800;
             color: {active_theme['accent']};
         }}
         .unit {{
-            font-size: 0.82rem;
+            font-size: 0.78rem;
             font-weight: 600;
             color: #64748b;
             margin-left: 1px;
         }}
         .sub {{
-            font-size: 0.86rem;
+            font-size: 0.78rem;
             color: #94a3b8;
             white-space: nowrap;
             overflow: hidden;
@@ -3523,13 +3526,13 @@ if st.session_state.page == "Home":
         @media (max-width: 600px) {{
             .container {{
                 flex-direction: column;
-                gap: 8px;
+                gap: 6px;
             }}
             .card {{
-                padding: 10px 14px;
+                padding: 7px 10px;
             }}
             .num, .sec-num {{
-                font-size: 1.45rem;
+                font-size: 1.25rem;
             }}
         }}
     </style>
@@ -3588,7 +3591,7 @@ if st.session_state.page == "Home":
 
                 const diff = target - now;
                 if (isNaN(target) || diff <= 0) {{
-                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.25rem; font-family: monospace;">DEADLINE PASSED</span>';
+                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.10rem; font-family: monospace;">DEADLINE PASSED</span>';
                     if (subEl) subEl.textContent = passedText;
                     return;
                 }}
@@ -3597,7 +3600,6 @@ if st.session_state.page == "Home":
                 const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
                 const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
                 const s = Math.floor((diff % (1000 * 60)) / 1000);
-
                 const pad = (n) => String(n).padStart(2, '0');
 
                 clockEl.innerHTML = `
@@ -3618,7 +3620,33 @@ if st.session_state.page == "Home":
     </body>
     </html>
     """
-    components.html(countdown_html, height = 230 if large_mode else 215)
+    components.html(countdown_html, height = 150)
+
+    # Scoped Home Page Scroll Indicator
+    st.markdown(
+        """
+        <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: #090c13;
+            border: 1px solid #1e293b;
+            border-radius: 20px;
+            padding: 5px 14px;
+            margin: 6px auto 10px auto;
+            width: fit-content;
+            color: #f59e0b;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        ">
+            👇 Scroll down for Community Picks & Divisions
+        </div>
+        """,
+        unsafe_allow_html = True
+    )
 
     # ----------------- DYNAMIC MATCHDAY NEWS & WIRE -----------------
     entries = league_details.get("league_entries", []) if league_details else []
