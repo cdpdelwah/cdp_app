@@ -2159,135 +2159,125 @@ def fetch_all_epl_fixtures():
         return []
     return resp.json()
 
-@st.cache_data(ttl = 1800)
-def get_pulse_fixtures_map():
-    headers = {
-        "Origin": "https://www.premierleague.com",
-        "Referer": "https://www.premierleague.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "account": "premierleague"
-    }
-    pulse_map = {}
+PULSE_HEADERS = {
+    "Origin": "https://www.premierleague.com",
+    "Referer": "https://www.premierleague.com/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "account": "premierleague"
+}
+
+@st.cache_data(ttl = 120)
+def fetch_pulse_fixture_by_teams(home_short, away_short, gameweek = None):
+    """Directly queries the active Premier League fixtures API for a single match without scraping 380 games."""
+    if not home_short or not away_short:
+        return None
+    h_target = str(home_short).strip().upper()
+    a_target = str(away_short).strip().upper()
+
+    # Query Premier League fixture list directly with small page size
+    gw_param = f"&gameweek={gameweek}" if gameweek else ""
+    url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&pageSize=40&sort=desc{gw_param}"
     try:
-        # 1. Fetch current Premier League season ID dynamically
-        s_url = "https://footballapi.pulselive.com/football/competitions/1/compseasons"
-        s_resp = requests.get(s_url, headers = headers, timeout = 5)
-        if s_resp.status_code == 200:
-            seasons = s_resp.json().get("content", [])
-            if seasons:
-                latest_season_id = int(seasons[-1].get("id"))
-                
-                # 2. Load all fixtures for the active season to map match IDs
-                f_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&compSeasons={latest_season_id}&page=0&pageSize=380"
-                f_resp = requests.get(f_url, headers = headers, timeout = 6)
-                if f_resp.status_code == 200:
-                    for fix in f_resp.json().get("content", []):
-                        fix_id = fix.get("id")
-                        gw = fix.get("gameweek", {}).get("gameweek")
-                        teams = fix.get("teams", [])
-                        if len(teams) == 2 and fix_id:
-                            t0 = teams[0].get("team", {})
-                            t1 = teams[1].get("team", {})
-                            abbr0 = (t0.get("club", {}).get("abbr") or t0.get("shortName") or "").upper()
-                            abbr1 = (t1.get("club", {}).get("abbr") or t1.get("shortName") or "").upper()
-                            if gw and abbr0 and abbr1:
-                                pulse_map[(int(gw), abbr0, abbr1)] = int(fix_id)
-                                pulse_map[(abbr0, abbr1)] = int(fix_id)
+        resp = requests.get(url, headers = PULSE_HEADERS, timeout = 5)
+        if resp.status_code == 200:
+            content = resp.json().get("content", [])
+            for fix in content:
+                teams = fix.get("teams", [])
+                if len(teams) == 2:
+                    t0 = teams[0].get("team", {})
+                    t1 = teams[1].get("team", {})
+                    c0 = (t0.get("club", {}).get("abbr") or t0.get("shortName") or "").upper()
+                    c1 = (t1.get("club", {}).get("abbr") or t1.get("shortName") or "").upper()
+                    if c0 == h_target and c1 == a_target:
+                        return fix.get("id")
     except Exception:
         pass
-    return pulse_map
+    return None
 
 @st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None):
     pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
 
-    # 1. Find the official PulseLive match ID using team short codes
-    pulse_id = None
-    if home_short and away_short:
-        h_s = str(home_short).strip().upper()
-        a_s = str(away_short).strip().upper()
-        p_map = get_pulse_fixtures_map()
-        if event_num:
-            pulse_id = p_map.get((int(event_num), h_s, a_s))
-        if not pulse_id:
-            pulse_id = p_map.get((h_s, a_s))
+    # 1. Resolve PulseLive Match ID
+    pulse_id = fetch_pulse_fixture_by_teams(home_short, away_short, event_num)
 
-    # 2. Query official Premier League team sheet (available 60-75m pre-match)
+    # 2. Query Official Premier League Team Sheets (Available 60–75m pre-kickoff)
     if pulse_id:
         url = f"https://footballapi.pulselive.com/football/fixtures/{pulse_id}"
-        headers = {
-            "Origin": "https://www.premierleague.com",
-            "Referer": "https://www.premierleague.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "account": "premierleague"
-        }
         try:
-            resp = requests.get(url, headers = headers, timeout = 5)
+            resp = requests.get(url, headers = PULSE_HEADERS, timeout = 5)
             if resp.status_code == 200:
                 data = resp.json()
                 team_lists = data.get("teamLists", [])
-                if len(team_lists) >= 2 and len(team_lists[0].get("lineup", [])) >= 11 and len(team_lists[1].get("lineup", [])) >= 11:
-                    sub_events = {}
-                    for ev in data.get("events", []):
-                        if ev.get("type") in ["substitution", "sub"]:
-                            min_str = ev.get("time", {}).get("label", "")
-                            off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
-                            on_id = ev.get("subOn", {}).get("id")
-                            if off_id:
-                                sub_events[off_id] = ("OFF", min_str)
-                            if on_id:
-                                sub_events[on_id] = ("ON", min_str)
+                
+                # Check if official lineups are submitted
+                if len(team_lists) >= 2:
+                    h_sheet = team_lists[0]
+                    a_sheet = team_lists[1]
+                    
+                    if len(h_sheet.get("lineup", [])) >= 11 or len(a_sheet.get("lineup", [])) >= 11:
+                        sub_events = {}
+                        for ev in data.get("events", []):
+                            if ev.get("type") in ["substitution", "sub"]:
+                                min_str = ev.get("time", {}).get("label", "")
+                                off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
+                                on_id = ev.get("subOn", {}).get("id")
+                                if off_id:
+                                    sub_events[off_id] = ("OFF", min_str)
+                                if on_id:
+                                    sub_events[on_id] = ("ON", min_str)
 
-                    def format_pulse_sheet(team_data):
-                        starters = []
-                        for p in team_data.get("lineup", []):
-                            p_id = p.get("id")
-                            num = p.get("shirtNum", "-")
-                            name = p.get("name", {}).get("display", "Unknown")
-                            capt = " (C)" if p.get("captain", False) else ""
-                            raw_pos = str(p.get("matchPosition", "MID")).upper()
-                            clean_pos = "GKP" if "G" in raw_pos else ("DEF" if "D" in raw_pos else ("FWD" if "F" in raw_pos else "MID"))
-                            
-                            sub_tag = ""
-                            if p_id in sub_events and sub_events[p_id][0] == "OFF":
-                                sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>"
-                            
-                            starters.append({
-                                "pos_rank": pos_order_map.get(clean_pos, 3),
-                                "text": f"#{num} **{name}**{capt} • *{clean_pos}*{sub_tag}"
-                            })
+                        def format_official_sheet(sheet):
+                            starters = []
+                            for p in sheet.get("lineup", []):
+                                p_id = p.get("id")
+                                num = p.get("shirtNum", "-")
+                                name = p.get("name", {}).get("display", "Unknown")
+                                capt = " (C)" if p.get("captain", False) else ""
+                                raw_pos = str(p.get("matchPosition", "MID")).upper()
+                                clean_pos = "GKP" if "G" in raw_pos else ("DEF" if "D" in raw_pos else ("FWD" if "F" in raw_pos else "MID"))
+                                
+                                sub_tag = ""
+                                if p_id in sub_events and sub_events[p_id][0] == "OFF":
+                                    sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>"
+                                
+                                starters.append({
+                                    "rank": pos_order_map.get(clean_pos, 3),
+                                    "text": f"#{num} **{name}**{capt} • *{clean_pos}*{sub_tag}"
+                                })
 
-                        # Sort starting XI strictly top to bottom: GK -> DEF -> MID -> FWD
-                        starters = [s["text"] for s in sorted(starters, key = lambda x: x["pos_rank"])]
+                            # Sort strictly GK -> DEF -> MID -> FWD
+                            sorted_starters = [s["text"] for s in sorted(starters, key = lambda x: x["rank"])]
 
-                        subs_used = []
-                        subs_unused = []
-                        for p in team_data.get("substitutes", []):
-                            p_id = p.get("id")
-                            num = p.get("shirtNum", "-")
-                            name = p.get("name", {}).get("display", "Unknown")
-                            if p_id in sub_events and sub_events[p_id][0] == "ON":
-                                subs_used.append(f"#{num} **{name}** <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>")
-                            else:
-                                subs_unused.append(f"#{num} {name}")
+                            subs_used = []
+                            subs_unused = []
+                            # Official 9-man bench only
+                            for p in sheet.get("substitutes", []):
+                                p_id = p.get("id")
+                                num = p.get("shirtNum", "-")
+                                name = p.get("name", {}).get("display", "Unknown")
+                                if p_id in sub_events and sub_events[p_id][0] == "ON":
+                                    subs_used.append(f"#{num} **{name}** <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>")
+                                else:
+                                    subs_unused.append(f"#{num} {name}")
 
-                        return starters, subs_used, subs_unused
+                            return sorted_starters, subs_used, subs_unused
 
-                    h_start, h_used, h_un = format_pulse_sheet(team_lists[0])
-                    a_start, a_used, a_un = format_pulse_sheet(team_lists[1])
+                        h_start, h_used, h_un = format_official_sheet(h_sheet)
+                        a_start, a_used, a_un = format_official_sheet(a_sheet)
 
-                    return {
-                        "has_lineups": True,
-                        "home_starters": h_start, "home_subs_used": h_used, "home_subs_unused": h_un,
-                        "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
-                    }
+                        return {
+                            "has_lineups": True,
+                            "home_starters": h_start, "home_subs_used": h_used, "home_subs_unused": h_un,
+                            "away_starters": a_start, "away_subs_used": a_used, "away_subs_unused": a_un
+                        }
         except Exception:
             pass
 
-    # 3. Live In-Play Fallback (Only active once match starts and players have minutes)
+    # 3. In-Play Fallback (Only active once match starts and minutes > 0)
     if live_elements and element_lookup and home_team_id and away_team_id:
-        def extract_club_lineup(target_club_id):
+        def extract_fallback_lineup(target_club_id):
             club_players = []
             for elem_str_id, e_info in live_elements.items():
                 try:
@@ -2312,8 +2302,6 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                     })
 
             played = [p for p in club_players if p["mins"] > 0]
-            unplayed = [p for p in club_players if p["mins"] == 0]
-
             if not played:
                 return [], [], []
 
@@ -2327,9 +2315,7 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
             starting_outfield = sorted_outfield[:10]
             subs_outfield = sorted_outfield[10:]
 
-            starters_raw = starting_gk + starting_outfield
-            starters_sorted = sorted(starters_raw, key = lambda x: (x["pos_rank"], -x["mins"]))
-
+            starters_sorted = sorted(starting_gk + starting_outfield, key = lambda x: (x["pos_rank"], -x["mins"]))
             effective_full_mins = max([p["mins"] for p in starters_sorted]) if starters_sorted else match_minute
             effective_full_mins = max(effective_full_mins, match_minute)
 
@@ -2340,20 +2326,17 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                     sub_off_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {p['mins']}'</span>"
                 starters_formatted.append(f"**{p['name']}** • *{p['pos']}* ({p['mins']}', {p['pts']} pts){sub_off_tag}")
 
-            subs_used_raw = other_gks + subs_outfield
-            subs_used_sorted = sorted(subs_used_raw, key = lambda x: (x["pos_rank"], -x["mins"]))
+            subs_used_sorted = sorted(other_gks + subs_outfield, key = lambda x: (x["pos_rank"], -x["mins"]))
             subs_used_formatted = []
             for p in subs_used_sorted:
                 on_minute = max(1, effective_full_mins - p["mins"])
                 subs_used_formatted.append(f"**{p['name']}** • *{p['pos']}* ({p['mins']}', {p['pts']} pts) <span style='color:#22c55e; font-weight:800;'>▲ {on_minute}'</span>")
 
-            unused_sorted = sorted(unplayed, key = lambda x: x["pos_rank"])
-            subs_unused_formatted = [f"{p['name']} ({p['pos']})" for p in unused_sorted]
+            # CRITICAL FIX: Do NOT dump entire unplayed squad into bench. Only confirmed bench from PulseLive or empty.
+            return starters_formatted, subs_used_formatted, []
 
-            return starters_formatted, subs_used_formatted, subs_unused_formatted
-
-        h_start, h_used, h_un = extract_club_lineup(home_team_id)
-        a_start, a_used, a_un = extract_club_lineup(away_team_id)
+        h_start, h_used, h_un = extract_fallback_lineup(home_team_id)
+        a_start, a_used, a_un = extract_fallback_lineup(away_team_id)
 
         if h_start or a_start:
             return {
@@ -4884,6 +4867,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
         if st.button("🔄 Refresh EPL", use_container_width = True):
             fetch_epl_fixtures.clear()
             fetch_live_event.clear()
+            fetch_pulse_fixture_by_teams.clear()
             fetch_premier_league_match_lineup.clear()
             st.rerun()
 
