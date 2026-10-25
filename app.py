@@ -908,6 +908,23 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             raw_opp = str(p.get("next_3", "")).split(",")[0]
         opp_str = str(raw_opp).strip() if pd.notna(raw_opp) else ""
 
+# Determine injury/suspension badge
+        raw_status = str(p.get("status", "a")).lower()
+        chance_val = p.get("chance_of_playing_next_round")
+        
+        status_flag_html = ""
+        if raw_status in ["i", "s", "u"]:
+            status_flag_html = '<div class="injury-badge badge-red">+</div>'
+        elif raw_status == "d":
+            try:
+                c_num = int(chance_val) if pd.notna(chance_val) else 50
+            except (ValueError, TypeError):
+                c_num = 50
+
+            if c_num <= 25:
+                status_flag_html = '<div class="injury-badge badge-orange">+</div>'
+            else:
+                status_flag_html = '<div class="injury-badge badge-yellow">+</div>'
         badges = []
         if g > 0:
             badges.append(f"{g}⚽" if g > 1 else "⚽")
@@ -934,6 +951,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         return {
             "name": str(p.get("Player", "Unknown")),
             "pos": str(p.get("Pos", "")),
+            "status_flag": status_flag_html,
             "club": club_code,
             "opp": opp_str,
             "club_bg": c_palette["bg"],
@@ -1100,6 +1118,38 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             box-shadow: 0 0 12px #22c55e, 0 4px 10px rgba(0, 0, 0, 0.6);
         }}
 
+        .injury-badge {
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            width: 13px;
+            height: 13px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.60rem;
+            font-weight: 900;
+            line-height: 1;
+            z-index: 5;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(0, 0, 0, 0.5);
+        }
+
+        .badge-red {
+            background-color: #ef4444;
+            color: #ffffff;
+        }
+
+        .badge-orange {
+            background-color: #f97316;
+            color: #ffffff;
+        }
+
+        .badge-yellow {
+            background-color: #eab308;
+            color: #000000;
+        }
         .state-pulse {{
             position: absolute;
             top: -2px;
@@ -1367,6 +1417,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                 <div class="player-card {card_state_cls}" onclick="showPlayerStats('{p['name']}')">
                     <div class="club-token" style="background-color: {p['club_bg']}; color: {p['club_text']}; border-color: {p['club_border']};">
                         {p['club']}
+                        {p['status_flag']}
                         {pulse_html}
                         {sub_tag}
                     </div>
@@ -1426,6 +1477,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             <div class="player-card {card_state_cls}" onclick="showPlayerStats('{bp['name']}')">
                 <div class="club-token" style="background-color: {bp['club_bg']}; color: {bp['club_text']}; border-color: {bp['club_border']};">
                     {bp['club']}
+                    {bp['status_flag']}
                     {pulse_html}
                     {sub_tag}
                 </div>
@@ -1710,6 +1762,8 @@ def evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos
             "Club": team_map.get(club_id, ""),
             "Opp": opp_str,
             "club_id": club_id,
+            "status": raw_elem.get("status", "a"),
+            "chance_of_playing_next_round": raw_elem.get("chance_of_playing_next_round"),
             "State": state,
             "Mins": mins,
             "Pts": pts,
