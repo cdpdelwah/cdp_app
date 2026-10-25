@@ -2165,49 +2165,51 @@ PULSE_HEADERS = {
     "account": "premierleague"
 }
 
-@st.cache_data(ttl = 900)
+@st.cache_data(ttl = 300)
 def get_pulse_fixture_id(home_short, away_short, event_num = None):
+    """Directly finds the match ID from PulseLive by querying the current season fixtures without page limits."""
     h_s = str(home_short).strip().upper() if home_short else ""
     a_s = str(away_short).strip().upper() if away_short else ""
     if not h_s or not a_s:
         return None
 
     try:
-        s_url = "https://footballapi.pulselive.com/football/competitions/1/compseasons?page=0&pageSize=40"
+        # 1. Grab all competition seasons with page=0 and pageSize=100 so the active 2026/27 season is captured
+        s_url = "https://footballapi.pulselive.com/football/competitions/1/compseasons?page=0&pageSize=100"
         s_resp = requests.get(s_url, headers = PULSE_HEADERS, timeout = 5)
-        latest_season_id = None
-        if s_resp.status_code == 200:
-            seasons = s_resp.json().get("content", [])
-            if seasons:
-                latest_season_id = int(max(seasons, key = lambda x: int(x.get("id", 0)))["id"])
+        if s_resp.status_code != 200:
+            return None
+        
+        seasons = s_resp.json().get("content", [])
+        if not seasons:
+            return None
+            
+        # Current active season has the highest numerical compSeason id
+        active_season_id = int(max(seasons, key = lambda x: int(x.get("id", 0)))["id"])
 
-        gw_param = f"&gameweek={event_num}" if event_num else ""
-        season_param = f"&compSeasons={latest_season_id}" if latest_season_id else ""
-        
-        f_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1{season_param}{gw_param}&page=0&pageSize=20"
-        f_resp = requests.get(f_url, headers = PULSE_HEADERS, timeout = 6)
-        
-        fixtures_list = []
-        if f_resp.status_code == 200:
-            fixtures_list = f_resp.json().get("content", [])
-        
-        if not fixtures_list:
-            f_url_fb = f"https://footballapi.pulselive.com/football/fixtures?comps=1{season_param}&page=0&pageSize=40"
-            f_resp_fb = requests.get(f_url_fb, headers = PULSE_HEADERS, timeout = 6)
-            if f_resp_fb.status_code == 200:
-                fixtures_list = f_resp_fb.json().get("content", [])
+        # 2. Query fixtures for the active season in 40-match windows to find today's match
+        # Games scheduled today will be near the current gameweek
+        for page_idx in range(10):  # Scans through season pages safely
+            f_url = f"https://footballapi.pulselive.com/football/fixtures?comps=1&compSeasons={active_season_id}&page={page_idx}&pageSize=40&sort=asc"
+            f_resp = requests.get(f_url, headers = PULSE_HEADERS, timeout = 5)
+            if f_resp.status_code != 200:
+                break
+                
+            content = f_resp.json().get("content", [])
+            if not content:
+                break
 
-        for fix in fixtures_list:
-            teams = fix.get("teams", [])
-            if len(teams) == 2:
-                t0 = teams[0].get("team", {})
-                t1 = teams[1].get("team", {})
-                
-                c0_abbr = (t0.get("club", {}).get("abbr") or t0.get("shortName") or t0.get("name") or "").upper()
-                c1_abbr = (t1.get("club", {}).get("abbr") or t1.get("shortName") or t1.get("name") or "").upper()
-                
-                if (h_s in c0_abbr or c0_abbr in h_s) and (a_s in c1_abbr or c1_abbr in a_s):
-                    return fix.get("id")
+            for fix in content:
+                teams = fix.get("teams", [])
+                if len(teams) == 2:
+                    t0 = teams[0].get("team", {})
+                    t1 = teams[1].get("team", {})
+                    
+                    c0 = (t0.get("club", {}).get("abbr") or t0.get("shortName") or t0.get("name") or "").upper()
+                    c1 = (t1.get("club", {}).get("abbr") or t1.get("shortName") or t1.get("name") or "").upper()
+                    
+                    if (h_s in c0 or c0 in h_s) and (a_s in c1 or c1 in a_s):
+                        return fix.get("id")
     except Exception:
         pass
     return None
@@ -2232,7 +2234,8 @@ def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, awa
                     h_sheet = team_lists[0]
                     a_sheet = team_lists[1]
                     
-                    if len(h_sheet.get("lineup", [])) >= 11 or len(a_sheet.get("lineup", [])) >= 11:
+                    # Verified published sheet once clubs submit starting XIs
+                    if len(h_sheet.get("lineup", [])) >= 11 and len(a_sheet.get("lineup", [])) >= 11:
                         sub_events = {}
                         for ev in data.get("events", []):
                             if ev.get("type") in ["substitution", "sub"]:
