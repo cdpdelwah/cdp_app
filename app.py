@@ -3631,31 +3631,6 @@ if st.session_state.page == "Home":
     """
     components.html(countdown_html, height = 135)
 
-    st.markdown(
-        """
-        <div style="
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            background: #090c13;
-            border: 1px solid #1e293b;
-            border-radius: 20px;
-            padding: 4px 14px;
-            margin: 4px auto 8px auto;
-            width: fit-content;
-            color: #f59e0b;
-            font-size: 0.76rem;
-            font-weight: 800;
-            letter-spacing: 0.4px;
-            text-transform: uppercase;
-        ">
-            👇 Scroll down for Community Picks & Divisions
-        </div>
-        """,
-        unsafe_allow_html = True
-    )
-
     # Scoped Home Page Scroll Indicator
     st.markdown(
         """
