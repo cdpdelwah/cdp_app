@@ -1118,7 +1118,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             box-shadow: 0 0 12px #22c55e, 0 4px 10px rgba(0, 0, 0, 0.6);
         }}
 
-        .injury-badge {
+        .injury-badge {{
             position: absolute;
             top: -3px;
             right: -3px;
@@ -1134,22 +1134,22 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             z-index: 5;
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
             border: 1px solid rgba(0, 0, 0, 0.5);
-        }
+        }}
 
-        .badge-red {
+        .badge-red {{
             background-color: #ef4444;
             color: #ffffff;
-        }
+        }}
 
-        .badge-orange {
+        .badge-orange {{
             background-color: #f97316;
             color: #ffffff;
-        }
+        }}
 
-        .badge-yellow {
+        .badge-yellow {{
             background-color: #eab308;
             color: #000000;
-        }
+        }}
         .state-pulse {{
             position: absolute;
             top: -2px;
