@@ -3724,7 +3724,7 @@ if st.session_state.page == "Home":
     </div>
     """, unsafe_allow_html = True)
 
-    # Floating danger box appears only when 10 or fewer teams remain
+    # Strictly mutually exclusive display states
     if 0 < cbw_count <= 10:
         chips_html = []
         for item in cbw_at_risk:
@@ -3757,37 +3757,12 @@ if st.session_state.page == "Home":
             f"</div>"
         )
         st.markdown(container_html, unsafe_allow_html = True)
+    elif cbw_count == 0:
         st.markdown("""
         <div style="background: #052210; border: 1px solid #22c55e; border-radius: 6px; padding: 5px 10px; margin-bottom: 8px; text-align: center; font-size: 0.78rem; font-weight: 700; color: #22c55e;">
             🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
         </div>
         """, unsafe_allow_html = True)
-
-    # Scoped Home Page Scroll Indicator
-    st.markdown(
-        """
-        <div style="
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            background: #090c13;
-            border: 1px solid #1e293b;
-            border-radius: 20px;
-            padding: 5px 14px;
-            margin: 6px auto 10px auto;
-            width: fit-content;
-            color: #f59e0b;
-            font-size: 0.78rem;
-            font-weight: 800;
-            letter-spacing: 0.4px;
-            text-transform: uppercase;
-        ">
-            👇 Scroll down for Community Picks & Divisions
-        </div>
-        """,
-        unsafe_allow_html = True
-    )
 
     # ----------------- DYNAMIC MATCHDAY NEWS & WIRE -----------------
     entries = league_details.get("league_entries", []) if league_details else []
