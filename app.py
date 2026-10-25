@@ -3425,18 +3425,35 @@ if st.session_state.page == "Home":
         lineup_iso = ""
         waiver_iso = ""
 
+    # Scoped style strictly targeting the home header and trimming mobile dead space
+    st.markdown("""
+    <style>
+    /* Remove default Streamlit top whitespace */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+    }
+    /* Restrict the Season X crest width on all screens */
+    div[data-testid="stColumn"]:has(#home-crest-anchor) img {
+        max-width: 140px !important;
+        width: 140px !important;
+        height: auto !important;
+        margin: 0 auto !important;
+        display: block !important;
+    }
+    </style>
+    """, unsafe_allow_html = True)
+
     col_brand, col_intro = st.columns([1, 4])
     with col_brand:
-        # Constrain crest size so it stays compact on mobile screens
-        st.markdown("<div style='max-width: 140px; margin: 0 auto 6px auto;'>", unsafe_allow_html = True)
+        st.markdown("<div id='home-crest-anchor'></div>", unsafe_allow_html = True)
         if logo_path.exists():
-            st.image(str(logo_path), use_container_width = True)
-        st.markdown("</div>", unsafe_allow_html = True)
+            st.image(str(logo_path), width = 140)
     with col_intro:
         st.markdown(f"""
-        <div style="margin-top: 2px;">
-            <h1 style="margin: 0.1rem 0 0.1rem 0; font-size: 1.85rem; letter-spacing: -0.5px;">CDP App {dash} Season X</h1>
-            <p style="color: #94a3b8; margin: 0; font-size: 0.88rem; line-height: 1.35;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
+        <div style="margin-top: 0px;">
+            <h1 style="margin: 0; font-size: 1.8rem; letter-spacing: -0.5px;">CDP App {dash} Season X</h1>
+            <p style="color: #94a3b8; margin: 2px 0 0 0; font-size: 0.88rem; line-height: 1.3;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
         """, unsafe_allow_html = True)
 
@@ -3456,7 +3473,7 @@ if st.session_state.page == "Home":
         }}
         .container {{
             display: flex;
-            gap: 10px;
+            gap: 8px;
             width: 100%;
         }}
         .card {{
@@ -3464,11 +3481,7 @@ if st.session_state.page == "Home":
             background-color: #090c13;
             border: 1px solid #182030;
             border-radius: 8px;
-            padding: 8px 12px;
-            transition: border 0.2s ease;
-        }}
-        .card:hover {{
-            border-color: {active_theme['accent']};
+            padding: 6px 10px;
         }}
         .header {{
             display: flex;
@@ -3477,19 +3490,18 @@ if st.session_state.page == "Home":
             margin-bottom: 2px;
         }}
         .title {{
-            font-size: 0.80rem;
+            font-size: 0.78rem;
             font-weight: 700;
             color: #94a3b8;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
         }}
         .gw-tag {{
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             font-weight: 800;
             color: {active_theme['accent']};
             background-color: {active_theme['badge_bg']};
             border: 1px solid {active_theme['accent']};
-            padding: 1px 6px;
+            padding: 1px 5px;
             border-radius: 4px;
         }}
         .clock-row {{
@@ -3499,25 +3511,24 @@ if st.session_state.page == "Home":
             margin: 2px 0;
         }}
         .num {{
-            font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.45rem;
+            font-family: monospace;
+            font-size: 1.35rem;
             font-weight: 800;
             color: #ffffff;
         }}
         .sec-num {{
-            font-family: "SF Mono", "Consolas", "Courier New", monospace;
-            font-size: 1.45rem;
+            font-family: monospace;
+            font-size: 1.35rem;
             font-weight: 800;
             color: {active_theme['accent']};
         }}
         .unit {{
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             font-weight: 600;
             color: #64748b;
-            margin-left: 1px;
         }}
         .sub {{
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             color: #94a3b8;
             white-space: nowrap;
             overflow: hidden;
@@ -3526,13 +3537,13 @@ if st.session_state.page == "Home":
         @media (max-width: 600px) {{
             .container {{
                 flex-direction: column;
-                gap: 6px;
+                gap: 5px;
             }}
             .card {{
-                padding: 7px 10px;
+                padding: 6px 8px;
             }}
             .num, .sec-num {{
-                font-size: 1.25rem;
+                font-size: 1.15rem;
             }}
         }}
     </style>
@@ -3550,7 +3561,7 @@ if st.session_state.page == "Home":
                 <span class="num">--<span class="unit">m</span></span>
                 <span class="sec-num">--<span class="unit">s</span></span>
             </div>
-            <div id="waiver-sub" class="sub">Calculating local time...</div>
+            <div id="waiver-sub" class="sub">Calculating...</div>
         </div>
         <div class="card">
             <div class="header">
@@ -3563,7 +3574,7 @@ if st.session_state.page == "Home":
                 <span class="num">--<span class="unit">m</span></span>
                 <span class="sec-num">--<span class="unit">s</span></span>
             </div>
-            <div id="lineup-sub" class="sub">Calculating local time...</div>
+            <div id="lineup-sub" class="sub">Calculating...</div>
         </div>
     </div>
 
@@ -3573,12 +3584,10 @@ if st.session_state.page == "Home":
 
         const opts = {{ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }};
         if (!isNaN(waiverTarget)) {{
-            const wLocal = new Date(waiverTarget).toLocaleDateString(undefined, opts);
-            document.getElementById("waiver-sub").textContent = wLocal + " (24h before kickoff)";
+            document.getElementById("waiver-sub").textContent = new Date(waiverTarget).toLocaleDateString(undefined, opts) + " (24h before KO)";
         }}
         if (!isNaN(lineupTarget)) {{
-            const lLocal = new Date(lineupTarget).toLocaleDateString(undefined, opts);
-            document.getElementById("lineup-sub").textContent = lLocal + " (90m before kickoff)";
+            document.getElementById("lineup-sub").textContent = new Date(lineupTarget).toLocaleDateString(undefined, opts) + " (90m before KO)";
         }}
 
         function updateClocks() {{
@@ -3591,7 +3600,7 @@ if st.session_state.page == "Home":
 
                 const diff = target - now;
                 if (isNaN(target) || diff <= 0) {{
-                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.10rem; font-family: monospace;">DEADLINE PASSED</span>';
+                    clockEl.innerHTML = '<span style="color: #ef4444; font-weight: 800; font-size: 1.05rem; font-family: monospace;">DEADLINE PASSED</span>';
                     if (subEl) subEl.textContent = passedText;
                     return;
                 }}
@@ -3610,8 +3619,8 @@ if st.session_state.page == "Home":
                 `;
             }}
 
-            renderTimer(waiverTarget, 'waiver-clock', 'waiver-sub', 'Waivers Processed • Free Agency Active');
-            renderTimer(lineupTarget, 'lineup-clock', 'lineup-sub', 'Lineups Locked • Round in Progress');
+            renderTimer(waiverTarget, 'waiver-clock', 'waiver-sub', 'Waivers Processed');
+            renderTimer(lineupTarget, 'lineup-clock', 'lineup-sub', 'Lineups Locked');
         }}
 
         updateClocks();
@@ -3620,7 +3629,32 @@ if st.session_state.page == "Home":
     </body>
     </html>
     """
-    components.html(countdown_html, height = 150)
+    components.html(countdown_html, height = 135)
+
+    st.markdown(
+        """
+        <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: #090c13;
+            border: 1px solid #1e293b;
+            border-radius: 20px;
+            padding: 4px 14px;
+            margin: 4px auto 8px auto;
+            width: fit-content;
+            color: #f59e0b;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        ">
+            👇 Scroll down for Community Picks & Divisions
+        </div>
+        """,
+        unsafe_allow_html = True
+    )
 
     # Scoped Home Page Scroll Indicator
     st.markdown(
@@ -3802,10 +3836,12 @@ if st.session_state.page == "Home":
                 """, unsafe_allow_html = True)
 # ----------------- HOME COMMUNITY PREDICTIONS (ALL 4 LEAGUES - STACKED) -----------------
     st.markdown(
-        f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 18px 0 10px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
+        f"<p style='font-size:0.95rem; font-weight:800; text-transform:uppercase; color:#94a3b8; letter-spacing:0.6px; margin: 16px 0 8px 0;'>🗳️ Community Match Predictions • Gameweek {current_gw}</p>", 
         unsafe_allow_html = True
     )
 
+    # Ensure valid logged-in identifier
+    current_voter = st.session_state.get("username") or logged_username or "guest"
     all_draft_preds = load_draft_predictions()
 
     all_leagues_info = [
@@ -3828,7 +3864,7 @@ if st.session_state.page == "Home":
         if not gw_div_matches:
             continue
 
-        st.markdown(f"<p style='font-size:0.80rem; font-weight:800; color:{l_color}; text-transform:uppercase; letter-spacing:0.5px; margin:14px 0 6px 0;'>{l_name}</p>", unsafe_allow_html = True)
+        st.markdown(f"<p style='font-size:0.80rem; font-weight:800; color:{l_color}; text-transform:uppercase; letter-spacing:0.5px; margin:12px 0 4px 0;'>{l_name}</p>", unsafe_allow_html = True)
         
         pred_cols = st.columns(len(gw_div_matches))
 
@@ -3841,7 +3877,7 @@ if st.session_state.page == "Home":
 
             m_id = str(m.get("id", f"{m.get('league_entry_1')}_{m.get('league_entry_2')}"))
             m_votes = all_draft_preds.get(str(l_id), {}).get(str(current_gw), {}).get(m_id, {})
-            my_vote = m_votes.get(logged_username)
+            my_vote = m_votes.get(current_voter)
             
             v_t1 = sum(1 for v in m_votes.values() if v == "1")
             v_t2 = sum(1 for v in m_votes.values() if v == "2")
@@ -3858,41 +3894,43 @@ if st.session_state.page == "Home":
                         with b_l:
                             btn_t1_type = "primary" if my_vote == "1" else "secondary"
                             if st.button(alias1, key = f"btn_pred_{l_id}_{current_gw}_{m_id}_1", use_container_width = True, type = btn_t1_type):
-                                record_draft_prediction(l_id, current_gw, m_id, logged_username, "1")
+                                record_draft_prediction(l_id, current_gw, m_id, current_voter, "1")
+                                load_draft_predictions.clear() if hasattr(load_draft_predictions, "clear") else None
                                 st.rerun()
                         with b_mid:
                             st.markdown("<p style='text-align:center; color:#64748b; font-weight:800; font-size:0.75rem; margin-top:8px;'>vs</p>", unsafe_allow_html = True)
                         with b_r:
                             btn_t2_type = "primary" if my_vote == "2" else "secondary"
                             if st.button(alias2, key = f"btn_pred_{l_id}_{current_gw}_{m_id}_2", use_container_width = True, type = btn_t2_type):
-                                record_draft_prediction(l_id, current_gw, m_id, logged_username, "2")
+                                record_draft_prediction(l_id, current_gw, m_id, current_voter, "2")
+                                load_draft_predictions.clear() if hasattr(load_draft_predictions, "clear") else None
                                 st.rerun()
 
                         col1_style = "#22c55e" if (valid_votes > 0 and pct_t1 > pct_t2) else ("#ffffff" if valid_votes > 0 else "#64748b")
                         col2_style = "#22c55e" if (valid_votes > 0 and pct_t2 > pct_t1) else ("#ffffff" if valid_votes > 0 else "#64748b")
 
                         st.markdown(
-                            f"<div style='position:relative; width:100%; margin-top:8px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:600; color:#94a3b8; top:6px; pointer-events:none;'>{vote_label}</div>"
+                            f"<div style='position:relative; width:100%; margin-top:6px;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:600; color:#94a3b8; top:5px; pointer-events:none;'>{vote_label}</div>"
                             f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
-                            f"    <span style='font-size:1.35rem; font-weight:900; color:{col1_style};'>{pct_t1}%</span>"
-                            f"    <span style='font-size:1.35rem; font-weight:900; color:{col2_style};'>{pct_t2}%</span>"
+                            f"    <span style='font-size:1.30rem; font-weight:900; color:{col1_style};'>{pct_t1}%</span>"
+                            f"    <span style='font-size:1.30rem; font-weight:900; color:{col2_style};'>{pct_t2}%</span>"
                             f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
                         )
                     else:
                         st.markdown(
-                            f"<div style='display:flex; justify-content:space-between; align-items:center; font-size:0.95rem; font-weight:800; color:#ffffff; padding:0 2px; margin-bottom:8px;'>"
+                            f"<div style='display:flex; justify-content:space-between; align-items:center; font-size:0.92rem; font-weight:800; color:#ffffff; padding:0 2px; margin-bottom:6px;'>"
                             f"  <span>{alias1}</span>"
                             f"  <span style='font-size:0.75rem; color:#475569; font-weight:800;'>vs</span>"
                             f"  <span>{alias2}</span>"
                             f"</div>"
-                            f"<div style='position:relative; width:100%; margin-top:4px;'>"
-                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.75rem; font-weight:700; color:#64748b; top:4px; pointer-events:none;'>{vote_label} • FINAL</div>"
+                            f"<div style='position:relative; width:100%; margin-top:2px;'>"
+                            f"  <div style='position:absolute; width:100%; text-align:center; font-size:0.74rem; font-weight:700; color:#64748b; top:3px; pointer-events:none;'>{vote_label} • FINAL</div>"
                             f"  <div style='display:flex; justify-content:space-between; align-items:baseline; padding:0 2px;'>"
-                            f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
-                            f"    <span style='font-size:1.20rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
+                            f"    <span style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t1}%</span>"
+                            f"    <span style='font-size:1.15rem; font-weight:800; color:#94a3b8;'>{pct_t2}%</span>"
                             f"  </div>"
                             f"</div>",
                             unsafe_allow_html = True
