@@ -919,7 +919,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         chance_val = p.get("chance_of_playing_next_round")
 
         status_flag_html = ""
-        if raw_status in ["i", "s", "u"]:
+        if raw_status == "s":
+            status_flag_html = '<div class="suspension-badge"></div>'
+        elif raw_status in ["i", "u"]:
             status_flag_html = '<div class="injury-badge badge-red">+</div>'
         elif raw_status == "d":
             try:
@@ -1139,7 +1141,19 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         .player-card.state-live .club-token {{
             box-shadow: 0 0 12px #22c55e, 0 4px 10px rgba(0, 0, 0, 0.6);
         }}
-
+        .suspension-badge {{
+            position: absolute;
+            top: -4px;
+            right: -3px;
+            width: 9px;
+            height: 13px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            border: 1px solid #ffffff;
+            border-radius: 2px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+            transform: rotate(8deg);
+            z-index: 5;
+        }}
         .injury-badge {{
             position: absolute;
             top: -3px;
