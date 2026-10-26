@@ -4682,7 +4682,7 @@ elif st.session_state.page == "Cup & Bucket":
     cup_df.columns = [str(c).strip().title() for c in cup_df.columns]
     cup_df["Week"] = pd.to_numeric(cup_df["Week"], errors = "coerce").fillna(0).astype(int)
 
-    all_cup_gws = sorted(list(set(cup_df["Week"].unique()) - {0}))
+    all_cup_gws = sorted([int(w) for w in cup_df["Week"].unique() if pd.notna(w) and int(w) > 0])
 
     # Determine current active gameweek to default selections
     matches = league_details.get("matches", []) if league_details else []
@@ -4690,15 +4690,15 @@ elif st.session_state.page == "Cup & Bucket":
     unplayed_events = sorted(list({m["event"] for m in matches if not m.get("finished", False)})) if matches else []
     current_gw = unplayed_events[0] if unplayed_events else (all_events[-1] if all_events else 1)
 
-    default_cup_gw_idx = 0
+    # Smart default: If current_gw is a Cup round, show it.
+    # Otherwise, stay locked to the most recent completed Cup round (e.g. in GW 9, stays on GW 8)
     if current_gw in all_cup_gws:
-        default_cup_gw_idx = all_cup_gws.index(current_gw)
+        target_default_cup_gw = current_gw
     else:
-        future_gws = [gw for gw in all_cup_gws if gw >= current_gw]
-        if future_gws:
-            default_cup_gw_idx = all_cup_gws.index(future_gws[0])
-        elif all_cup_gws:
-            default_cup_gw_idx = len(all_cup_gws) - 1
+        past_cup_gws = [w for w in all_cup_gws if w <= current_gw]
+        target_default_cup_gw = max(past_cup_gws) if past_cup_gws else all_cup_gws[0]
+
+    default_cup_gw_idx = all_cup_gws.index(target_default_cup_gw) if target_default_cup_gw in all_cup_gws else 0
 
     cup_tab_live, cup_tab_standings, cup_tab_analyser = st.tabs([
         "🔴 Live Cup Matchday",
@@ -4733,6 +4733,37 @@ elif st.session_state.page == "Cup & Bucket":
             gw_epl_fixtures = [f for f in all_fixtures if f.get("event") == active_cup_gw] if all_fixtures else []
             gw_officially_finished = all(f.get("finished", False) for f in gw_epl_fixtures) if gw_epl_fixtures else False
 
+            # Pre-fetch all 32 managers in parallel with ThreadPoolExecutor
+            round_managers = set()
+            for _, r in gw_cup_matches.iterrows():
+                t1_val = str(r.get("Team 1", "")).strip()
+                t2_val = str(r.get("Team 2", "")).strip()
+                if t1_val and t1_val.lower() != "nan":
+                    round_managers.add(t1_val)
+                if t2_val and t2_val.lower() != "nan":
+                    round_managers.add(t2_val)
+
+            manager_scores_cache = {}
+            with st.spinner(f"Loading Cup & Bucket Gameweek {active_cup_gw} scores..."):
+                with ThreadPoolExecutor(max_workers = 10) as executor:
+                    future_to_mgr = {executor.submit(resolve_cup_match_score, m, active_cup_gw): m for m in round_managers}
+                    for future in future_to_mgr:
+                        mgr = future_to_mgr[future]
+                        try:
+                            manager_scores_cache[mgr] = future.result()
+                        except Exception:
+                            manager_scores_cache[mgr] = {
+                                "score": 0, "proj": 0.0, "high_player": 0,
+                                "starters": pd.DataFrame(), "bench": pd.DataFrame(),
+                                "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+                            }
+
+            empty_score_fallback = {
+                "score": 0, "proj": 0.0, "high_player": 0,
+                "starters": pd.DataFrame(), "bench": pd.DataFrame(),
+                "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+            }
+
             live_cup_cards = []
             for _, r in gw_cup_matches.iterrows():
                 m1_alias = str(r.get("Team 1", "")).strip()
@@ -4740,8 +4771,8 @@ elif st.session_state.page == "Cup & Bucket":
                 if not m1_alias or not m2_alias or m1_alias.lower() == "nan" or m2_alias.lower() == "nan":
                     continue
 
-                r1 = resolve_cup_match_score(m1_alias, active_cup_gw)
-                r2 = resolve_cup_match_score(m2_alias, active_cup_gw)
+                r1 = manager_scores_cache.get(m1_alias, empty_score_fallback)
+                r2 = manager_scores_cache.get(m2_alias, empty_score_fallback)
 
                 info1 = teams_registry.get(m1_alias.lower(), {})
                 info2 = teams_registry.get(m2_alias.lower(), {})
