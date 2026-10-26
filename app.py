@@ -5970,8 +5970,40 @@ elif st.session_state.page == "Squad Analyser":
     my_squad = merged[merged["owner"] == selected_entry_id].copy()
     waiver_pool = merged[merged["owner"].isna() | (merged["owner"] == 0)].copy()
 
+    # Gameweek selector for future planning
+    future_gws = [gw for gw in all_events if gw >= current_gw]
+    if not future_gws:
+        future_gws = [current_gw]
+
+    gw_sel_col, _ = st.columns([1, 2])
+    with gw_sel_col:
+        target_gw = st.selectbox(
+            "Select Gameweek to Plan Ahead",
+            future_gws,
+            index = 0,
+            format_func = lambda x: f"Gameweek {x} (Active Round)" if x == current_gw else f"Gameweek {x}",
+            key = f"squad_target_gw_{selected_entry_id}"
+        )
+
+    def get_single_gw_fixture(team_id, gw_num):
+        if not all_fixtures or not team_id:
+            return "TBD"
+        team_fixes = [
+            f for f in all_fixtures
+            if f.get("event") == gw_num and (f.get("team_h") == team_id or f.get("team_a") == team_id)
+        ]
+        if not team_fixes:
+            return "Blank"
+        labels = []
+        for f in team_fixes:
+            if f.get("team_h") == team_id:
+                labels.append(f"{team_map.get(f.get('team_a'), 'OPP')} (H)")
+            else:
+                labels.append(f"{team_map.get(f.get('team_h'), 'OPP')} (A)")
+        return ", ".join(labels)
+
     tab_lineup, tab_waivers = st.tabs([
-        "Recommended Lineup",
+        f"Recommended Lineup (GW {target_gw})",
         "Tailored Waivers & Suggested Drops"
     ])
 
@@ -5989,15 +6021,15 @@ elif st.session_state.page == "Squad Analyser":
                 base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
 
                 season_mins = float(r["minutes"] or 0.0)
-                if current_gw > 3:
-                    expected_min_ratio = season_mins / max(1.0, float(current_gw * 60))
+                if target_gw > 3:
+                    expected_min_ratio = season_mins / max(1.0, float(target_gw * 60))
                     if expected_min_ratio < 0.6:
                         base_exp = base_exp * 0.8
 
                 if base_exp <= 0 and avail > 0:
                     base_exp = 2.0
 
-                fdr_mult = get_fdr_multiplier(r["team"], current_gw, all_fixtures)
+                fdr_mult = get_fdr_multiplier(r["team"], target_gw, all_fixtures)
                 return round(base_exp * fdr_mult, 1)
 
             def compute_starter_rating(r):
@@ -6008,6 +6040,7 @@ elif st.session_state.page == "Squad Analyser":
 
             my_squad["proj_gw"] = my_squad.apply(compute_gw_projection, axis = 1)
             my_squad["starter_rating"] = my_squad.apply(compute_starter_rating, axis = 1)
+            my_squad["gw_opp"] = my_squad["team"].map(lambda t: get_single_gw_fixture(t, target_gw))
             sorted_squad = my_squad.sort_values(by = ["proj_gw", "starter_rating"], ascending = [False, False])
             
             gks = sorted_squad[sorted_squad["position"] == "GKP"]
@@ -6059,8 +6092,8 @@ elif st.session_state.page == "Squad Analyser":
             
             xi_proj_sum = round(float(xi_df["proj_gw"].sum()), 1)
             sel_manager_name = entry_options.get(selected_entry_id, "Selected Squad").split(" (")[0]
-            st.subheader(f"Recommended Lineup: {sel_manager_name} ({xi_proj_sum:.1f} proj pts)")
-            st.caption(f"Gameweek {current_gw} projected points shown on pitch tokens • Bench ordered GK then DEF then MID then FWD.")
+            st.subheader(f"Recommended Lineup: {sel_manager_name} • GW {target_gw} ({xi_proj_sum:.1f} proj pts)")
+            st.caption(f"Gameweek {target_gw} fixture difficulty and projected points shown • Bench ordered GK then DEF then MID then FWD.")
 
             squad_tab_pitch, squad_tab_table = st.tabs(["⚽ Pitch View", "📋 Table View"])
 
@@ -6070,8 +6103,36 @@ elif st.session_state.page == "Squad Analyser":
                     "position": "Pos",
                     "club": "Club",
                     "proj_gw": "Proj",
-                    "total_points": "Pts"
+                    "total_points": "Pts",
+                    "gw_opp": "Opp"
                 })
+                s_starters_df["G"] = 0
+                s_starters_df["A"] = 0
+                s_starters_df["CS"] = 0
+                s_starters_df["GC"] = 0
+                s_starters_df["Bonus"] = 0
+                s_starters_df["Mins"] = 0
+                s_starters_df["State"] = "YTP"
+                s_starters_df["sub_action"] = ""
+
+                s_bench_df = pd.DataFrame(bench_rows) if bench_rows else pd.DataFrame()
+                if not s_bench_df.empty:
+                    s_bench_df = s_bench_df.rename(columns = {
+                        "web_name": "Player",
+                        "position": "Pos",
+                        "club": "Club",
+                        "proj_gw": "Proj",
+                        "total_points": "Pts",
+                        "gw_opp": "Opp"
+                    })
+                    s_bench_df["G"] = 0
+                    s_bench_df["A"] = 0
+                    s_bench_df["CS"] = 0
+                    s_bench_df["GC"] = 0
+                    s_bench_df["Bonus"] = 0
+                    s_bench_df["Mins"] = 0
+                    s_bench_df["State"] = "YTP"
+                    s_bench_df["sub_action"] = ""
                 s_starters_df["G"] = 0
                 s_starters_df["A"] = 0
                 s_starters_df["CS"] = 0
