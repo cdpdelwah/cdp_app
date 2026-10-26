@@ -892,7 +892,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     def prepare_player_dict(p, is_bench = False):
         club_code = str(p.get("Club", "PL")).strip().upper()
         c_palette = CLUB_PALETTE.get(club_code, {"bg": "#1e293b", "text": "#f8fafc", "border": accent_color})
-        
+
         g = int(p.get("G", 0))
         a = int(p.get("A", 0))
         cs = int(p.get("CS", 0))
@@ -915,10 +915,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             raw_opp = str(p.get("next_3", "")).split(",")[0]
         opp_str = str(raw_opp).strip() if pd.notna(raw_opp) else ""
 
-# Determine injury/suspension badge
         raw_status = str(p.get("status", "a")).lower()
         chance_val = p.get("chance_of_playing_next_round")
-        
+
         status_flag_html = ""
         if raw_status in ["i", "s", "u"]:
             status_flag_html = '<div class="injury-badge badge-red">+</div>'
@@ -932,6 +931,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                 status_flag_html = '<div class="injury-badge badge-orange">+</div>'
             else:
                 status_flag_html = '<div class="injury-badge badge-yellow">+</div>'
+
         badges = []
         if g > 0:
             badges.append(f"{g}⚽" if g > 1 else "⚽")
@@ -1002,6 +1002,14 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
 
     dugout_players = sorted(dugout_players, key = lambda x: POS_ORDER.get(x["pos"], 99))
 
+    # Split substitutes into balanced rows if there are more than 5 on the bench
+    dugout_rows_split = []
+    if len(dugout_players) > 5:
+        mid_point = (len(dugout_players) + 1) // 2
+        dugout_rows_split = [dugout_players[:mid_point], dugout_players[mid_point:]]
+    else:
+        dugout_rows_split = [dugout_players] if dugout_players else []
+
     gks = [p for p in pitch_players if p["pos"] == "GKP"]
     defs = [p for p in pitch_players if p["pos"] == "DEF"]
     mids = [p for p in pitch_players if p["pos"] == "MID"]
@@ -1019,10 +1027,13 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
 
     token_size = "44px" if is_large else "38px"
     badge_font = "0.78rem" if is_large else "0.70rem"
-    name_font = "0.85rem" if is_large else "0.74rem"
-    opp_font = "0.74rem" if is_large else "0.66rem"
-    pts_font = "0.88rem" if is_large else "0.76rem"
+    name_font = "0.74rem" if is_large else "0.68rem"
+    opp_font = "0.72rem" if is_large else "0.64rem"
+    pts_font = "0.84rem" if is_large else "0.74rem"
     left_banner_label = "Season Total" if show_proj_pill else "Match Total"
+
+    # Dynamic height: gives additional vertical room if the dugout is split into 2 rows
+    dynamic_container_height = 800 if len(dugout_players) > 5 else 710
 
     pitch_html = f"""
     <!DOCTYPE html>
@@ -1084,9 +1095,11 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             margin: 2px 0;
         }}
 
+        /* Strict flex equality anchors every icon dead-centre on its pitch position regardless of name width */
         .player-card {{
-            flex: 1 1 0;
-            min-width: 0;
+            flex: 1 1 0px !important;
+            width: 0 !important;
+            min-width: 0 !important;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1097,8 +1110,9 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
         }}
 
         .player-card:hover, .player-card:active {{
-            transform: scale(1.12);
+            transform: scale(1.10);
             opacity: 1.0 !important;
+            z-index: 20 !important;
         }}
 
         .player-card.state-ytp {{
@@ -1119,6 +1133,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             border-width: 2px;
             border-style: solid;
             position: relative;
+            margin: 0 auto;
         }}
 
         .player-card.state-live .club-token {{
@@ -1143,20 +1158,10 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             border: 1px solid rgba(0, 0, 0, 0.5);
         }}
 
-        .badge-red {{
-            background-color: #ef4444;
-            color: #ffffff;
-        }}
+        .badge-red {{ background-color: #ef4444; color: #ffffff; }}
+        .badge-orange {{ background-color: #f97316; color: #ffffff; }}
+        .badge-yellow {{ background-color: #eab308; color: #000000; }}
 
-        .badge-orange {{
-            background-color: #f97316;
-            color: #ffffff;
-        }}
-
-        .badge-yellow {{
-            background-color: #eab308;
-            color: #000000;
-        }}
         .state-pulse {{
             position: absolute;
             top: -2px;
@@ -1198,21 +1203,28 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             border-radius: 3px;
         }}
 
+        /* Floating, unclipped name pill anchored dead-center under the icon */
         .player-name-pill {{
-            background: rgba(9, 12, 19, 0.92);
+            background: rgba(9, 12, 19, 0.94);
             border: 1px solid #1e293b;
             color: #ffffff;
             font-size: {name_font};
             font-weight: 700;
-            padding: 2px 5px;
+            padding: 1px 4px;
             border-radius: 4px;
             margin-top: 3px;
-            white-space: nowrap;
+            white-space: normal;
+            word-wrap: break-word;
+            line-height: 1.15;
             letter-spacing: -0.2px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 96px;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+            width: max-content;
+            min-width: 48px;
+            max-width: 110px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: visible;
         }}
 
         .player-opp-pill {{
@@ -1220,7 +1232,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             color: #cbd5e1;
             font-size: {opp_font};
             font-weight: 700;
-            padding: 1px 5px;
+            padding: 1px 4px;
             border-radius: 3px;
             margin-top: 1px;
             white-space: nowrap;
@@ -1233,11 +1245,12 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             color: {accent_color};
             font-size: {pts_font};
             font-weight: 800;
-            padding: 1px 6px;
+            padding: 1px 5px;
             border-radius: 4px;
             margin-top: 1px;
             min-width: 28px;
             text-align: center;
+            white-space: nowrap;
         }}
 
         .player-card.state-live .player-pts-pill {{
@@ -1258,7 +1271,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             background: #060911;
             border: 1px solid #182030;
             border-radius: 8px;
-            padding: 8px 12px;
+            padding: 8px 10px;
         }}
 
         .dugout-header {{
@@ -1276,6 +1289,12 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             display: flex;
             justify-content: space-around;
             align-items: center;
+            width: 100%;
+            margin-bottom: 8px;
+        }}
+
+        .dugout-row:last-child {{
+            margin-bottom: 0;
         }}
 
         .modal-overlay {{
@@ -1402,8 +1421,6 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
             <rect x="135" y="475" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
             <circle cx="180" cy="455" r="2.5" fill="#ffffff"/>
         </svg>
-
-        <!-- Active Lineup Formation Lines -->
     """
 
     for row_info in formation_rows:
@@ -1452,50 +1469,49 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
                         <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;" id="m-proj">0.0</div>
                     </div>
                 </div>
-                <div class="stat-grid" id="m-grid">
-                    <!-- Populated dynamically via JS -->
-                </div>
+                <div class="stat-grid" id="m-grid"></div>
                 <div id="m-sub-status" style="font-size:0.78rem; color:#94a3b8; text-align:center; font-weight:600; margin-top:6px;"></div>
             </div>
         </div>
     </div>
 
-    <!-- Subs Tray -->
+    <!-- Subs Tray (Supports Multi-Row Dugout) -->
     <div class="dugout-container">
         <div class="dugout-header">
             <span>🛡️ Subs</span>
         </div>
-        <div class="dugout-row">
     """
 
-    for bp in dugout_players:
-        card_state_cls = "state-ft" if show_proj_pill else ("state-live" if bp["state"] == "LIVE" else ("state-ytp" if bp["state"] == "YTP" else "state-ft"))
-        pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
-        sub_tag = ''
-        if bp["sub_action"] == "Subbed On":
-            sub_tag = '<span class="sub-tag-on">ON</span>'
-        elif bp["sub_action"] == "Subbed Off":
-            sub_tag = '<span class="sub-tag-off">OFF</span>'
+    for d_row in dugout_rows_split:
+        pitch_html += '<div class="dugout-row">\n'
+        for bp in d_row:
+            card_state_cls = "state-ft" if show_proj_pill else ("state-live" if bp["state"] == "LIVE" else ("state-ytp" if bp["state"] == "YTP" else "state-ft"))
+            pulse_html = '<div class="state-pulse"></div>' if bp["state"] == "LIVE" else ''
+            sub_tag = ''
+            if bp["sub_action"] == "Subbed On":
+                sub_tag = '<span class="sub-tag-on">ON</span>'
+            elif bp["sub_action"] == "Subbed Off":
+                sub_tag = '<span class="sub-tag-off">OFF</span>'
 
-        event_icon = f'<span style="margin-left:2px;">{bp["events_str"]}</span>' if bp["events_str"] else ''
-        opp_html = f'<div class="player-opp-pill">{bp["opp"]}</div>' if bp.get("opp") else ''
+            event_icon = f'<span style="margin-left:2px;">{bp["events_str"]}</span>' if bp["events_str"] else ''
+            opp_html = f'<div class="player-opp-pill">{bp["opp"]}</div>' if bp.get("opp") else ''
 
-        pitch_html += f"""
-            <div class="player-card {card_state_cls}" onclick="showPlayerStats('{bp['name']}')">
-                <div class="club-token" style="background-color: {bp['club_bg']}; color: {bp['club_text']}; border-color: {bp['club_border']};">
-                    {bp['club']}
-                    {bp['status_flag']}
-                    {pulse_html}
-                    {sub_tag}
+            pitch_html += f"""
+                <div class="player-card {card_state_cls}" onclick="showPlayerStats('{bp['name']}')">
+                    <div class="club-token" style="background-color: {bp['club_bg']}; color: {bp['club_text']}; border-color: {bp['club_border']};">
+                        {bp['club']}
+                        {bp['status_flag']}
+                        {pulse_html}
+                        {sub_tag}
+                    </div>
+                    <div class="player-name-pill">{bp['name']}</div>
+                    {opp_html}
+                    <div class="player-pts-pill">{bp['pill_text']}{event_icon}</div>
                 </div>
-                <div class="player-name-pill">{bp['name']}</div>
-                {opp_html}
-                <div class="player-pts-pill">{bp['pill_text']}{event_icon}</div>
-            </div>
-        """
+            """
+        pitch_html += '</div>\n'
 
     pitch_html += f"""
-        </div>
     </div>
 
     <script>
@@ -1577,7 +1593,7 @@ def render_pitch_component(manager_alias, starters_df, bench_df, accent_color, i
     </html>
     """
 
-    components.html(pitch_html, height = 710)
+    components.html(pitch_html, height = dynamic_container_height)
 def render_lineup_container(alias, starters_df, bench_df, bp_pts, opt_pts, accent_color, is_large, score = None):
     score_tag = f" ({score} pts)" if score is not None else ""
     st.markdown(f"### {alias}{score_tag}")
