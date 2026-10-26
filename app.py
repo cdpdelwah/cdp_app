@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import math
 import functools
@@ -2366,11 +2367,29 @@ def _fetch_espn_lineup_backup(home_short, away_short):
             "away_starters": a_s, "away_subs_used": a_u, "away_subs_unused": a_un
         }
     return None
-
+@st.cache_data(ttl = 604800)
+def fetch_finished_match_lineup(fpl_fixture_code, home_team_id, away_team_id, event_num, home_short, away_short):
+    return fetch_premier_league_match_lineup(
+        fpl_fixture_code = fpl_fixture_code,
+        home_team_id = home_team_id,
+        away_team_id = away_team_id,
+        live_elements = None,
+        element_lookup = None,
+        match_minute = 90,
+        event_num = event_num,
+        home_short = home_short,
+        away_short = away_short,
+        kickoff_time = None,
+        is_started = False,
+        is_finished = True
+    )
 @st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None, kickoff_time = None, is_started = False, is_finished = False):
     pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
-
+    if is_finished and live_elements is not None:
+        cached_finished = fetch_finished_match_lineup(fpl_fixture_code, home_team_id, away_team_id, event_num, home_short, away_short)
+        if cached_finished and cached_finished.get("has_lineups"):
+            return cached_finished
     # Lineup window check: only query feeds if match has started, is finished, or is within 90m of KO
     is_within_window = False
     if is_started or is_finished:
@@ -5078,7 +5097,37 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
 
     st.subheader(f"Premier League Matches • GW {selected_epl_gw}")
 
-    for f in fixtures:
+    lineups_by_fix_id = {}
+    with st.spinner(f"Loading Gameweek {selected_epl_gw} matchday data and team sheets..."):
+        def load_lineup_for_fix(f_obj):
+            h_tid = f_obj.get("team_h")
+            a_tid = f_obj.get("team_a")
+            h_st = team_short_map.get(h_tid, "H")
+            a_st = team_short_map.get(a_tid, "A")
+            is_fin = f_obj.get("finished", False) or f_obj.get("finished_provisional", False)
+            is_start = f_obj.get("started", False)
+            m_mins = f_obj.get("minutes", 90 if is_fin else 45)
+
+            sheet = fetch_premier_league_match_lineup(
+                fpl_fixture_code = f_obj.get("code"),
+                home_team_id = h_tid,
+                away_team_id = a_tid,
+                live_elements = live_elements,
+                element_lookup = element_lookup,
+                match_minute = m_mins,
+                event_num = selected_epl_gw,
+                home_short = h_st,
+                away_short = a_st,
+                kickoff_time = f_obj.get("kickoff_time"),
+                is_started = is_start,
+                is_finished = is_fin
+            )
+            return f_obj.get("id"), sheet
+
+        with ThreadPoolExecutor(max_workers = 10) as executor:
+            results = executor.map(load_lineup_for_fix, fixtures)
+            for fix_id, sheet_res in results:
+                lineups_by_fix_id[fix_id] = sheet_res
         h_id = f.get("team_h")
         a_id = f.get("team_a")
         h_name = team_name_map.get(h_id, "Home Team")
@@ -5251,21 +5300,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                             st.caption("No registered match events yet.")
 
                 with tab_sheets:
-                    curr_match_mins = f.get("minutes", 90 if is_finished else 45)
-                    sheet_data = fetch_premier_league_match_lineup(
-                        fpl_fixture_code = pulse_code,
-                        home_team_id = h_id,
-                        away_team_id = a_id,
-                        live_elements = live_elements,
-                        element_lookup = element_lookup,
-                        match_minute = curr_match_mins,
-                        event_num = selected_epl_gw,
-                        home_short = h_short,
-                        away_short = a_short,
-                        kickoff_time = f.get("kickoff_time"),
-                        is_started = is_started,
-                        is_finished = is_finished
-                    )
+                    sheet_data = lineups_by_fix_id.get(f.get("id"))
                     
                     if sheet_data and sheet_data.get("has_lineups"):
                         col_h_team, col_a_team = st.columns(2)
