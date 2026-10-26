@@ -399,15 +399,14 @@ NAV_ITEMS = [
     "LIVE SCORES",
     "EPL Scores & Lineups",
     "Results Analyser",
+    "Standings",
     "Cup & Bucket",
     "Squad Analyser",
     "Trade Hub",
     "GACS",
     "Disciplinary",
-    "Standings",
     "Newsletters",
     "Power Rankings",
-    "Records",
     "Asterisk*"
 ]
 
@@ -450,6 +449,10 @@ if st.session_state.get("league_init_user") != logged_username:
 def on_league_select_change():
     st.session_state["user_changed_league"] = True
 
+def set_home_league(target_league):
+    st.session_state["active_competition"] = target_league
+    st.session_state["user_changed_league"] = True
+
 selected_league_key = st.sidebar.selectbox(
     "Active Competition",
     league_keys,
@@ -461,9 +464,12 @@ if manager_home_league:
     if selected_league_key == manager_home_league:
         st.sidebar.caption(f"⭐ {selected_league_key.split(' ')[0]} is your home league")
     else:
-        if st.sidebar.button(f"🏠 Jump to My League ({manager_home_league.split(' ')[0]})", use_container_width = True):
-            st.session_state["active_competition"] = manager_home_league
-            st.rerun()
+        st.sidebar.button(
+            f"🏠 Jump to My League ({manager_home_league.split(' ')[0]})",
+            use_container_width = True,
+            on_click = set_home_league,
+            args = (manager_home_league,)
+        )
 else:
     st.sidebar.caption("👑 Admin View (No default league locked)")
 
@@ -3273,18 +3279,20 @@ def calculate_group_standings():
         else:
             zone = "🪣 Bucket (25 to 32)"
 
+        # Shorten zone labels for mobile screens so text does not wrap
+        short_zone = "🏆 Top 8" if rank <= 8 else ("⚔️ 9 - 24" if rank <= 24 else "🪣 25 - 32")
+
         display_table.append({
             "Pos": rank,
-            "Zone": zone,
+            "Zone": short_zone,
             "Manager": item["Manager"],
-            "Team": item["Team"],
             "Div": item["Division"],
             "W": item["W"],
             "D": item["D"],
             "L": item["L"],
             "PF": item["PF"],
             "Pts": item["Pts"],
-            "Best XI Pt": item["High_Score"]
+            "Best XI": item["High_Score"]
         })
 
     return display_table
@@ -6099,18 +6107,28 @@ elif st.session_state.page == "Trade Hub":
 
     # 1. Initialize data storage for trade listings
     trade_file = base_dir / "trade_block.json"
+
     def load_trade_block():
+        if "persisted_trade_block" in st.session_state and st.session_state["persisted_trade_block"]:
+            return st.session_state["persisted_trade_block"]
         if trade_file.exists():
             try:
                 with open(trade_file, "r", encoding = "utf-8") as tf:
-                    return json.load(tf)
+                    data = json.load(tf)
+                    if isinstance(data, list):
+                        st.session_state["persisted_trade_block"] = data
+                        return data
             except Exception:
-                return []
+                pass
         return []
 
     def save_trade_block(listings):
-        with open(trade_file, "w", encoding = "utf-8") as tf:
-            json.dump(listings, tf, indent = 2, ensure_ascii = False)
+        st.session_state["persisted_trade_block"] = listings
+        try:
+            with open(trade_file, "w", encoding = "utf-8") as tf:
+                json.dump(listings, tf, indent = 2, ensure_ascii = False)
+        except Exception:
+            pass
 
     trade_listings = load_trade_block()
 
@@ -6586,16 +6604,20 @@ elif st.session_state.page == "Standings":
     )
 
     standings_tab1, standings_tab2, standings_tab3, standings_tab4 = st.tabs([
-        "🟢 Live Standings (In Play)",
+        "🟢 Live Standings",
         f"📊 Official Standings (GW {last_completed_gw})",
         "🎯 GACS",
-        "🟨🟥 Disciplinary"
+        "🟨🟥 Discipline"
     ])
 
     with standings_tab1:
         st.subheader("Live Standings " + dash + " Active Round (GW " + str(current_gw) + ")")
         st.caption("Updated continuously with active points. Movement indicators show changes against previous official rank.")
-        st.markdown(live_table_df.to_html(escape=False), unsafe_allow_html=True)
+        
+        # Strip raw inline HTML spans for mobile table parity, while keeping clean directional indicators
+        clean_live_df = live_table_df.copy()
+        clean_live_df["Move"] = clean_live_df["Move"].str.replace(r"<[^>]*>", "", regex = True)
+        st.table(clean_live_df)
 
     with standings_tab2:
         st.subheader("Official Standings " + dash + " Frozen Table (GW " + str(last_completed_gw) + ")")
@@ -6682,67 +6704,6 @@ elif st.session_state.page == "Power Rankings":
             for idx, s_name in enumerate(sheet_names):
                 with p_tabs[idx]:
                     render_sheet_content(valid_sheets[s_name])
-
-# ----------------- 12. RECORDS SECTION -----------------
-elif st.session_state.page == "Records":
-    top_r1, top_r2 = st.columns([5, 1])
-    with top_r1:
-        st.title("🏆 Hall of Records" + dash + selected_league_key)
-        st.caption("Official archive of league highs, historic triumphs and statistical anomalies")
-    with top_r2:
-        st.write("")
-        if st.button("🔄 Refresh Records", use_container_width = True):
-            st.rerun()
-
-    filename, sheets_dict, raw_bytes = load_records_data()
-
-    if not filename or sheets_dict is None:
-        st.warning("No records spreadsheet found. Ensure 'records.ods' is committed inside your Assets folder.")
-    elif isinstance(sheets_dict, Exception):
-        st.error(f"Error reading {filename}: {str(sheets_dict)}")
-        st.info("Ensure **odfpy** is added to your requirements.txt file so Streamlit can read .ods files.")
-    else:
-        st.download_button(
-            label = f"📥 Download Archive ({filename})",
-            data = raw_bytes,
-            file_name = filename,
-            mime = "application/octet-stream",
-            use_container_width = False
-        )
-        st.write("")
-
-        valid_sheets = {name: df for name, df in sheets_dict.items() if df is not None and not df.empty}
-        sheet_names = list(valid_sheets.keys())
-
-        def render_record_content(df_raw):
-            df_formatted = format_table_floats(df_raw.fillna(""))
-            cleaned_cols = []
-            counts = {}
-            for c in df_formatted.columns:
-                col_name = str(c).strip()
-                if col_name in counts:
-                    counts[col_name] += 1
-                    cleaned_cols.append(f"{col_name}_{counts[col_name]}")
-                else:
-                    counts[col_name] = 0
-                    cleaned_cols.append(col_name)
-            df_formatted.columns = cleaned_cols
-            if len(df_formatted.columns) > 1:
-                first_col = df_formatted.columns[0]
-                st.table(df_formatted.set_index(first_col))
-            else:
-                st.table(df_formatted)
-
-        if not sheet_names:
-            st.info("No records recorded in this sheet.")
-        elif len(sheet_names) == 1:
-            render_record_content(valid_sheets[sheet_names[0]])
-        else:
-            record_tabs = st.tabs(sheet_names)
-            for idx, s_name in enumerate(sheet_names):
-                with record_tabs[idx]:
-                    render_record_content(valid_sheets[s_name])
-
 
 
 # ----------------- ASTERISK* LEAGUE HISTORY & ARCHIVES -----------------
