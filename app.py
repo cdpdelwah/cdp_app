@@ -5128,6 +5128,7 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
             results = executor.map(load_lineup_for_fix, fixtures)
             for fix_id, sheet_res in results:
                 lineups_by_fix_id[fix_id] = sheet_res
+    for f in fixtures:
         h_id = f.get("team_h")
         a_id = f.get("team_a")
         h_name = team_name_map.get(h_id, "Home Team")
