@@ -2383,6 +2383,72 @@ def fetch_finished_match_lineup(fpl_fixture_code, home_team_id, away_team_id, ev
         is_started = False,
         is_finished = True
     )
+def build_epl_pitch_dfs(starters_list, subs_used_list, subs_unused_list, club_short):
+    """Converts confirmed EPL match sheet player lists into DataFrames for render_pitch_component."""
+    import re
+
+    def parse_entry(entry_str, is_sub = False, sub_action = ""):
+        clean = re.sub(r"<[^>]*>", "", str(entry_str)).strip()
+
+        pos = "MID"
+        left_part = clean
+        if "•" in clean:
+            parts = clean.split("•")
+            left_part = parts[0].strip()
+            raw_pos = parts[1].replace("*", "").strip() if len(parts) > 1 else "MID"
+            pos = "GKP" if "GK" in raw_pos else ("DEF" if "DEF" in raw_pos else ("FWD" if "FWD" in raw_pos else "MID"))
+        else:
+            for cand in ["GKP", "DEF", "MID", "FWD", "GK"]:
+                if f"({cand})" in clean or f"*{cand}*" in clean:
+                    pos = "GKP" if "GK" in cand else cand
+                    left_part = clean.replace(f"({cand})", "").replace(f"*{cand}*", "").strip()
+                    break
+
+        name = left_part
+        if name.startswith("#"):
+            parts_num = name.split(" ", 1)
+            name = parts_num[1] if len(parts_num) > 1 else parts_num[0]
+        name = name.replace("**", "").replace("(C)", "").strip()
+
+        return {
+            "Player": name,
+            "Pos": pos,
+            "Club": club_short,
+            "Pts": 0,
+            "Proj": 0.0,
+            "Mins": 90 if not is_sub else 0,
+            "State": "FT",
+            "G": 0,
+            "A": 0,
+            "CS": 0,
+            "GC": 0,
+            "Bonus": 0,
+            "Saves": 0,
+            "Penalties_Saved": 0,
+            "Penalties_Missed": 0,
+            "YC": 0,
+            "RC": 0,
+            "DEFCON_Achieved": False,
+            "sub_action": sub_action,
+            "status": "a",
+            "chance_of_playing_next_round": 100,
+            "Opp": ""
+        }
+
+    starters_records = []
+    for s in starters_list:
+        sub_act = "Subbed Off" if "▼" in str(s) else ""
+        starters_records.append(parse_entry(s, is_sub = False, sub_action = sub_act))
+
+    bench_records = []
+    for su in subs_used_list:
+        bench_records.append(parse_entry(su, is_sub = True, sub_action = "Subbed On"))
+    for sun in subs_unused_list:
+        bench_records.append(parse_entry(sun, is_sub = True, sub_action = ""))
+
+    starters_df = pd.DataFrame(starters_records) if starters_records else pd.DataFrame()
+    bench_df = pd.DataFrame(bench_records) if bench_records else pd.DataFrame()
+    return starters_df, bench_df
 @st.cache_data(ttl = 45)
 def fetch_premier_league_match_lineup(fpl_fixture_code, home_team_id = None, away_team_id = None, live_elements = None, element_lookup = None, match_minute = 90, event_num = None, home_short = None, away_short = None, kickoff_time = None, is_started = False, is_finished = False):
     pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
@@ -5335,39 +5401,63 @@ elif st.session_state.page in ["EPL Scores", "EPL SCORES", "EPL Scores & Lineups
                     sheet_data = lineups_by_fix_id.get(f.get("id"))
                     
                     if sheet_data and sheet_data.get("has_lineups"):
-                        col_h_team, col_a_team = st.columns(2)
-                        
-                        with col_h_team:
-                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; margin-bottom:4px;'>{h_name} Starting XI</p>", unsafe_allow_html = True)
-                            h_starters = sheet_data.get("home_starters", [])
-                            st.markdown("\n\n".join(h_starters) if h_starters else "Lineup not yet available.", unsafe_allow_html = True)
-                            
-                            st.divider()
-                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{h_name} Subs</p>", unsafe_allow_html = True)
-                            h_used = sheet_data.get("home_subs_used", [])
-                            h_unused = sheet_data.get("home_subs_unused", [])
-                            if h_used:
-                                st.markdown("\n\n".join(h_used), unsafe_allow_html = True)
-                            if h_unused:
-                                st.caption("Unused: " + ", ".join(h_unused))
-                            if not h_used and not h_unused:
-                                st.caption("No subs announced yet.")
+                        view_toggle = st.radio(
+                            "Lineup Display Mode",
+                            ["⚽ Pitch View", "📋 List View"],
+                            index = 0,
+                            horizontal = True,
+                            key = f"view_mode_fix_{f.get('id')}",
+                            label_visibility = "collapsed"
+                        )
 
-                        with col_a_team:
-                            st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; margin-bottom:4px;'>{a_name} Starting XI</p>", unsafe_allow_html = True)
-                            a_starters = sheet_data.get("away_starters", [])
-                            st.markdown("\n\n".join(a_starters) if a_starters else "Lineup not yet available.", unsafe_allow_html = True)
-                            
-                            st.divider()
-                            st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{a_name} Subs</p>", unsafe_allow_html = True)
-                            a_used = sheet_data.get("away_subs_used", [])
-                            a_unused = sheet_data.get("away_subs_unused", [])
-                            if a_used:
-                                st.markdown("\n\n".join(a_used), unsafe_allow_html = True)
-                            if a_unused:
-                                st.caption("Unused: " + ", ".join(a_unused))
-                            if not a_used and not a_unused:
-                                st.caption("No subs announced yet.")
+                        h_starters = sheet_data.get("home_starters", [])
+                        h_used = sheet_data.get("home_subs_used", [])
+                        h_unused = sheet_data.get("home_subs_unused", [])
+
+                        a_starters = sheet_data.get("away_starters", [])
+                        a_used = sheet_data.get("away_subs_used", [])
+                        a_unused = sheet_data.get("away_subs_unused", [])
+
+                        if view_toggle == "⚽ Pitch View":
+                            p_h_col, p_a_col = st.columns(2)
+                            h_st_df, h_b_df = build_epl_pitch_dfs(h_starters, h_used, h_unused, h_short)
+                            a_st_df, a_b_df = build_epl_pitch_dfs(a_starters, a_used, a_unused, a_short)
+
+                            with p_h_col:
+                                st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; text-align:center; margin-bottom:4px;'>{h_name}</p>", unsafe_allow_html = True)
+                                render_pitch_component(h_name, h_st_df, h_b_df, active_theme["accent"], large_mode, show_proj_pill = False)
+
+                            with p_a_col:
+                                st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; text-align:center; margin-bottom:4px;'>{a_name}</p>", unsafe_allow_html = True)
+                                render_pitch_component(a_name, a_st_df, a_b_df, "#38bdf8", large_mode, show_proj_pill = False)
+                        else:
+                            col_h_team, col_a_team = st.columns(2)
+
+                            with col_h_team:
+                                st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:{active_theme['accent']}; margin-bottom:4px;'>{h_name} Starting XI</p>", unsafe_allow_html = True)
+                                st.markdown("\n\n".join(h_starters) if h_starters else "Lineup not yet available.", unsafe_allow_html = True)
+
+                                st.divider()
+                                st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{h_name} Subs</p>", unsafe_allow_html = True)
+                                if h_used:
+                                    st.markdown("\n\n".join(h_used), unsafe_allow_html = True)
+                                if h_unused:
+                                    st.caption("Unused: " + ", ".join(h_unused))
+                                if not h_used and not h_unused:
+                                    st.caption("No subs announced yet.")
+
+                            with col_a_team:
+                                st.markdown(f"<p style='font-size:0.95rem; font-weight:800; color:#38bdf8; margin-bottom:4px;'>{a_name} Starting XI</p>", unsafe_allow_html = True)
+                                st.markdown("\n\n".join(a_starters) if a_starters else "Lineup not yet available.", unsafe_allow_html = True)
+
+                                st.divider()
+                                st.markdown(f"<p style='font-size:0.85rem; font-weight:800; color:#94a3b8; margin:0 0 4px 0;'>{a_name} Subs</p>", unsafe_allow_html = True)
+                                if a_used:
+                                    st.markdown("\n\n".join(a_used), unsafe_allow_html = True)
+                                if a_unused:
+                                    st.caption("Unused: " + ", ".join(a_unused))
+                                if not a_used and not a_unused:
+                                    st.caption("No subs announced yet.")
                     else:
                         st.info("🕒 Official team sheets drop 60–75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.")
 
